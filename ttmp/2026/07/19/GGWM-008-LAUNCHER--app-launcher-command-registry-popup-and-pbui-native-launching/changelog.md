@@ -30,3 +30,8 @@ A2 wm.command: daemon-served launcher entries via IPC registration + command.inv
 
 Playground fix from dogfooding: dropped -no-host-grab (it disables Xephyr's Ctrl+Shift grab toggle entirely); cheat sheet + getting-started corrected. Commit b2bc199.
 
+
+## 2026-07-19
+
+Dogfooding round: menu at pointer (queries X); playground default = 5-tile grid via rc.js + git/ip/url verb daemons (net-verbs.js new example); broker answers a matching pending accept on a clicked presentation (terminal-scraped commit completes 'Compare with…'). Commits 6b… menu-pointer, 44acce3 playground, 2fefcc7 accept-on-click.
+
