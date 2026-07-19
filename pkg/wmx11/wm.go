@@ -41,6 +41,13 @@ type Config struct {
 	IPCSocket    string // query/control socket; empty → default path
 	Spawn        string // command for the "spawn terminal" keybinding
 	NoBroker     bool   // do not connect to the broker (pure-WM mode)
+
+	// OnReady runs once, after the WM owns the display, sockets, and
+	// broker connection, immediately before the event loop starts
+	// consuming. Posted closures queue until the loop runs, so OnReady
+	// may hand the WM to code (like the rc.js runtime) that talks back
+	// through Post — but it must not wait for those posts itself.
+	OnReady func(w *WM)
 }
 
 // DefaultIPCSocketPath returns $GO_GO_WM_SOCKET or $XDG_RUNTIME_DIR/go-go-wm.sock.
@@ -173,6 +180,10 @@ func (w *WM) Run(ctx context.Context) error {
 
 	w.syncBuiltins()
 	w.relayout()
+
+	if w.cfg.OnReady != nil {
+		w.cfg.OnReady(w)
+	}
 
 	pingBefore, pingAfter, pingQuit := xevent.MainPing(w.X)
 	for {

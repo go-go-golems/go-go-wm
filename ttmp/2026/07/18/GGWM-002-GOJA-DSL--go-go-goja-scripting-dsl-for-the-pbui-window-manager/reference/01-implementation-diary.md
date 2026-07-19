@@ -247,6 +247,58 @@ detach ordering and the only-leaf branch), then `wmmod/sugar.go`
 `go test ./pkg/jsmod/wmmod/ -run TestReplay -v` for the ops-as-data
 property.
 
+## Entry 3 — 2026-07-18: P3 — in-process runtime, rc.js, wm.bind, REPL
+
+### What was done, in order
+
+1. `pkg/wmx11/scripting.go`: `ScriptBackend` — the in-process Backend.
+   Every method posts a closure onto the WM loop and waits (the
+   dispatchIPC shape minus the socket); `Bind` grabs the combo via
+   `keybind.KeyPressFun` whose callback only calls `fire()` (which the
+   module made a single JS-loop post). `windowsSnapshot` extracted so
+   dispatchIPC and the backend share one implementation.
+2. `wmx11.Config.OnReady` hook: runs after setup, before the event loop
+   consumes — posted closures queue safely, so the rc runtime boots on a
+   goroutine while the WM enters its loop.
+3. `pkg/cmds/rc.go` + `wm --rc`: reads rc.js, connects a *second* broker
+   client named after the file (scripts use the front door, D2), builds
+   the factory with `wmmod(ScriptBackend)` + `pbuimod`, keeps the
+   runtime alive for the session, tears it down with the WM context.
+   Script failures emit `script.error` and never kill the WM.
+4. `pkg/cmds/repl.go`: `go-go-wm repl` wrapping `replapi`
+   (`NewWithConfig(RawConfig())` → `CreateSession` → `Evaluate` per
+   line). The kernel's IIFE rewriting means `const wm = require("wm")`
+   on line 1 is usable on line 3 — verified.
+5. `scripts/rc-smoke.sh` — checked-in E2E: boots Xvfb+WM+rc.js, asserts
+   the rc-registered verb is on the broker and that xdotool pressing
+   Mod4-e actually grows the tree. PASSES.
+
+### Live verification transcript
+
+- `rc: loaded` in the WM log; `tile.note` owned by `rc.js` in
+  `query verbs`.
+- `xdotool key super+e` → tree gained a row split; `super+shift+e` → col
+  split. That is the full A1 concurrency chain: X key event → keybind
+  callback → JS-loop post → `wm.split` → WM-loop post → `wmcore.Apply`.
+- REPL session against the live WM: `wm.leaves()` → `"n1,n4,n2"`,
+  `wm.split(...)` → `"n6"`, four tiles after. Screenshot 03.
+
+### What was tricky
+
+- Import cycle avoidance: wmmod imports wmx11 (WindowInfo in the Backend
+  interface), so the in-process backend lives *in wmx11* (which never
+  imports wmmod) and the wiring lives in pkg/cmds — the only package
+  that sees both sides.
+- OnReady timing: rc evaluation must not run before the WM loop starts
+  (sync backend calls would time out), so OnReady fires a goroutine and
+  the ops channel (256-buffered) absorbs the race.
+
+### Code review instructions
+
+`pkg/wmx11/scripting.go` (check: nothing in it executes JS; Bind's fire
+is opaque), `pkg/cmds/rc.go` (second broker connection, lifetime tied to
+WM ctx), then run `GO_GO_WM_BIN=<bin> scripts/rc-smoke.sh`.
+
 ## Related
 
 - design-doc/02 — the implementation guide this diary executes.

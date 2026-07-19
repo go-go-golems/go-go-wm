@@ -95,21 +95,7 @@ func (w *WM) dispatchIPC(req ipcRequest) ipcResponse {
 			}
 			done <- ipcResponse{OK: true, Data: json.RawMessage(raw)}
 		case "windows":
-			var out []WindowInfo
-			for leaf, f := range w.frames {
-				info := WindowInfo{
-					Leaf:    string(leaf),
-					Client:  uint32(f.client),
-					Title:   f.title,
-					Rect:    f.rect.String(),
-					Focused: w.focused == leaf,
-				}
-				if ws := w.desktop.FindLeafWorkspace(leaf); ws != nil {
-					info.Workspace = ws.ID
-				}
-				out = append(out, info)
-			}
-			done <- ipcResponse{OK: true, Data: out}
+			done <- ipcResponse{OK: true, Data: w.windowsSnapshot()}
 		case "op":
 			if req.Op == nil {
 				done <- ipcResponse{OK: false, Error: "missing op"}

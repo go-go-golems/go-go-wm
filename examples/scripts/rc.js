@@ -1,4 +1,4 @@
-// rc.js — the in-process startup script. [P3: --rc flag]
+// rc.js — the in-process startup script. [works: P3]
 //
 //   go-go-wm wm --display :1 --embedded-broker --rc examples/scripts/rc.js
 //
@@ -11,9 +11,9 @@
 const wm = require("wm");
 const pbui = require("pbui");
 
-// Keybindings compile to the same verbs/Ops as the built-in ones.
-wm.bind("Mod4-e", () => wm.split(wm.focused(), "row"));
-wm.bind("Mod4-Shift-e", () => wm.split(wm.focused(), "col"));
+// Keybindings compile to the same Ops as the built-in ones.
+wm.bind("Mod4-e", () => wm.split(wm.focused() || wm.leaves()[0].id, "row"));
+wm.bind("Mod4-Shift-e", () => wm.split(wm.focused() || wm.leaves()[0].id, "col"));
 
 // A custom verb, available on every tile's right-click menu.
 pbui.verb(
@@ -21,8 +21,7 @@ pbui.verb(
   (tile) => pbui.print("noted tile ", pbui.object("tile", tile.value)),
 );
 
-// Declarative placement rules (P4): normalized and inspectable via
-// wm.rules(), executed by the module when window.managed fires.
-wm.rule({ app: /zoom/i, workspace: "calls", ratio: 0.5 });
+// P4 preview: declarative placement rules, normalized and inspectable.
+// wm.rule({ title: /zoom/i, workspace: "calls" });
 
-pbui.print("rc.js loaded");
+pbui.print("rc.js loaded — Mod4-e splits right, Mod4-Shift-e splits below");

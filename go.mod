@@ -10,6 +10,7 @@ require (
 	github.com/go-go-golems/logcopter v0.1.0
 	github.com/jezek/xgb v1.3.1
 	github.com/jezek/xgbutil v0.0.0-20260124183602-9fd151d6a51a
+	github.com/rs/zerolog v1.35.1
 	github.com/spf13/cobra v1.10.2
 	golang.org/x/image v0.44.0
 )
@@ -76,6 +77,7 @@ require (
 	github.com/mattn/go-colorable v0.1.14 // indirect
 	github.com/mattn/go-isatty v0.0.20 // indirect
 	github.com/mattn/go-localereader v0.0.1 // indirect
+	github.com/mattn/go-pointer v0.0.1 // indirect
 	github.com/mattn/go-runewidth v0.0.19 // indirect
 	github.com/mattn/go-sqlite3 v1.14.32 // indirect
 	github.com/microcosm-cc/bluemonday v1.0.27 // indirect
@@ -92,12 +94,13 @@ require (
 	github.com/richardlehane/mscfb v1.0.4 // indirect
 	github.com/richardlehane/msoleps v1.0.4 // indirect
 	github.com/rivo/uniseg v0.4.7 // indirect
-	github.com/rs/zerolog v1.35.1 // indirect
 	github.com/ryanuber/go-glob v1.0.0 // indirect
 	github.com/sahilm/fuzzy v0.1.1 // indirect
 	github.com/spf13/pflag v1.0.10 // indirect
 	github.com/tiendc/go-deepcopy v1.7.1 // indirect
 	github.com/tj/go-naturaldate v1.3.0 // indirect
+	github.com/tree-sitter/go-tree-sitter v0.25.0 // indirect
+	github.com/tree-sitter/tree-sitter-javascript v0.25.0 // indirect
 	github.com/ugorji/go/codec v1.3.0 // indirect
 	github.com/wk8/go-ordered-map/v2 v2.1.8 // indirect
 	github.com/xo/terminfo v0.0.0-20220910002029-abceb7e1c41e // indirect

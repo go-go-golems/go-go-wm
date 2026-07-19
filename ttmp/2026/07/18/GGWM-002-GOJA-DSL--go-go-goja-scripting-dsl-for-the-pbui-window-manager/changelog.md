@@ -34,3 +34,14 @@ P2 complete: wmmod (Backend seam + IPCBackend, sugar compiling to Ops, fluent wo
 - /home/manuel/workspaces/2026-07-18/go-go-wm/go-go-wm/pkg/jsmod/wmmod/module.go — wm native module
 - /home/manuel/workspaces/2026-07-18/go-go-wm/go-go-wm/pkg/wmcore/ops.go — move-leaf op
 
+
+## 2026-07-18
+
+P3 complete: wmx11.ScriptBackend (in-process Backend posting onto the WM loop), Config.OnReady hook, wm --rc flag booting an in-process goja runtime with its own broker connection, wm.bind live keybindings (X event -> JS post -> Op), go-go-wm repl over replapi (persistent bindings via IIFE rewriting), checked-in scripts/rc-smoke.sh E2E (PASSES). Live-verified: Mod4-e/Mod4-Shift-e scripted splits, REPL-driven splits.
+
+### Related Files
+
+- /home/manuel/workspaces/2026-07-18/go-go-wm/go-go-wm/pkg/cmds/rc.go — rc.js bootstrap
+- /home/manuel/workspaces/2026-07-18/go-go-wm/go-go-wm/pkg/wmx11/scripting.go — in-process backend
+- /home/manuel/workspaces/2026-07-18/go-go-wm/go-go-wm/scripts/rc-smoke.sh — E2E smoke
+

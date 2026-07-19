@@ -23,6 +23,7 @@ type wmSettings struct {
 	Spawn          string `glazed:"spawn"`
 	EmbeddedBroker bool   `glazed:"embedded-broker"`
 	NoBroker       bool   `glazed:"no-broker"`
+	RC             string `glazed:"rc"`
 }
 
 func NewWMCommand() (*WMCommand, error) {
@@ -52,6 +53,8 @@ Development happens in a nested server:
 				fields.WithHelp("run the PBUI broker inside this process (still spoken to via its socket)")),
 			fields.New("no-broker", fields.TypeBool, fields.WithDefault(false),
 				fields.WithHelp("run without PBUI presentations (pure WM)")),
+			fields.New("rc", fields.TypeString, fields.WithDefault(""),
+				fields.WithHelp("rc.js startup script run in an in-process goja runtime (wm.bind works here)")),
 		),
 	)}, nil
 }
@@ -72,13 +75,18 @@ func (c *WMCommand) Run(ctx context.Context, vals *values.Values) error {
 		}()
 	}
 
-	w, err := wmx11.New(wmx11.Config{
+	cfg := wmx11.Config{
 		Display:      s.Display,
 		BrokerSocket: sock,
 		IPCSocket:    s.IPCSocket,
 		Spawn:        s.Spawn,
 		NoBroker:     s.NoBroker,
-	})
+	}
+	if s.RC != "" {
+		rcPath := s.RC
+		cfg.OnReady = func(w *wmx11.WM) { startRC(ctx, w, rcPath, sock, s.NoBroker) }
+	}
+	w, err := wmx11.New(cfg)
 	if err != nil {
 		return err
 	}
