@@ -35,9 +35,10 @@ Or by hand, inside a nested X server so your real desktop is untouched:
     DISPLAY=:5 kitty &          # feed it windows
     DISPLAY=:5 xterm &
 
-Click inside the Xephyr window so it has your keyboard. If your real
-WM eats Mod4, start Xephyr with `-no-host-grab` and press Ctrl+Shift
-inside it to toggle the grab.
+Click inside the Xephyr window, then press Ctrl+Shift inside it to
+grab the keyboard and mouse — otherwise your real WM eats Mod4.
+Ctrl+Shift again releases the grab. (Do not pass `-no-host-grab`: it
+disables the Ctrl+Shift toggle entirely.)
 
 Headless (for tests and automation), substitute
 `Xvfb :5 -screen 0 1600x900x24 &` and drive it with xdotool.

@@ -149,7 +149,12 @@ expect_event 'summary.....3' -- type_line "Out(1)+1" \
   || fail "Out(1)+1 did not compute 3"
 echo "ok: Out(n) history is live"
 
-# 8. The REPL's verbs are on the broker for its result ptypes.
+# 8. The modules are pre-bound: wm works without require().
+expect_event 'summary.....3' -- type_line "wm.themes().length" \
+  || fail "wm is not pre-bound in the notebook"
+echo "ok: wm/pbui/ui are pre-bound"
+
+# 9. The REPL's verbs are on the broker for its result ptypes.
 "$BIN" query verbs --socket "$PBUI_SOCK" --ptype series 2>/dev/null | grep -q "repl.use" \
   || fail "repl.use verb not registered for series"
 echo "ok: repl verbs registered desktop-wide"

@@ -166,6 +166,8 @@ on the JS loop and post snapshots.
 
 ## The rich REPL (`repl --ui`)
 
+`wm`, `pbui`, and `ui` are pre-bound — type `wm.tree()` directly (the
+terminal REPL keeps explicit `require`, matching pasted scripts).
 Every evaluation result derives a typed presentation: colors become
 swatches (they answer desktop accepts), numeric arrays become series
 (sparkline/bars/table views), arrays of same-shaped objects become

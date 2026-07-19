@@ -55,7 +55,11 @@ if [ -n "${PLAYGROUND_HEADLESS:-}" ]; then
 else
   command -v Xephyr >/dev/null || { echo "Xephyr not installed (apt install xserver-xephyr)"; exit 1; }
   echo "starting Xephyr on $DPY (1600x900)…"
-  Xephyr "$DPY" -screen 1600x900 -no-host-grab -title "go-go-wm playground" \
+  # NOTE: no -no-host-grab — that flag disables Xephyr's Ctrl+Shift
+  # grab toggle entirely. Default Xephyr: press Ctrl+Shift inside the
+  # window to grab keyboard+mouse (Mod4 then reaches the nested WM),
+  # Ctrl+Shift again to release.
+  Xephyr "$DPY" -screen 1600x900 -title "go-go-wm playground" \
     >"$LOG/xephyr.log" 2>&1 &
 fi
 PIDS+=($!)
@@ -126,8 +130,8 @@ cat <<SHEET
 
 ════════════════════════════════════════════════════════════════════════
   go-go-wm playground is up on $DPY   (logs: $LOG)
-  Click inside the Xephyr window so it owns your keyboard.
-  (Ctrl+Shift inside Xephyr toggles the keyboard grab if Mod4 leaks.)
+  Press Ctrl+Shift INSIDE the Xephyr window to grab keyboard+mouse —
+  otherwise your host WM eats Mod4. Ctrl+Shift again releases the grab.
 ════════════════════════════════════════════════════════════════════════
 
 KEYBOARD $( [ "$RC" = "i3" ] && echo "(i3.js config)" || echo "(default binds)" )

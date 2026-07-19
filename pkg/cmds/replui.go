@@ -38,6 +38,11 @@ import (
 // methods still run (lines also reach the process log).
 const replPrelude = `globalThis.__pbui_hist = {};
 globalThis.__pbui_console = [];
+// The notebook pre-binds the modules — typing wm.tree() must just work
+// (the terminal REPL keeps explicit require, matching pasted scripts).
+try { globalThis.wm = require("wm"); } catch (e) {}
+try { globalThis.pbui = require("pbui"); } catch (e) {}
+try { globalThis.ui = require("ui"); } catch (e) {}
 globalThis.Out = function (n) { return globalThis.__pbui_hist[n]; };
 Object.defineProperty(globalThis, "$_", {
   get: function () { return globalThis.__pbui_hist.last; },
