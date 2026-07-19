@@ -14,7 +14,7 @@ This guide covers daily use: the concepts on screen, the interactions,
 and the command-line tools. Setup lives in `glaze help getting-started`;
 scripting in `glaze help js-api-reference`.
 
-## The five concepts
+## The six concepts
 
 - **Tiles.** Every main window lives in a tile of a binary split tree —
   no overlap, no gaps in coverage. Splits are rows (side by side) or
@@ -27,6 +27,13 @@ scripting in `glaze help js-api-reference`.
   space in i3.js) toggles any window between the two worlds.
 - **Workspaces.** Independent trees, switched via the top-bar chips or
   Mod4-1..9. New workspaces open on an empty launcher tile.
+- **The launcher.** One command registry — your .desktop applications,
+  the builtin tiles, and script-registered commands — behind two
+  surfaces: the Mod4-d popup and every empty tile (just start typing;
+  Enter launches into that tile). Results are fuzzy-matched and
+  ordered by use (frecency). Launcher entries are `command`
+  presentations: right-click one for its verbs, and a script can
+  `accept("command")` to use any launcher surface as a picker.
 - **Presentations.** Colors, files, numbers, commits — anything typed —
   render as chips. A chip is not a picture: it is the object.
 - **Accept.** A program can ask the desktop for "a color, from
@@ -48,6 +55,8 @@ scripting in `glaze help js-api-reference`.
 | drag ⠿ grip onto a tile | center = swap, edge = dock beside |
 | drag a divider | resize (sticky at ¼ ⅓ ½ ⅔ ¾) |
 | drag a float's title strip | move the float (strip stays on screen) |
+| type into an empty tile | filter the launcher; Enter launches here |
+| Mod4-d | launcher popup (Esc closes, ↑↓ select) |
 | left-click a chip | primary action / answer a pending accept |
 | right-click a chip | verb menu |
 | top-bar chip | switch workspace (answers `workspace` accepts too) |

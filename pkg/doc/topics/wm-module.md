@@ -101,6 +101,24 @@ field. Rules match on `title` and/or `class` (WM_CLASS class or
 instance); every present pattern must match. First matching rule wins;
 matching is case-insensitive.
 
+## The launcher (GGWM-008)
+
+One command registry — .desktop applications, builtin tiles, script
+commands — behind the Mod4+d popup and every empty tile.
+
+- `wm.launch(target)` — a registry id (`"app:firefox"`,
+  `"builtin:trace"`, `"script:x"`) launches by kind; anything else
+  runs as a raw command line. Returns the routed kind.
+- `wm.launcher()` — open the popup.
+- `wm.command({id, label, doc?, run})` — register a launcher entry
+  whose `run` fires on this runtime. rc.js only (like `wm.bind`);
+  re-registering an id replaces it.
+
+Launcher entries are `command` presentations: right-click for verbs
+(`command.launch`, `command.edit`), and a pending `accept("command")`
+makes Enter/click on any launcher surface answer instead of launch.
+Every launch emits `command.launched {id, label, kind, leaf?}`.
+
 ## Floating windows (GGWM-007)
 
 Dialogs, utility palettes, splash screens, and fixed-size windows

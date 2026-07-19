@@ -12,14 +12,20 @@ Owners: []
 RelatedFiles:
     - Path: repo://pkg/apps/builtin.go
       Note: renderLauncher — the four-button placeholder being replaced
+    - Path: repo://pkg/launcher/registry.go
+      Note: L1 registry narrated in steps 2
+    - Path: repo://pkg/wmx11/launcher.go
+      Note: L2-L4 narrated in steps 3-5
     - Path: repo://pkg/wmx11/pbui.go
       Note: showMenu — the popup-window species the launcher overlay extends
 ExternalSources:
-    - "freedesktop.org Desktop Entry Specification"
+    - freedesktop.org Desktop Entry Specification
 Summary: Step-formatted implementation diary for the launcher subsystem (registry, popup, keyboard substrate, PBUI integration) — decisions, verbatim failures, verification per phase.
+LastUpdated: 0001-01-01T00:00:00Z
 WhatFor: Continuation context for anyone extending the launcher or the frame-keyboard substrate GGWM-009 inherits.
 WhenToUse: Read alongside design-doc/01; deviations from the design are recorded here first.
 ---
+
 
 # Diary
 
@@ -500,3 +506,40 @@ the wm module gained `launch`/`launcher`/`command`.
 - Wire additions: `{"q":"launch","target":…}` → kind string;
   `{"q":"commands"}` → registry listing. Events: `command.launched
   {id, label, kind, leaf?}`.
+
+## Step 6: Docs, bookkeeping, wrap
+
+Help topics, ticket hygiene, push.
+
+### Prompt Context
+
+**User prompt (verbatim):** (see Step 1, "do it")
+
+**Commit (code):** (docs commit following this entry)
+
+### What I did
+- Help topics: `wm-module` (launcher section), `js-api-reference`
+  (wm.launch/launcher/command, command.launched event, tile onKey
+  note), `user-guide` (launcher as a sixth concept + gesture rows),
+  `getting-started` (Mod4-d is the launcher now; split-right moved to
+  Mod4-Shift-d).
+- tasks.md all checked; changelog + diary relations; `docmgr doctor`
+  clean; final regression pass (full go test, examples/rc/float/
+  launcher smokes) recorded in Step 5; push.
+
+### Why / What worked / What didn't work / learned / tricky / second pair of eyes
+- Routine wrap; nothing new failed.
+
+### What should be done in the future
+- GGWM-009-RICH-REPL is unblocked: the L3 keyboard substrate it
+  depends on (frame KeyPress → focused surface) now exists; R2's
+  standalone `repl --ui` and R1's ptype work were never blocked.
+- Recorded non-goals: A2 broker-routed wm.command; non-ASCII input;
+  .desktop spec corners (DBusActivatable, actions).
+
+### Code review instructions
+- `git log --oneline` for the phase commits; `go-go-wm help
+  user-guide` to render-check the topics.
+
+### Technical details
+- N/A

@@ -39,7 +39,8 @@ Headless (for tests and automation), substitute
 ## Default keys
 
 - Mod4-Return — terminal (`--spawn`, default xterm)
-- Mod4-d / Mod4-s — split right / below
+- Mod4-d — the launcher popup (type to filter, Enter launches)
+- Mod4-Shift-d / Mod4-s — split right / below
 - Mod4-w — close tile · Mod4-space — focus next
 - Mod4-1..9 — switch workspace · Mod4-n — new workspace
 - Escape — cancel an accept or menu · Mod4-Shift-q — quit

@@ -72,6 +72,12 @@ Processes, keys, events:
 
 - `wm.exec(cmdline)` — spawn via `sh -c`, fire-and-forget, DISPLAY
   set. rc.js: always available; run/repl: needs `--allow-exec`.
+- `wm.launch(target)` — launcher-registry id (`"app:firefox"`,
+  `"builtin:trace"`, `"script:x"`) or raw command line; returns the
+  routed kind. `wm.launcher()` — open the Mod4+d popup.
+- `wm.command({id, label, doc?, run})` — serve a launcher entry from
+  this runtime (rc.js only, like `wm.bind`); the `command` ptype gets
+  verbs and answers `accept("command")` from any launcher surface.
 - `wm.bind(combo, fn)` — X keybinding (`"Mod4-Shift-e"`, xgbutil
   grammar). In-process runtimes only; elsewhere throws with guidance.
 - `wm.on(event, fn)` — event subscription (see the event list below).
@@ -143,6 +149,10 @@ rose|blue|mint|mustard|lavender|sage).
     app.tile();      // WM-painted tile (rc.js only) → "script:<name>"
     app.refresh();   // re-render outside a handler (timers, events)
 
+`onKey` fires for both surfaces: standalone windows always did; tiles
+receive typed keys when focused (GGWM-008's frame keyboard substrate —
+chords with the WM modifier never reach the app).
+
 Specs validate when produced (bad shapes throw with row/seg
 coordinates); a throwing render keeps the previous frame and emits
 `script.error`. Render hosts never execute JavaScript — handlers run
@@ -157,6 +167,7 @@ Every op is emitted under its op name: `split-leaf`, `close-leaf`,
 `{leaf?, title, class, instance, workspace, floating?, leader?}`,
 `close_tile`, `split_tile`, `window.float-closed {client, title,
 class}`, `window.float-toggled {client, floating, leaf?}`,
+`command.launched {id, label, kind, leaf?}`,
 `theme.changed {theme}`, `accept.started` /
 `accept.answered` / `accept.cleared`, `listener.print`,
 `verb.invoked`, `op.rejected`, `script.error`. Handlers receive
