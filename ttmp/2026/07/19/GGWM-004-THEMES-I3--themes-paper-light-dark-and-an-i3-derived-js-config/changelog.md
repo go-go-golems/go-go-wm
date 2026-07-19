@@ -29,3 +29,8 @@ Fixed the unclosable-tile bug: client DestroyNotify/UnmapNotify were dispatched 
 
 Dogfooding fix: setTheme poked CwBackPixel on frames/floats/bars, which detaches the background pixmap (shm/XSurfaceSet) in X11 — chrome went blank/stale on switch (esp. visible in light theme). Now dropBuffers frames/floats and drop cached bar images so the pixmaps rebuild. float-smoke chrome-repaint stage; verified light+dark screenshots. Commit 95dd3dc.
 
+
+## 2026-07-19
+
+Dogfooding: WM now exports PBUI_SOCKET/GO_GO_WM_SOCKET to spawned children so clicked pbui:// links + in-session tools reach a custom-socket embedded broker (was: connect default pbui.sock no such file → browser). rc-smoke --spawn env stage. getting-started documents kitty install. Commit e5526f3.
+

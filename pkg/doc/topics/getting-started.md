@@ -65,6 +65,25 @@ Three themes: `paper` (default), `light` (true white), `dark`. Switch
 live from a script (`wm.theme("dark")`) or the control socket
 (`{"q":"set-theme","theme":"light"}`).
 
+## Clickable output in your terminal (kitty)
+
+`go-go-wm scrape` wraps recognizable tokens (hex colors, git SHAs,
+paths, IPs, URLs) in `pbui://` terminal hyperlinks:
+
+    git log --oneline | go-go-wm scrape
+
+To make clicking one open the PBUI action menu instead of your browser,
+install the kitty integration once:
+
+    go-go-wm kitty install      # writes open-actions.conf + the kitten
+    # then reload kitty config: Ctrl+Shift+F5 (or restart kitty)
+
+The click runs `go-go-wm menu`, so the binary must be on your PATH
+(`go build -o ~/.local/bin/go-go-wm ./cmd/go-go-wm`) and the broker
+must be reachable. Terminals opened *inside* the session (Mod4-Return,
+or the launcher) inherit `PBUI_SOCKET`/`GO_GO_WM_SOCKET` automatically;
+from an outside terminal, export them to match your `--socket`.
+
 ## Try the presentation model (the point of it all)
 
 In a terminal *outside* the session:
