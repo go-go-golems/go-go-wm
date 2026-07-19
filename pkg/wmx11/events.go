@@ -16,14 +16,18 @@ func (w *WM) connectFrameEvents(fw *xwindow.Window) {
 	}).Connect(w.X, id)
 	xevent.ExposeFun(func(_ *xgbutil.XUtil, ev xevent.ExposeEvent) {
 		if f := w.byFrame[ev.Window]; f != nil && ev.Count == 0 {
-			// The frame's content lives in its background pixmap (the
-			// cached ximg): a bare re-blit answers most exposures. A
-			// full re-render on every Expose was ~27% of the profile —
-			// each MoveResize during a drag exposed a frame that had
-			// just been painted (GGWM-005).
-			if f.ximg != nil && f.ximg.Bounds().Dx() == f.rect.W && f.ximg.Bounds().Dy() == f.rect.H {
+			// The frame's content lives in its background pixmap: a
+			// current shm surface needs nothing at all (the server
+			// repainted the exposed region from it already), a current
+			// ximg needs one re-blit. A full re-render on every Expose
+			// was ~27% of the profile — each MoveResize during a drag
+			// exposed a frame that had just been painted (GGWM-005).
+			switch {
+			case f.surf != nil && f.surf.W == f.rect.W && f.surf.H == f.rect.H:
+				// server-side repair; no client work
+			case f.ximg != nil && f.ximg.Bounds().Dx() == f.rect.W && f.ximg.Bounds().Dy() == f.rect.H:
 				f.ximg.XPaint(f.win.Id)
-			} else {
+			default:
 				w.paintFrame(f)
 			}
 		}

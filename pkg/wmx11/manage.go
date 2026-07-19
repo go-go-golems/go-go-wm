@@ -16,6 +16,7 @@ import (
 	"github.com/go-go-golems/go-go-wm/pkg/apps"
 	"github.com/go-go-golems/go-go-wm/pkg/draw"
 	"github.com/go-go-golems/go-go-wm/pkg/wmcore"
+	"github.com/go-go-golems/go-go-wm/pkg/xshm"
 )
 
 // manageExisting adopts windows that were mapped before we started
@@ -382,9 +383,33 @@ func (w *WM) paintFrame(f *frame) {
 	}
 	draw.Border(img, img.Bounds(), draw.BorderW, draw.Ink)
 
-	// Upload through the cached X image: XSurfaceSet only when the
-	// pixmap is (re)created, XDraw+XPaint every time. Keeping the ximg
-	// alive also makes Expose a single XPaint (see connectFrameEvents).
+	// Upload. Preferred path (GGWM-006): a MIT-SHM shared pixmap set as
+	// the window background — WriteRGBA is the only pixel pass, and
+	// ClearAll makes the server blit it. Fallback: the cached
+	// xgraphics image (PutImage chunks over the socket).
+	if xshm.Available(w.X) {
+		if f.surf != nil && (f.surf.W != f.rect.W || f.surf.H != f.rect.H) {
+			f.surf.Destroy()
+			f.surf = nil
+		}
+		if f.surf == nil {
+			if surf, err := xshm.New(w.X, xproto.Drawable(f.win.Id), f.rect.W, f.rect.H); err == nil {
+				f.surf = surf
+				xproto.ChangeWindowAttributes(w.X.Conn(), f.win.Id,
+					xproto.CwBackPixmap, []uint32{uint32(surf.Pixmap)})
+			} else {
+				log.Warn().Err(err).Msg("xshm surface failed; falling back to PutImage")
+			}
+		}
+		if f.surf != nil {
+			f.surf.WriteRGBA(img)
+			f.win.ClearAll()
+			return
+		}
+	}
+	// XSurfaceSet only when the pixmap is (re)created, XDraw+XPaint
+	// every time. Keeping the ximg alive also makes Expose a single
+	// XPaint (see connectFrameEvents).
 	if f.ximg == nil || f.ximg.Bounds() != img.Bounds() {
 		if f.ximg != nil {
 			f.ximg.Destroy()

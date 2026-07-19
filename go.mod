@@ -13,6 +13,7 @@ require (
 	github.com/rs/zerolog v1.35.1
 	github.com/spf13/cobra v1.10.2
 	golang.org/x/image v0.44.0
+	golang.org/x/sys v0.46.0
 )
 
 require (
@@ -114,7 +115,6 @@ require (
 	golang.org/x/mod v0.37.0 // indirect
 	golang.org/x/net v0.56.0 // indirect
 	golang.org/x/sync v0.22.0 // indirect
-	golang.org/x/sys v0.46.0 // indirect
 	golang.org/x/term v0.44.0 // indirect
 	golang.org/x/text v0.40.0 // indirect
 	golang.org/x/time v0.15.0 // indirect

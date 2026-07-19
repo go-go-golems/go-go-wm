@@ -32,6 +32,7 @@ import (
 	"github.com/go-go-golems/go-go-wm/pkg/pbui"
 	"github.com/go-go-golems/go-go-wm/pkg/pbui/client"
 	"github.com/go-go-golems/go-go-wm/pkg/wmcore"
+	"github.com/go-go-golems/go-go-wm/pkg/xshm"
 )
 
 // Gap is the divider thickness in pixels.
@@ -84,14 +85,26 @@ type frame struct {
 
 	// Paint buffers, reused between paints and dropped on resize/unmap
 	// (per-paint allocation made GC ~30% of the profile, GGWM-005).
-	// ximg also keeps the frame's X pixmap: Expose becomes one XPaint.
+	// surf is the zero-copy MIT-SHM shared pixmap (GGWM-006); ximg is
+	// the PutImage fallback. Either way the pixel content doubles as
+	// the window's background pixmap, so Expose is server-side.
 	img  *image.RGBA
 	ximg *xgraphics.Image
+	surf *xshm.Surface
 }
 
-// dropBuffers releases the frame's paint buffers (and the ximg's server
-// pixmap). Call whenever the frame leaves the screen or is destroyed.
+// dropBuffers releases the frame's paint buffers (and their server
+// pixmaps). Call whenever the frame leaves the screen or is destroyed.
+// The background-pixmap attribute holds a server-side reference that
+// would keep the shm pages alive, so it is reset to a plain pixel
+// first.
 func (f *frame) dropBuffers() {
+	if f.surf != nil {
+		xproto.ChangeWindowAttributes(f.surf.X.Conn(), f.win.Id,
+			xproto.CwBackPixel, []uint32{uint32(pixel(draw.Pane))})
+		f.surf.Destroy()
+		f.surf = nil
+	}
 	if f.ximg != nil {
 		f.ximg.Destroy()
 		f.ximg = nil
@@ -209,6 +222,7 @@ func (w *WM) Run(ctx context.Context) error {
 	if err := w.startIPC(); err != nil {
 		return err
 	}
+	log.Info().Bool("shared_pixmaps", xshm.Available(w.X)).Msg("frame upload path")
 	if !w.cfg.NoBroker {
 		w.connectBroker() // best-effort; retries are the user's problem for now
 	}
