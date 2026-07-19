@@ -45,11 +45,25 @@ type Backend interface {
 	// Float toggles the focused window between the tiled and floating
 	// worlds; returns the resulting floating state.
 	Float(ctx context.Context) (bool, error)
+	// Launch runs a launcher target (GGWM-008): a registry id
+	// ("app:firefox", "builtin:trace", "script:x") launches by kind;
+	// anything else is a raw command line. Returns the routed kind.
+	Launch(ctx context.Context, target string) (string, error)
+	// OpenLauncher opens the WM's launcher popup.
+	OpenLauncher(ctx context.Context) error
+	// RegisterCommand adds a script command to the launcher registry
+	// (in-process runtimes only; fire must be a single JS-loop post).
+	RegisterCommand(id, label, doc string, fire func()) error
 }
 
 // ErrNoKeybindings is returned by backends that cannot grab keys.
 var ErrNoKeybindings = errors.New(
 	"keybindings require the in-process runtime; put this in rc.js (go-go-wm wm --rc)")
+
+// ErrNoScriptCommands is returned by backends that cannot host command
+// callbacks (the run function must live in the WM process).
+var ErrNoScriptCommands = errors.New(
+	"wm.command requires the in-process runtime; put this in rc.js (go-go-wm wm --rc)")
 
 // IPCBackend implements Backend over the WM control socket — the A2
 // attachment point. Stateless; safe from any goroutine.
@@ -167,4 +181,20 @@ func (b *IPCBackend) Float(ctx context.Context) (bool, error) {
 		return false, err
 	}
 	return floating, nil
+}
+
+func (b *IPCBackend) Launch(ctx context.Context, target string) (string, error) {
+	var kind string
+	if err := b.query(ctx, map[string]string{"q": "launch", "target": target}, &kind); err != nil {
+		return "", err
+	}
+	return kind, nil
+}
+
+func (b *IPCBackend) OpenLauncher(ctx context.Context) error {
+	return b.query(ctx, map[string]string{"q": "launcher-open"}, nil)
+}
+
+func (b *IPCBackend) RegisterCommand(string, string, string, func()) error {
+	return ErrNoScriptCommands
 }

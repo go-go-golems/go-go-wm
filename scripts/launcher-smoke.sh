@@ -203,4 +203,39 @@ done
 [ -z "$(tfield "d['leaf']")" ] || fail "launcher tile state survived the launch"
 echo "ok: Enter launches into the tile itself"
 
+# --- L4: PBUI integration --------------------------------------------------
+
+# 10. wm.launch by id over IPC re-runs the marker app.
+rm -f "$MARKER"
+ipc '{"q":"launch","target":"app:marker"}' | grep -q '"data":"app"' || fail "launch by id rejected"
+wait_until 40 test -f "$MARKER" || fail "launch by id never ran the command"
+ipc '{"q":"launch","target":"touch '"$MARKER.raw"'"}' | grep -q '"data":"exec"' || fail "raw launch rejected"
+wait_until 40 test -f "$MARKER.raw" || fail "raw launch never ran"
+echo "ok: wm.launch routes ids and raw command lines"
+
+# 11. The command ptype has WM verbs on the broker.
+"$BIN" query verbs --socket "$PBUI_SOCK" --ptype command 2>/dev/null | grep -q "command.launch" \
+  || fail "command.launch verb not registered"
+echo "ok: command verbs registered"
+
+# 12. accept --ptype command: Enter in the popup answers instead of
+# launching.
+rm -f "$MARKER"
+"$BIN" accept --ptype command --socket "$PBUI_SOCK" >"$LOG/accept.out" 2>&1 &
+ACCEPT_PID=$!
+sleep 1
+ipc '{"q":"launcher-open"}' >/dev/null
+DISPLAY="$DPY" xdotool type --delay 40 "marker"
+sleep 0.5
+DISPLAY="$DPY" xdotool key Return
+AOK=0
+for _ in $(seq 20); do
+  grep -q "app:marker" "$LOG/accept.out" 2>/dev/null && AOK=1 && break
+  sleep 0.25
+done
+wait "$ACCEPT_PID" 2>/dev/null || true
+[ "$AOK" = 1 ] || fail "accept(command) was not answered by the popup: $(cat "$LOG/accept.out")"
+[ ! -f "$MARKER" ] || fail "accept mode still launched the command"
+echo "ok: accept(command) answered by the popup, no launch"
+
 echo "PASS: launcher smoke"

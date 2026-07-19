@@ -2,6 +2,7 @@ package wmx11
 
 import (
 	"context"
+	"strings"
 
 	"github.com/jezek/xgb/xproto"
 	"github.com/jezek/xgbutil/xwindow"
@@ -58,7 +59,7 @@ func (w *WM) connectBroker() {
 	go func() {
 		regCtx, regCancel := context.WithTimeout(w.ctx, brokerDialTimeout)
 		defer regCancel()
-		_ = cl.RegisterVerbs(regCtx, w.tileVerbs())
+		_ = cl.RegisterVerbs(regCtx, append(w.tileVerbs(), commandVerbs()...))
 	}()
 	w.watchEvents()
 }
@@ -83,6 +84,10 @@ func (w *WM) tileVerbs() []pbui.Verb {
 // runVerb executes a WM-owned verb (already on the WM loop).
 func (w *WM) runVerb(verbID string, obj *pbui.Object) {
 	if obj == nil {
+		return
+	}
+	if strings.HasPrefix(verbID, "command.") {
+		w.runCommandVerb(verbID, obj)
 		return
 	}
 	leaf := wmcore.NodeID(obj.StringValue())

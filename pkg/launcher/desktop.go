@@ -107,7 +107,7 @@ func parseDesktopFile(path, id string) (Command, bool) {
 	}
 	defer func() { _ = f.Close() }()
 
-	cmd := Command{ID: "app:" + id, Kind: KindApp}
+	cmd := Command{ID: "app:" + id, Kind: KindApp, Src: path}
 	typ := ""
 	inEntry := false
 	sc := bufio.NewScanner(f)

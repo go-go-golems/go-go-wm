@@ -312,6 +312,28 @@ func (m *Module) Loader() require.ModuleLoader {
 		// exec(cmdline): spawn a process, i3-style. Fire-and-forget.
 		set("exec", m.jsExec(vm))
 
+		// ---- launcher (GGWM-008) -------------------------------------
+		// launch(target): registry id ("app:firefox", "builtin:trace",
+		// "script:x") or a raw command line; returns the routed kind.
+		set("launch", func(call goja.FunctionCall) goja.Value {
+			target := call.Argument(0).String()
+			if target == "" || goja.IsUndefined(call.Argument(0)) {
+				panic(vm.ToValue("wm.launch: target must be a command id or command line"))
+			}
+			return m.call(vm, "launch", func(ctx context.Context) (interface{}, error) {
+				return m.backend.Launch(ctx, target)
+			})
+		})
+		// launcher(): open the Mod4+d popup.
+		set("launcher", func(call goja.FunctionCall) goja.Value {
+			return m.call(vm, "launcher", func(ctx context.Context) (interface{}, error) {
+				return nil, m.backend.OpenLauncher(ctx)
+			})
+		})
+		// command({id, label, doc?, run}): register a launcher entry
+		// whose run callback fires on this runtime (rc.js only).
+		set("command", m.jsCommand(vm))
+
 		// ---- events and keys -----------------------------------------
 		set("on", func(call goja.FunctionCall) goja.Value {
 			if m.fan == nil {
@@ -359,6 +381,57 @@ func (m *Module) jsBind(vm *goja.Runtime) func(goja.FunctionCall) goja.Value {
 		})
 		if err != nil {
 			panic(vm.ToValue("wm.bind: " + err.Error()))
+		}
+		return goja.Undefined()
+	}
+}
+
+// jsCommand: wm.command({id, label, doc?, run}) — a launcher registry
+// entry served by this runtime. Mirrors jsBind: the fire callback is a
+// single post back into the JS loop, never JS execution on the WM side.
+func (m *Module) jsCommand(vm *goja.Runtime) func(goja.FunctionCall) goja.Value {
+	return func(call goja.FunctionCall) goja.Value {
+		obj, ok := call.Argument(0).(*goja.Object)
+		if !ok {
+			panic(vm.ToValue("wm.command: argument must be {id, label, doc?, run}"))
+		}
+		for _, k := range obj.Keys() {
+			switch k {
+			case "id", "label", "doc", "run":
+			default:
+				panic(vm.ToValue("wm.command: unknown key " + k))
+			}
+		}
+		get := func(k string) string {
+			v := obj.Get(k)
+			if v == nil || goja.IsUndefined(v) || goja.IsNull(v) {
+				return ""
+			}
+			s, _ := v.Export().(string)
+			return s
+		}
+		id, label, doc := get("id"), get("label"), get("doc")
+		if id == "" || label == "" {
+			panic(vm.ToValue("wm.command: id and label must be non-empty strings"))
+		}
+		fn, ok := goja.AssertFunction(obj.Get("run"))
+		if !ok {
+			panic(vm.ToValue("wm.command: run must be a function"))
+		}
+		services, sok := runtimebridgeLookup(vm)
+		if !sok {
+			panic(vm.ToValue("wm.command: no runtime services"))
+		}
+		err := m.backend.RegisterCommand(id, label, doc, func() {
+			_ = services.PostWithLifetimeContext("wm.command:"+id,
+				func(_ context.Context, vm *goja.Runtime) {
+					if _, err := fn(goja.Undefined()); err != nil {
+						jsmod.EmitScriptError(nil, "wm.command:"+id, err, nil)
+					}
+				})
+		})
+		if err != nil {
+			panic(vm.ToValue("wm.command: " + err.Error()))
 		}
 		return goja.Undefined()
 	}

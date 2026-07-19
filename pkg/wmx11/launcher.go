@@ -1,6 +1,8 @@
 package wmx11
 
 import (
+	"context"
+	"fmt"
 	"image"
 	"image/color"
 	"os/exec"
@@ -15,6 +17,7 @@ import (
 	"github.com/go-go-golems/go-go-wm/pkg/apps"
 	"github.com/go-go-golems/go-go-wm/pkg/draw"
 	"github.com/go-go-golems/go-go-wm/pkg/launcher"
+	"github.com/go-go-golems/go-go-wm/pkg/pbui"
 	"github.com/go-go-golems/go-go-wm/pkg/wmcore"
 )
 
@@ -103,9 +106,23 @@ func (w *WM) openLauncher() {
 		w.launcherKey(ev.State, ev.Detail)
 	}).Connect(w.X, win.Id)
 	xevent.ButtonPressFun(func(_ *xgbutil.XUtil, ev xevent.ButtonPressEvent) {
-		if i := w.launcherPanel().RowAt(int(ev.EventX), int(ev.EventY)); i >= 0 {
-			w.launcherActivate(i)
+		i := w.launcherPanel().RowAt(int(ev.EventX), int(ev.EventY))
+		if i < 0 || w.launcher == nil || i >= len(w.launcher.rows) {
+			return
 		}
+		if ev.Detail == 3 {
+			// Rows are presentations: right-click opens the command's
+			// verb menu (the popup closes; the menu takes over).
+			cmd := w.launcher.rows[i].Command
+			w.closeLauncher()
+			if b := w.broker; b != nil {
+				obj := commandObject(cmd)
+				x, y := int(ev.RootX), int(ev.RootY)
+				go func() { _, _ = b.RequestMenu(context.Background(), obj, x, y) }()
+			}
+			return
+		}
+		w.launcherActivate(i)
 	}).Connect(w.X, win.Id)
 	xevent.ExposeFun(func(_ *xgbutil.XUtil, ev xevent.ExposeEvent) {
 		if w.launcher != nil && ev.Count == 0 {
@@ -248,7 +265,29 @@ func (w *WM) launcherKey(mods uint16, code xproto.Keycode) {
 	w.paintLauncher()
 }
 
-// launcherActivate launches the row at index and closes the popup.
+// commandObject presents a command as a typed PBUI object.
+func commandObject(cmd launcher.Command) pbui.Object {
+	obj, _ := pbui.NewObject("command", cmd.ID)
+	obj.Label = cmd.Label
+	obj.Doc = cmd.Doc
+	return obj
+}
+
+// maybeAnswerCommand answers a pending command accept with cmd and
+// reports whether it did — every launcher surface checks this before
+// launching (accept mode: Enter/click answers instead of runs).
+func (w *WM) maybeAnswerCommand(cmd launcher.Command) bool {
+	if w.accepting == nil || w.broker == nil ||
+		!pbui.TypeMatches(w.accepting.ptypes, "command") {
+		return false
+	}
+	session, b, obj := w.accepting.session, w.broker, commandObject(cmd)
+	go func() { _ = b.Answer(context.Background(), session, obj) }()
+	return true
+}
+
+// launcherActivate launches (or, in accept mode, answers with) the row
+// at index and closes the popup.
 func (w *WM) launcherActivate(i int) {
 	ui := w.launcher
 	if ui == nil || i < 0 || i >= len(ui.rows) {
@@ -256,6 +295,9 @@ func (w *WM) launcherActivate(i int) {
 	}
 	cmd := ui.rows[i].Command
 	w.closeLauncher()
+	if w.maybeAnswerCommand(cmd) {
+		return
+	}
 	w.launchCommand(cmd)
 }
 
@@ -311,10 +353,102 @@ func (w *WM) execCommand(cmdline string) {
 	go func() { _ = c.Wait() }()
 }
 
-// dispatchScriptCommand is the L4 seam (script-registered commands run
-// on their owning JS runtime).
+// dispatchScriptCommand fires a script-registered command's callback —
+// a single post into the owning JS runtime, never JS execution here.
 func (w *WM) dispatchScriptCommand(cmd launcher.Command) {
-	log.Warn().Str("id", cmd.ID).Msg("script command dispatch not wired yet (L4)")
+	fire := w.scriptCommands[cmd.ID]
+	if fire == nil {
+		log.Warn().Str("id", cmd.ID).Msg("script command has no registered runtime")
+		return
+	}
+	fire()
+}
+
+// RegisterCommand adds a script command to the registry (wm.command in
+// rc.js — the wmmod.Backend seam). fire must be a single post to the
+// JS loop. Re-registering an id replaces it, like verbs.
+func (b *ScriptBackend) RegisterCommand(id, label, doc string, fire func()) error {
+	if id == "" || label == "" || fire == nil {
+		return fmt.Errorf("script command needs an id, a label, and a run function")
+	}
+	done := make(chan struct{})
+	b.WM.Post(func() {
+		defer close(done)
+		w := b.WM
+		if w.scriptCommands == nil {
+			w.scriptCommands = map[string]func(){}
+		}
+		full := "script:" + id
+		w.scriptCommands[full] = fire
+		var defs []launcher.Command
+		replaced := false
+		for _, c := range w.scriptCmdDefs {
+			if c.ID == full {
+				replaced = true
+				continue
+			}
+			defs = append(defs, c)
+		}
+		_ = replaced
+		defs = append(defs, launcher.Command{
+			ID: full, Label: label, Doc: doc, Kind: launcher.KindScript,
+		})
+		w.scriptCmdDefs = defs
+		if w.registry != nil {
+			w.registry.SetStatic(launcher.KindScript, defs)
+		}
+	})
+	select {
+	case <-done:
+		return nil
+	case <-b.WM.ctx.Done():
+		return fmt.Errorf("wm shutting down")
+	}
+}
+
+// launchTarget resolves a wm.launch argument: a registry id launches
+// through the kind router; anything else is a raw command line (the
+// design's exec fallback).
+func (w *WM) launchTarget(target string) (string, error) {
+	if target == "" {
+		return "", fmt.Errorf("launch target must be non-empty")
+	}
+	if cmd, ok := w.registry.Get(target); ok {
+		w.launchCommand(cmd)
+		return string(cmd.Kind), nil
+	}
+	w.execCommand(target)
+	return "exec", nil
+}
+
+// commandVerbs is the WM's verb contribution for the command ptype.
+func commandVerbs() []pbui.Verb {
+	return []pbui.Verb{
+		{ID: "command.launch", Label: "Launch", Ptypes: []string{"command"}},
+		{ID: "command.edit", Label: "Edit .desktop entry", Ptypes: []string{"command"}},
+	}
+}
+
+// runCommandVerb executes the command.* verbs (WM loop).
+func (w *WM) runCommandVerb(verbID string, obj *pbui.Object) {
+	cmd, ok := w.registry.Get(obj.StringValue())
+	if !ok {
+		log.Warn().Str("id", obj.StringValue()).Msg("verb on unknown command")
+		return
+	}
+	switch verbID {
+	case "command.launch":
+		w.launchCommand(cmd)
+	case "command.edit":
+		if cmd.Src == "" {
+			return // builtins/scripts have no file to edit
+		}
+		term := w.cfg.Spawn
+		if term == "" {
+			term = "xterm"
+		}
+		w.execCommand(term + ` -e sh -c '${EDITOR:-vi} "` + cmd.Src + `"'`)
+	}
 }
 
 // --- the keyboard substrate + launcher tile (L3) ---------------------------
@@ -390,6 +524,9 @@ func (w *WM) launcherTileKey(f *frame, s string) {
 	case "Return", "KP_Enter":
 		rows := w.launcherTileRows(st, launcherMaxShown)
 		if st.sel < len(rows) {
+			if w.maybeAnswerCommand(rows[st.sel].Command) {
+				return
+			}
 			w.launchIntoTile(f, rows[st.sel].Command)
 		}
 		return
@@ -476,9 +613,10 @@ func (w *WM) renderLauncherTile(f *frame, cw, ch int) (*image.RGBA, []apps.Regio
 
 	var regions []apps.Region
 	for i, r := range panel.RowRects() {
+		obj := commandObject(rows[i].Command)
 		regions = append(regions, apps.Region{
-			Rect: r, Action: "launchcmd:" + rows[i].ID,
-			Doc: rows[i].Label + " — click to launch here",
+			Rect: r, Action: "launchcmd:" + rows[i].ID, Object: &obj,
+			Doc: rows[i].Label + " — click: launch here · right-click: verbs",
 		})
 	}
 	return img, regions

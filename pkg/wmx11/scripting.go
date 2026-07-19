@@ -154,6 +154,19 @@ func (b *ScriptBackend) Float(ctx context.Context) (bool, error) {
 	return floating, err
 }
 
+func (b *ScriptBackend) Launch(ctx context.Context, target string) (string, error) {
+	var kind string
+	var err error
+	if lerr := b.onLoop(ctx, func() { kind, err = b.WM.launchTarget(target) }); lerr != nil {
+		return "", lerr
+	}
+	return kind, err
+}
+
+func (b *ScriptBackend) OpenLauncher(ctx context.Context) error {
+	return b.onLoop(ctx, func() { b.WM.openLauncher() })
+}
+
 // windowsSnapshot builds the WindowInfo table (WM loop only) — shared by
 // the IPC dispatcher and ScriptBackend.
 func (w *WM) windowsSnapshot() []WindowInfo {

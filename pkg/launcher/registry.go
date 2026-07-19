@@ -30,6 +30,7 @@ type Command struct {
 	Terminal bool     `json:"terminal,omitempty"` // wrap in the terminal command
 	Keywords []string `json:"keywords,omitempty"`
 	Doc      string   `json:"doc,omitempty"` // one-line description
+	Src      string   `json:"src,omitempty"` // source .desktop path (apps)
 }
 
 // Scored is a match result.

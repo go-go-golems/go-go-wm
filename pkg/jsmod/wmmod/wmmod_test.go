@@ -32,6 +32,11 @@ type fakeBackend struct {
 	moves      []string
 	floatRules []wmx11.FloatRule
 	floating   bool
+
+	launched      []string
+	launcherOpens int
+	commands      map[string]func()
+	commandLabels []string
 }
 
 func newFake(firstApp string) *fakeBackend {
@@ -124,6 +129,34 @@ func (f *fakeBackend) Float(context.Context) (bool, error) {
 	defer f.mu.Unlock()
 	f.floating = !f.floating
 	return f.floating, nil
+}
+
+func (f *fakeBackend) Launch(_ context.Context, target string) (string, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.launched = append(f.launched, target)
+	if strings.HasPrefix(target, "app:") {
+		return "app", nil
+	}
+	return "exec", nil
+}
+
+func (f *fakeBackend) OpenLauncher(context.Context) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.launcherOpens++
+	return nil
+}
+
+func (f *fakeBackend) RegisterCommand(id, label, doc string, fire func()) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.commands == nil {
+		f.commands = map[string]func(){}
+	}
+	f.commands[id] = fire
+	f.commandLabels = append(f.commandLabels, id+"|"+label+"|"+doc)
+	return nil
 }
 
 func newRuntime(t *testing.T, b wmmod.Backend) *engine.Runtime {

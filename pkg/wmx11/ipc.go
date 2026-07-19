@@ -174,6 +174,16 @@ func (w *WM) dispatchIPC(req ipcRequest) ipcResponse {
 			done <- ipcResponse{OK: true, Data: w.launcherInfo()}
 		case "launcher-tile":
 			done <- ipcResponse{OK: true, Data: w.launcherTileInfo()}
+		case "launch":
+			kind, err := w.launchTarget(req.Target)
+			if err != nil {
+				done <- ipcResponse{OK: false, Error: err.Error()}
+				return
+			}
+			done <- ipcResponse{OK: true, Data: kind}
+		case "commands":
+			w.registry.Refresh()
+			done <- ipcResponse{OK: true, Data: w.registry.All()}
 		default:
 			done <- ipcResponse{OK: false, Error: "unknown query " + req.Q}
 		}

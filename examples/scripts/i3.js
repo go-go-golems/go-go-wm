@@ -25,6 +25,7 @@
 //   workspace_auto_back_and_forth          tracked via wm.on("switch-workspace")
 //   bindsym $mod+b back_and_forth          switch to the tracked previous
 //   bindsym $mod+p / Print exec flameshot  wm.bind + wm.exec
+//   bindsym $mod+d exec launcher.sh        wm.launcher() (the WM popup, GGWM-008)
 //   assign [class="Slack"] 8               wm.rule({class: /Slack/, workspace: "8"})
 //   assign [class="Emacs"] 1               wm.rule({class: /Emacs/, workspace: "1"})
 //   assign [class="obsidian"] 2            wm.rule({class: /obsidian/, workspace: "2"})
@@ -80,6 +81,8 @@ function bind(combo, fn) {
 }
 
 // --- launchers ------------------------------------------------------------
+// i3: bindsym $mod+d exec launcher.sh — here the WM's own popup.
+bind("d", function () { wm.launcher(); });
 bind("Return", function () { wm.exec(TERMINAL); });
 bind("p", function () { wm.exec("flameshot gui"); });
 wm.bind("Print", function () { wm.exec("flameshot gui"); });

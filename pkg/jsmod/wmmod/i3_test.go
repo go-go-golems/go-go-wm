@@ -198,3 +198,62 @@ wm.float() + ":" + wm.float()`)
 		t.Fatalf("wm.float toggles = %v, want true:false", got)
 	}
 }
+
+func TestLaunchAndLauncherExports(t *testing.T) {
+	fake := newFake("")
+	rt := newRuntime(t, fake)
+	got := run(t, rt, `
+const wm = require("wm");
+const k1 = wm.launch("app:firefox");
+const k2 = wm.launch("htop");
+wm.launcher();
+k1 + ":" + k2`)
+	if got != "app:exec" {
+		t.Fatalf("launch kinds = %v", got)
+	}
+	fake.mu.Lock()
+	defer fake.mu.Unlock()
+	if len(fake.launched) != 2 || fake.launched[0] != "app:firefox" || fake.launched[1] != "htop" {
+		t.Fatalf("launched = %v", fake.launched)
+	}
+	if fake.launcherOpens != 1 {
+		t.Fatalf("launcherOpens = %d", fake.launcherOpens)
+	}
+}
+
+func TestCommandRegistersAndFires(t *testing.T) {
+	fake := newFake("")
+	rt := newRuntime(t, fake)
+	run(t, rt, `
+const wm = require("wm");
+var fired = 0;
+wm.command({ id: "proj", label: "project workspace",
+             doc: "layout + editor", run() { fired++; } });`)
+	fake.mu.Lock()
+	fire := fake.commands["proj"]
+	labels := append([]string(nil), fake.commandLabels...)
+	fake.mu.Unlock()
+	if fire == nil {
+		t.Fatalf("command not registered: %v", labels)
+	}
+	if labels[0] != "proj|project workspace|layout + editor" {
+		t.Fatalf("registration payload: %v", labels)
+	}
+	// Firing posts into the runtime; observe the side effect.
+	fire()
+	if got := run(t, rt, `fired`); got != int64(1) {
+		t.Fatalf("run callback never fired: %v", got)
+	}
+}
+
+func TestCommandValidation(t *testing.T) {
+	rt := newRuntime(t, newFake(""))
+	err := runErr(t, rt, `require("wm").command({label: "x", run() {}})`)
+	if err == nil || !strings.Contains(err.Error(), "id and label") {
+		t.Fatalf("missing id must be rejected, got %v", err)
+	}
+	err = runErr(t, rt, `require("wm").command({id: "x", label: "x"})`)
+	if err == nil || !strings.Contains(err.Error(), "run must be a function") {
+		t.Fatalf("missing run must be rejected, got %v", err)
+	}
+}
