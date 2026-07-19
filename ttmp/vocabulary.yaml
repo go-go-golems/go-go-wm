@@ -15,6 +15,10 @@ topics:
       description: PBUI broker daemon and accept/verb wire protocol
     - slug: kitty
       description: Kitty terminal integration (kittens, OSC 8, remote control)
+    - slug: goja
+      description: go-go-goja JavaScript runtime embedding
+    - slug: scripting
+      description: Scripting surfaces, DSLs, automation
 docTypes:
     - slug: design-doc
       description: Structured rationale and architecture notes
