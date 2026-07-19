@@ -30,13 +30,18 @@ type LayoutStep struct {
 	B     *LayoutStep `json:"b,omitempty"`
 }
 
-// Rule is a normalized placement rule.
+// Rule is a normalized placement rule. Title and Class are regexp
+// sources (case-insensitive); at least one is present, and every
+// present pattern must match (i3's assign [class=…] semantics — Class
+// matches WM_CLASS class or instance).
 type Rule struct {
-	Title     string `json:"title"` // regexp source (case-insensitive)
+	Title     string `json:"title,omitempty"`
+	Class     string `json:"class,omitempty"`
 	Workspace string `json:"workspace"`
 	Dir       string `json:"dir,omitempty"`
 
-	re *regexp.Regexp
+	re      *regexp.Regexp
+	classRe *regexp.Regexp
 }
 
 type ruleState struct {
@@ -108,8 +113,27 @@ func normalizeLayout(v interface{}) (*LayoutStep, error) {
 	return step, nil
 }
 
-// normalizeRule validates {title, workspace, dir?}. title may be a string
-// (Go regexp, compiled case-insensitive) or a JS RegExp.
+// patternSource extracts a regexp source from a JS value: a string is
+// used verbatim; a JS RegExp contributes its .source (flags beyond i
+// are ignored — matching is always case-insensitive).
+func patternSource(v goja.Value) string {
+	if v == nil || goja.IsUndefined(v) || goja.IsNull(v) {
+		return ""
+	}
+	if s, ok := v.Export().(string); ok {
+		return s
+	}
+	if o, ok := v.(*goja.Object); ok {
+		if src := o.Get("source"); src != nil && !goja.IsUndefined(src) {
+			return src.String()
+		}
+	}
+	return ""
+}
+
+// normalizeRule validates {title?, class?, workspace, dir?}. title and
+// class may be strings (Go regexp, compiled case-insensitive) or JS
+// RegExps; at least one must be present.
 func normalizeRule(vm *goja.Runtime, arg goja.Value) (*Rule, error) {
 	obj, ok := arg.(*goja.Object)
 	if !ok {
@@ -118,30 +142,27 @@ func normalizeRule(vm *goja.Runtime, arg goja.Value) (*Rule, error) {
 	r := &Rule{}
 	for _, k := range obj.Keys() {
 		switch k {
-		case "title", "workspace", "dir":
+		case "title", "class", "workspace", "dir":
 		default:
 			return nil, fmt.Errorf("rule: unknown key %q", k)
 		}
 	}
-	if tv := obj.Get("title"); tv != nil && !goja.IsUndefined(tv) && !goja.IsNull(tv) {
-		if s, ok := tv.Export().(string); ok {
-			r.Title = s
-		} else if to, ok := tv.(*goja.Object); ok {
-			// A JS RegExp: use its source (flags beyond i are ignored —
-			// matching is always case-insensitive).
-			if src := to.Get("source"); src != nil && !goja.IsUndefined(src) {
-				r.Title = src.String()
-			}
+	r.Title = patternSource(obj.Get("title"))
+	r.Class = patternSource(obj.Get("class"))
+	if r.Title == "" && r.Class == "" {
+		return nil, fmt.Errorf("rule needs a title and/or class pattern")
+	}
+	var err error
+	if r.Title != "" {
+		if r.re, err = regexp.Compile("(?i)" + r.Title); err != nil {
+			return nil, fmt.Errorf("rule.title: %w", err)
 		}
 	}
-	if r.Title == "" {
-		return nil, fmt.Errorf("rule.title must be a non-empty pattern")
+	if r.Class != "" {
+		if r.classRe, err = regexp.Compile("(?i)" + r.Class); err != nil {
+			return nil, fmt.Errorf("rule.class: %w", err)
+		}
 	}
-	re, err := regexp.Compile("(?i)" + r.Title)
-	if err != nil {
-		return nil, fmt.Errorf("rule.title: %w", err)
-	}
-	r.re = re
 	r.Workspace, _ = obj.Get("workspace").Export().(string)
 	if r.Workspace == "" {
 		return nil, fmt.Errorf("rule.workspace must be a non-empty name")
@@ -243,8 +264,10 @@ func (m *Module) armRules() error {
 	}
 	m.fan.SubscribeGo("window.managed", func(msg *pbui.Msg) {
 		var data struct {
-			Leaf  string `json:"leaf"`
-			Title string `json:"title"`
+			Leaf     string `json:"leaf"`
+			Title    string `json:"title"`
+			Class    string `json:"class"`
+			Instance string `json:"instance"`
 		}
 		if err := json.Unmarshal(msg.Data, &data); err != nil || data.Leaf == "" {
 			return
@@ -253,7 +276,10 @@ func (m *Module) armRules() error {
 		rules := append([]*Rule(nil), m.ruleState.rules...)
 		m.ruleState.mu.Unlock()
 		for _, r := range rules {
-			if !r.re.MatchString(data.Title) {
+			if r.re != nil && !r.re.MatchString(data.Title) {
+				continue
+			}
+			if r.classRe != nil && !r.classRe.MatchString(data.Class) && !r.classRe.MatchString(data.Instance) {
 				continue
 			}
 			ctx, cancel := context.WithTimeout(context.Background(), queryTimeout)

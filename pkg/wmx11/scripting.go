@@ -8,6 +8,7 @@ import (
 	"github.com/jezek/xgbutil/keybind"
 	"github.com/jezek/xgbutil/xevent"
 
+	"github.com/go-go-golems/go-go-wm/pkg/draw"
 	"github.com/go-go-golems/go-go-wm/pkg/wmcore"
 )
 
@@ -85,17 +86,61 @@ func (b *ScriptBackend) Bind(combo string, fire func()) error {
 	}
 }
 
+func (b *ScriptBackend) Theme(ctx context.Context) (ThemeInfo, error) {
+	var info ThemeInfo
+	if lerr := b.onLoop(ctx, func() {
+		info = ThemeInfo{Theme: draw.CurrentTheme(), Available: draw.ThemeNames()}
+	}); lerr != nil {
+		return info, lerr
+	}
+	return info, nil
+}
+
+func (b *ScriptBackend) SetTheme(ctx context.Context, name string) error {
+	var err error
+	if lerr := b.onLoop(ctx, func() { err = b.WM.setTheme(name) }); lerr != nil {
+		return lerr
+	}
+	return err
+}
+
+func (b *ScriptBackend) Focus(ctx context.Context, target string) (string, error) {
+	var err error
+	var focused string
+	if lerr := b.onLoop(ctx, func() {
+		err = b.WM.focusTarget(target)
+		focused = string(b.WM.focused)
+	}); lerr != nil {
+		return "", lerr
+	}
+	return focused, err
+}
+
+func (b *ScriptBackend) Move(ctx context.Context, dir string) (string, error) {
+	var err error
+	var focused string
+	if lerr := b.onLoop(ctx, func() {
+		err = b.WM.moveDir(dir)
+		focused = string(b.WM.focused)
+	}); lerr != nil {
+		return "", lerr
+	}
+	return focused, err
+}
+
 // windowsSnapshot builds the WindowInfo table (WM loop only) — shared by
 // the IPC dispatcher and ScriptBackend.
 func (w *WM) windowsSnapshot() []WindowInfo {
 	var out []WindowInfo
 	for leaf, f := range w.frames {
 		info := WindowInfo{
-			Leaf:    string(leaf),
-			Client:  uint32(f.client),
-			Title:   f.title,
-			Rect:    f.rect.String(),
-			Focused: w.focused == leaf,
+			Leaf:     string(leaf),
+			Client:   uint32(f.client),
+			Title:    f.title,
+			Class:    f.class,
+			Instance: f.instance,
+			Rect:     f.rect.String(),
+			Focused:  w.focused == leaf,
 		}
 		if ws := w.desktop.FindLeafWorkspace(leaf); ws != nil {
 			info.Workspace = ws.ID

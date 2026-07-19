@@ -2,6 +2,7 @@ package cmds
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"os"
 	"os/signal"
@@ -16,10 +17,12 @@ import (
 	"github.com/go-go-golems/glazed/pkg/cmds/values"
 	"github.com/go-go-golems/go-go-goja/pkg/engine"
 
+	"github.com/go-go-golems/go-go-wm/pkg/draw"
 	"github.com/go-go-golems/go-go-wm/pkg/jsmod"
 	"github.com/go-go-golems/go-go-wm/pkg/jsmod/pbuimod"
 	"github.com/go-go-golems/go-go-wm/pkg/jsmod/uimod"
 	"github.com/go-go-golems/go-go-wm/pkg/jsmod/wmmod"
+	"github.com/go-go-golems/go-go-wm/pkg/pbui"
 	"github.com/go-go-golems/go-go-wm/pkg/pbui/client"
 )
 
@@ -150,11 +153,17 @@ func (c *RunCommand) Run(ctx context.Context, vals *values.Values) error {
 // when the capability flag grants it. Both modules share one event-bus
 // subscription (the EventFan).
 func buildScriptRuntime(ctx context.Context, cl *client.Client, brokerSocket, wmSocket string, allowExec bool) (*engine.Runtime, error) {
+	applyInitialTheme(ctx, wmSocket)
 	fan := jsmod.NewEventFan(cl, 256)
 	var wmFan *jsmod.EventFan
 	if cl != nil {
 		wmFan = fan
 	}
+	var wmOpts []wmmod.Option
+	if allowExec {
+		wmOpts = append(wmOpts, wmmod.WithExec(""))
+	}
+	uiMod := uimod.New(uimod.Options{BrokerSocket: brokerSocket})
 	builder := engine.NewRuntimeFactoryBuilder()
 	builder.WithModules(
 		engine.NativeModuleRegistrar{
@@ -165,22 +174,59 @@ func buildScriptRuntime(ctx context.Context, cl *client.Client, brokerSocket, wm
 		engine.NativeModuleRegistrar{
 			ModuleID:   "wm",
 			ModuleName: wmmod.ModuleName,
-			Loader:     wmmod.New(&wmmod.IPCBackend{Socket: wmSocket}, wmFan).Loader(),
+			Loader:     wmmod.New(&wmmod.IPCBackend{Socket: wmSocket}, wmFan, wmOpts...).Loader(),
 		},
 		engine.NativeModuleRegistrar{
 			ModuleID:   "ui",
 			ModuleName: uimod.ModuleName,
-			Loader:     uimod.New(uimod.Options{BrokerSocket: brokerSocket}).Loader(),
+			Loader:     uiMod.Loader(),
 		},
 	)
 	if allowExec {
 		builder.UseModuleMiddleware(engine.MiddlewareOnly("exec"))
 	}
+	followThemeChanges(ctx, fan, cl, uiMod)
 	factory, err := builder.Build()
 	if err != nil {
 		return nil, err
 	}
 	return factory.NewRuntime(engine.WithLifetimeContext(ctx))
+}
+
+// applyInitialTheme aligns this process's palette with the WM before
+// anything renders: ask the control socket, fall back to $GO_GO_WM_THEME,
+// silently keep the default when neither answers.
+func applyInitialTheme(ctx context.Context, wmSocket string) {
+	qctx, cancel := context.WithTimeout(ctx, 500*time.Millisecond)
+	defer cancel()
+	b := &wmmod.IPCBackend{Socket: wmSocket}
+	if info, err := b.Theme(qctx); err == nil && info.Theme != "" {
+		_ = draw.SetTheme(info.Theme)
+		return
+	}
+	if env := os.Getenv("GO_GO_WM_THEME"); env != "" {
+		_ = draw.SetTheme(env)
+	}
+}
+
+// followThemeChanges keeps this process's palette (and its live ui.app
+// surfaces) in sync with WM theme switches via the broker event stream.
+func followThemeChanges(ctx context.Context, fan *jsmod.EventFan, cl *client.Client, uiMod *uimod.Module) {
+	if cl == nil {
+		return
+	}
+	fan.SubscribeGo("theme.changed", func(msg *pbui.Msg) {
+		var d struct {
+			Theme string `json:"theme"`
+		}
+		if err := json.Unmarshal(msg.Data, &d); err != nil || d.Theme == "" {
+			return
+		}
+		if err := draw.SetTheme(d.Theme); err == nil {
+			uiMod.Retheme()
+		}
+	})
+	_ = fan.EnsurePump(ctx)
 }
 
 // waitForCompletion implements --once: when the script's completion value

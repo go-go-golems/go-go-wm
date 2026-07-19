@@ -120,6 +120,7 @@ func (m *Module) jsApp(vm *goja.Runtime) func(goja.FunctionCall) goja.Value {
 		if err := a.rerenderOnLoop(vm); err != nil {
 			panic(vm.ToValue("ui.app: initial render: " + err.Error()))
 		}
+		m.trackApp(a)
 
 		handle := vm.NewObject()
 		mustSet(handle, "name", a.name)

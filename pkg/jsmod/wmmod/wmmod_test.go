@@ -23,10 +23,13 @@ import (
 )
 
 type fakeBackend struct {
-	mu   sync.Mutex
-	d    *wmcore.Desktop
-	ops  []wmcore.Op
-	wins []wmx11.WindowInfo
+	mu      sync.Mutex
+	d       *wmcore.Desktop
+	ops     []wmcore.Op
+	wins    []wmx11.WindowInfo
+	theme   string
+	focused string
+	moves   []string
 }
 
 func newFake(firstApp string) *fakeBackend {
@@ -60,6 +63,40 @@ func (f *fakeBackend) Apply(_ context.Context, op wmcore.Op) (wmcore.Result, err
 }
 
 func (f *fakeBackend) Bind(string, func()) error { return wmmod.ErrNoKeybindings }
+
+func (f *fakeBackend) Theme(context.Context) (wmx11.ThemeInfo, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	th := f.theme
+	if th == "" {
+		th = "paper"
+	}
+	return wmx11.ThemeInfo{Theme: th, Available: []string{"paper", "light", "dark"}}, nil
+}
+
+func (f *fakeBackend) SetTheme(_ context.Context, name string) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if name != "paper" && name != "light" && name != "dark" {
+		return fmt.Errorf("unknown theme %q", name)
+	}
+	f.theme = name
+	return nil
+}
+
+func (f *fakeBackend) Focus(_ context.Context, target string) (string, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.focused = target
+	return target, nil
+}
+
+func (f *fakeBackend) Move(_ context.Context, dir string) (string, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.moves = append(f.moves, dir)
+	return f.focused, nil
+}
 
 func newRuntime(t *testing.T, b wmmod.Backend) *engine.Runtime {
 	t.Helper()

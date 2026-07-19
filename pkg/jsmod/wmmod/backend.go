@@ -26,6 +26,16 @@ type Backend interface {
 	Apply(ctx context.Context, op wmcore.Op) (wmcore.Result, error)
 	// Bind registers a keybinding (in-process runtimes only).
 	Bind(combo string, fire func()) error
+	// Theme returns the current theme name and the available names.
+	Theme(ctx context.Context) (wmx11.ThemeInfo, error)
+	// SetTheme swaps the WM's theme and repaints.
+	SetTheme(ctx context.Context, name string) error
+	// Focus focuses a leaf id or a direction (left|right|up|down|next|prev);
+	// returns the focused leaf afterwards.
+	Focus(ctx context.Context, target string) (string, error)
+	// Move swaps the focused leaf with its neighbor in dir; returns the
+	// focused leaf afterwards.
+	Move(ctx context.Context, dir string) (string, error)
 }
 
 // ErrNoKeybindings is returned by backends that cannot grab keys.
@@ -100,3 +110,31 @@ func (b *IPCBackend) Apply(ctx context.Context, op wmcore.Op) (wmcore.Result, er
 }
 
 func (b *IPCBackend) Bind(string, func()) error { return ErrNoKeybindings }
+
+func (b *IPCBackend) Theme(ctx context.Context) (wmx11.ThemeInfo, error) {
+	var info wmx11.ThemeInfo
+	if err := b.query(ctx, map[string]string{"q": "theme"}, &info); err != nil {
+		return info, err
+	}
+	return info, nil
+}
+
+func (b *IPCBackend) SetTheme(ctx context.Context, name string) error {
+	return b.query(ctx, map[string]string{"q": "set-theme", "theme": name}, nil)
+}
+
+func (b *IPCBackend) Focus(ctx context.Context, target string) (string, error) {
+	var focused string
+	if err := b.query(ctx, map[string]string{"q": "focus", "target": target}, &focused); err != nil {
+		return "", err
+	}
+	return focused, nil
+}
+
+func (b *IPCBackend) Move(ctx context.Context, dir string) (string, error) {
+	var focused string
+	if err := b.query(ctx, map[string]string{"q": "move", "dir": dir}, &focused); err != nil {
+		return "", err
+	}
+	return focused, nil
+}

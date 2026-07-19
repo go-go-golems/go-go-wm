@@ -66,6 +66,10 @@ func (w *WM) manage(clientWin xproto.Window) {
 	}
 
 	f := &frame{leaf: leafID, client: clientWin, title: title}
+	if wmClass, err := icccm.WmClassGet(w.X, clientWin); err == nil && wmClass != nil {
+		f.class = wmClass.Class
+		f.instance = wmClass.Instance
+	}
 
 	fw, err := xwindow.Generate(w.X)
 	if err != nil {
@@ -105,7 +109,10 @@ func (w *WM) manage(clientWin xproto.Window) {
 	fw.Map()
 	xproto.MapWindow(w.X.Conn(), clientWin)
 	w.focus(leafID)
-	managedData := map[string]interface{}{"leaf": string(leafID), "title": title}
+	managedData := map[string]interface{}{
+		"leaf": string(leafID), "title": title,
+		"class": f.class, "instance": f.instance,
+	}
 	if ws := w.desktop.FindLeafWorkspace(leafID); ws != nil {
 		managedData["workspace"] = ws.ID
 	}

@@ -41,6 +41,7 @@ type Config struct {
 	IPCSocket    string // query/control socket; empty → default path
 	Spawn        string // command for the "spawn terminal" keybinding
 	NoBroker     bool   // do not connect to the broker (pure-WM mode)
+	Theme        string // initial theme name; empty → draw's default ("paper")
 
 	// OnReady runs once, after the WM owns the display, sockets, and
 	// broker connection, immediately before the event loop starts
@@ -64,12 +65,14 @@ func DefaultIPCSocketPath() string {
 // frame is one managed client: the client window reparented into a frame
 // window we own and draw.
 type frame struct {
-	leaf    wmcore.NodeID
-	client  xproto.Window // 0 for builtin tiles (WM-rendered content)
-	win     *xwindow.Window
-	title   string
-	rect    wmcore.Rect   // current frame rect (screen coords)
-	regions []apps.Region // builtin tiles: clickable presentation regions
+	leaf     wmcore.NodeID
+	client   xproto.Window // 0 for builtin tiles (WM-rendered content)
+	win      *xwindow.Window
+	title    string
+	class    string        // WM_CLASS class part (rule matching, "Slack")
+	instance string        // WM_CLASS instance part ("slack")
+	rect     wmcore.Rect   // current frame rect (screen coords)
+	regions  []apps.Region // builtin tiles: clickable presentation regions
 }
 
 type acceptState struct {
@@ -132,6 +135,12 @@ func New(cfg Config) (*WM, error) {
 	}
 	if err != nil {
 		return nil, fmt.Errorf("wmx11: connect: %w", err)
+	}
+	if cfg.Theme != "" {
+		// Before the loop starts, so becomeWM paints the right root pixel.
+		if terr := draw.SetTheme(cfg.Theme); terr != nil {
+			return nil, terr
+		}
 	}
 	ctx, cancel := context.WithCancel(context.Background())
 	w := &WM{

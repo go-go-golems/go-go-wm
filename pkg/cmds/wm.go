@@ -24,6 +24,7 @@ type wmSettings struct {
 	EmbeddedBroker bool   `glazed:"embedded-broker"`
 	NoBroker       bool   `glazed:"no-broker"`
 	RC             string `glazed:"rc"`
+	Theme          string `glazed:"theme"`
 }
 
 func NewWMCommand() (*WMCommand, error) {
@@ -55,6 +56,8 @@ Development happens in a nested server:
 				fields.WithHelp("run without PBUI presentations (pure WM)")),
 			fields.New("rc", fields.TypeString, fields.WithDefault(""),
 				fields.WithHelp("rc.js startup script run in an in-process goja runtime (wm.bind works here)")),
+			fields.New("theme", fields.TypeString, fields.WithDefault(""),
+				fields.WithHelp("initial theme: paper (default), light, dark — switchable live via wm.theme()")),
 		),
 	)}, nil
 }
@@ -81,10 +84,11 @@ func (c *WMCommand) Run(ctx context.Context, vals *values.Values) error {
 		IPCSocket:    s.IPCSocket,
 		Spawn:        s.Spawn,
 		NoBroker:     s.NoBroker,
+		Theme:        s.Theme,
 	}
 	if s.RC != "" {
 		rcPath := s.RC
-		cfg.OnReady = func(w *wmx11.WM) { startRC(ctx, w, rcPath, sock, s.NoBroker) }
+		cfg.OnReady = func(w *wmx11.WM) { startRC(ctx, w, rcPath, sock, s.Display, s.NoBroker) }
 	}
 	w, err := wmx11.New(cfg)
 	if err != nil {

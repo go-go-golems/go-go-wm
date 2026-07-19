@@ -3,6 +3,8 @@ package wmmod
 import (
 	"context"
 	"fmt"
+	"os"
+	"os/exec"
 	"time"
 
 	"github.com/dop251/goja"
@@ -26,11 +28,29 @@ type Module struct {
 	backend   Backend
 	fan       *jsmod.EventFan // nil → wm.on and rules unavailable
 	ruleState *ruleState
+
+	execAllowed bool
+	execDisplay string
+}
+
+// Option configures the module.
+type Option func(*Module)
+
+// WithExec enables wm.exec(cmdline): `sh -c` in this process,
+// fire-and-forget, with DISPLAY forced to display when non-empty. The
+// rc.js runtime enables it unconditionally (an rc file is exactly as
+// trusted as an i3 config); run/repl gate it behind --allow-exec.
+func WithExec(display string) Option {
+	return func(m *Module) { m.execAllowed = true; m.execDisplay = display }
 }
 
 // New creates the module. fan may be nil (no event subscriptions).
-func New(backend Backend, fan *jsmod.EventFan) *Module {
-	return &Module{backend: backend, fan: fan, ruleState: newRuleState()}
+func New(backend Backend, fan *jsmod.EventFan, opts ...Option) *Module {
+	m := &Module{backend: backend, fan: fan, ruleState: newRuleState()}
+	for _, o := range opts {
+		o(m)
+	}
+	return m
 }
 
 func (m *Module) call(vm *goja.Runtime, what string, fn func(ctx context.Context) (interface{}, error)) goja.Value {
@@ -212,6 +232,54 @@ func (m *Module) Loader() require.ModuleLoader {
 			return m.workspaceObj(vm, call.Argument(0).String())
 		})
 
+		// ---- themes, focus, exec (GGWM-004) --------------------------
+		// theme() → current name; theme(name) → switch (repaints, emits
+		// theme.changed).
+		set("theme", func(call goja.FunctionCall) goja.Value {
+			a := call.Argument(0)
+			if goja.IsUndefined(a) || goja.IsNull(a) || a.String() == "" {
+				return m.call(vm, "theme", func(ctx context.Context) (interface{}, error) {
+					info, err := m.backend.Theme(ctx)
+					if err != nil {
+						return nil, err
+					}
+					return info.Theme, nil
+				})
+			}
+			name := a.String()
+			return m.call(vm, "theme", func(ctx context.Context) (interface{}, error) {
+				return name, m.backend.SetTheme(ctx, name)
+			})
+		})
+		set("themes", func(call goja.FunctionCall) goja.Value {
+			return m.call(vm, "themes", func(ctx context.Context) (interface{}, error) {
+				info, err := m.backend.Theme(ctx)
+				if err != nil {
+					return nil, err
+				}
+				return info.Available, nil
+			})
+		})
+		// focus(target): leaf id | left|right|up|down|next|prev.
+		set("focus", func(call goja.FunctionCall) goja.Value {
+			target := call.Argument(0).String()
+			if target == "" || goja.IsUndefined(call.Argument(0)) {
+				panic(vm.ToValue("wm.focus: target must be a leaf id or left|right|up|down|next|prev"))
+			}
+			return m.call(vm, "focus", func(ctx context.Context) (interface{}, error) {
+				return m.backend.Focus(ctx, target)
+			})
+		})
+		// move(dir): swap the focused leaf with its geometric neighbor.
+		set("move", func(call goja.FunctionCall) goja.Value {
+			dir := call.Argument(0).String()
+			return m.call(vm, "move", func(ctx context.Context) (interface{}, error) {
+				return m.backend.Move(ctx, dir)
+			})
+		})
+		// exec(cmdline): spawn a process, i3-style. Fire-and-forget.
+		set("exec", m.jsExec(vm))
+
 		// ---- events and keys -----------------------------------------
 		set("on", func(call goja.FunctionCall) goja.Value {
 			if m.fan == nil {
@@ -260,6 +328,30 @@ func (m *Module) jsBind(vm *goja.Runtime) func(goja.FunctionCall) goja.Value {
 		if err != nil {
 			panic(vm.ToValue("wm.bind: " + err.Error()))
 		}
+		return goja.Undefined()
+	}
+}
+
+// jsExec: wm.exec(cmdline) — the i3 `exec` gesture. The child runs in
+// the script's own process tree (`sh -c`), detached from the JS loop;
+// its exit is reaped and ignored, exactly like i3.
+func (m *Module) jsExec(vm *goja.Runtime) func(goja.FunctionCall) goja.Value {
+	return func(call goja.FunctionCall) goja.Value {
+		if !m.execAllowed {
+			panic(vm.ToValue("wm.exec: subprocesses are disabled here (rc.js has them; `run`/`repl` need --allow-exec)"))
+		}
+		cmdline := call.Argument(0).String()
+		if cmdline == "" || goja.IsUndefined(call.Argument(0)) {
+			panic(vm.ToValue("wm.exec: command line must be a non-empty string"))
+		}
+		c := exec.Command("sh", "-c", cmdline)
+		if m.execDisplay != "" {
+			c.Env = append(os.Environ(), "DISPLAY="+m.execDisplay)
+		}
+		if err := c.Start(); err != nil {
+			panic(vm.ToValue("wm.exec: " + err.Error()))
+		}
+		go func() { _ = c.Wait() }()
 		return goja.Undefined()
 	}
 }

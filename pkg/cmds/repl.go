@@ -30,9 +30,10 @@ type ReplCommand struct {
 }
 
 type replSettings struct {
-	Socket   string `glazed:"socket"`
-	WMSocket string `glazed:"wm-socket"`
-	NoBroker bool   `glazed:"no-broker"`
+	Socket    string `glazed:"socket"`
+	WMSocket  string `glazed:"wm-socket"`
+	NoBroker  bool   `glazed:"no-broker"`
+	AllowExec bool   `glazed:"allow-exec"`
 }
 
 func NewReplCommand() (*ReplCommand, error) {
@@ -53,6 +54,8 @@ script for "go-go-wm run" or into rc.js — the API is identical.
 				fields.WithHelp("WM control socket (default: $GO_GO_WM_SOCKET)")),
 			fields.New("no-broker", fields.TypeBool, fields.WithDefault(false),
 				fields.WithHelp("skip the broker connection (wm module only)")),
+			fields.New("allow-exec", fields.TypeBool, fields.WithDefault(false),
+				fields.WithHelp("enable wm.exec and the exec module (run subprocesses)")),
 		),
 	)}, nil
 }
@@ -75,7 +78,13 @@ func (c *ReplCommand) Run(ctx context.Context, vals *values.Values) error {
 		defer func() { _ = cl.Close() }()
 	}
 
+	applyInitialTheme(ctx, s.WMSocket)
 	fan := jsmod.NewEventFan(cl, 256)
+	var wmOpts []wmmod.Option
+	if s.AllowExec {
+		wmOpts = append(wmOpts, wmmod.WithExec(""))
+	}
+	uiMod := uimod.New(uimod.Options{BrokerSocket: socketOrDefault(s.Socket)})
 	builder := engine.NewRuntimeFactoryBuilder()
 	builder.WithModules(
 		engine.NativeModuleRegistrar{
@@ -84,13 +93,17 @@ func (c *ReplCommand) Run(ctx context.Context, vals *values.Values) error {
 		},
 		engine.NativeModuleRegistrar{
 			ModuleID: "wm", ModuleName: wmmod.ModuleName,
-			Loader: wmmod.New(&wmmod.IPCBackend{Socket: s.WMSocket}, fan).Loader(),
+			Loader: wmmod.New(&wmmod.IPCBackend{Socket: s.WMSocket}, fan, wmOpts...).Loader(),
 		},
 		engine.NativeModuleRegistrar{
 			ModuleID: "ui", ModuleName: uimod.ModuleName,
-			Loader: uimod.New(uimod.Options{BrokerSocket: socketOrDefault(s.Socket)}).Loader(),
+			Loader: uiMod.Loader(),
 		},
 	)
+	if s.AllowExec {
+		builder.UseModuleMiddleware(engine.MiddlewareOnly("exec"))
+	}
+	followThemeChanges(ctx, fan, cl, uiMod)
 	factory, err := builder.Build()
 	if err != nil {
 		return err

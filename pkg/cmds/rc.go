@@ -25,7 +25,7 @@ import (
 //
 // Called from Config.OnReady, so it must not block: evaluation runs on a
 // goroutine, and posted ops queue until the WM loop starts.
-func startRC(ctx context.Context, w *wmx11.WM, rcPath, brokerSocket string, noBroker bool) {
+func startRC(ctx context.Context, w *wmx11.WM, rcPath, brokerSocket, display string, noBroker bool) {
 	src, err := os.ReadFile(rcPath)
 	if err != nil {
 		log.Error().Err(err).Str("rc", rcPath).Msg("rc: cannot read")
@@ -48,6 +48,13 @@ func startRC(ctx context.Context, w *wmx11.WM, rcPath, brokerSocket string, noBr
 
 		backend := &wmx11.ScriptBackend{WM: w}
 		fan := jsmod.NewEventFan(cl, 256)
+		// wm.exec is unconditional here: an rc file is exactly as trusted
+		// as an i3 config. Children inherit the WM's display.
+		uiMod := uimod.New(uimod.Options{
+			Display:      display,
+			BrokerSocket: brokerSocket,
+			TileHost:     backend,
+		})
 		builder := engine.NewRuntimeFactoryBuilder()
 		builder.WithModules(
 			engine.NativeModuleRegistrar{
@@ -56,16 +63,16 @@ func startRC(ctx context.Context, w *wmx11.WM, rcPath, brokerSocket string, noBr
 			},
 			engine.NativeModuleRegistrar{
 				ModuleID: "wm", ModuleName: wmmod.ModuleName,
-				Loader: wmmod.New(backend, fan).Loader(),
+				Loader: wmmod.New(backend, fan, wmmod.WithExec(display)).Loader(),
 			},
 			engine.NativeModuleRegistrar{
 				ModuleID: "ui", ModuleName: uimod.ModuleName,
-				Loader: uimod.New(uimod.Options{
-					BrokerSocket: brokerSocket,
-					TileHost:     backend,
-				}).Loader(),
+				Loader: uiMod.Loader(),
 			},
 		)
+		// WM-side setTheme already swapped this process's palette (shared
+		// draw package); the subscription repaints standalone app windows.
+		followThemeChanges(ctx, fan, cl, uiMod)
 		factory, err := builder.Build()
 		if err != nil {
 			log.Error().Err(err).Msg("rc: factory")

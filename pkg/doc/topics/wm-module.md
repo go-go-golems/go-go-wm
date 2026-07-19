@@ -55,6 +55,19 @@ absent. The returned handle owns the resolved id:
   the in-process runtime (`go-go-wm wm --rc rc.js`); standalone scripts
   get an error saying so.
 
+## Themes, focus, exec (GGWM-004)
+
+- `wm.theme()` → current theme name; `wm.theme("dark")` switches the
+  whole desktop (repaint + `theme.changed` broker event, so standalone
+  script apps follow). `wm.themes()` → `["paper", "light", "dark"]`.
+- `wm.focus(target)` — a leaf id, or `left|right|up|down` (geometric,
+  i3-style), or `next|prev` (layout order). Returns the focused leaf.
+- `wm.move(dir)` — swap the focused leaf with its neighbor in that
+  direction (an ordinary swap-leaves op under the hood).
+- `wm.exec(cmdline)` — spawn a process (`sh -c`), i3's `exec`.
+  Fire-and-forget. Always available in rc.js; `run`/`repl` need
+  `--allow-exec`.
+
 ## Rules and layouts (declarative)
 
 Both are normalized at definition time — a bad spec throws when you
@@ -69,11 +82,14 @@ write it, never when it fires — and inspectable before execution:
     wm.workspace("proj").apply("dev");  // builds only on a fresh workspace
 
     wm.rule({ title: /zoom/, workspace: "calls" });
+    wm.rule({ class: /Slack/, workspace: "8" });   // i3 assign [class=...]
     wm.rules();                         // normalized: [{title, workspace}]
 
 A rule watches `window.managed` and moves matching windows with a
 `move-leaf` op — sugar over the event bus, not a new WM mechanism.
-First matching rule wins; matching is case-insensitive.
+Rules match on `title` and/or `class` (WM_CLASS class or instance);
+every present pattern must match. First matching rule wins; matching
+is case-insensitive.
 
 ## See also
 

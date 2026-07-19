@@ -6,6 +6,7 @@ import (
 	"net"
 	"os"
 
+	"github.com/go-go-golems/go-go-wm/pkg/draw"
 	"github.com/go-go-golems/go-go-wm/pkg/wmcore"
 )
 
@@ -14,11 +15,17 @@ import (
 // stream and the debugging tool forever (design doc §Part V).
 //
 // Requests:  {"q":"tree"} | {"q":"windows"} | {"q":"op","op":{...}}
+//          | {"q":"theme"} | {"q":"set-theme","theme":"dark"}
+//          | {"q":"focus","target":"left|right|up|down|next|prev|<leaf>"}
+//          | {"q":"move","dir":"left|right|up|down"}
 // Responses: {"ok":true,"data":...} | {"ok":false,"error":"..."}
 
 type ipcRequest struct {
-	Q  string     `json:"q"`
-	Op *wmcore.Op `json:"op,omitempty"`
+	Q      string     `json:"q"`
+	Op     *wmcore.Op `json:"op,omitempty"`
+	Theme  string     `json:"theme,omitempty"`
+	Target string     `json:"target,omitempty"`
+	Dir    string     `json:"dir,omitempty"`
 }
 
 type ipcResponse struct {
@@ -32,6 +39,8 @@ type WindowInfo struct {
 	Leaf      string `json:"leaf"`
 	Client    uint32 `json:"client"`
 	Title     string `json:"title"`
+	Class     string `json:"class,omitempty"`    // WM_CLASS class (e.g. "Slack")
+	Instance  string `json:"instance,omitempty"` // WM_CLASS instance (e.g. "slack")
 	Workspace string `json:"workspace"`
 	Rect      string `json:"rect"`
 	Focused   bool   `json:"focused"`
@@ -107,6 +116,26 @@ func (w *WM) dispatchIPC(req ipcRequest) ipcResponse {
 				return
 			}
 			done <- ipcResponse{OK: true, Data: res}
+		case "theme":
+			done <- ipcResponse{OK: true, Data: ThemeInfo{Theme: draw.CurrentTheme(), Available: draw.ThemeNames()}}
+		case "set-theme":
+			if err := w.setTheme(req.Theme); err != nil {
+				done <- ipcResponse{OK: false, Error: err.Error()}
+				return
+			}
+			done <- ipcResponse{OK: true, Data: ThemeInfo{Theme: draw.CurrentTheme(), Available: draw.ThemeNames()}}
+		case "focus":
+			if err := w.focusTarget(req.Target); err != nil {
+				done <- ipcResponse{OK: false, Error: err.Error()}
+				return
+			}
+			done <- ipcResponse{OK: true, Data: string(w.focused)}
+		case "move":
+			if err := w.moveDir(req.Dir); err != nil {
+				done <- ipcResponse{OK: false, Error: err.Error()}
+				return
+			}
+			done <- ipcResponse{OK: true, Data: string(w.focused)}
 		default:
 			done <- ipcResponse{OK: false, Error: "unknown query " + req.Q}
 		}

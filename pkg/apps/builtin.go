@@ -183,13 +183,24 @@ func renderAbout(w, h int) (*image.RGBA, []Region) {
 	return img, nil
 }
 
-var traceTone = map[string]color.RGBA{
-	"accept.started": draw.Mustard, "accept.answered": draw.Mustard, "accept.cleared": draw.Rose,
-	"split-leaf": draw.Lavender, "close-leaf": draw.Lavender, "swap-leaves": draw.Lavender,
-	"move-split": draw.Lavender, "set-ratio": draw.Lavender,
-	"add-workspace": draw.Mint, "remove-workspace": draw.Rose, "clone-workspace": draw.Mint,
-	"listener.print": draw.Blue, "verb.invoked": draw.Blue,
-	"window.managed": draw.Sage, "close_tile": draw.Rose,
+// traceTone resolves event-chip colors at paint time so theme swaps
+// (draw.SetTheme) reach the trace immediately.
+func traceTone(event string) (color.RGBA, bool) {
+	switch event {
+	case "accept.started", "accept.answered":
+		return draw.Mustard, true
+	case "accept.cleared", "remove-workspace", "close_tile":
+		return draw.Rose, true
+	case "split-leaf", "close-leaf", "swap-leaves", "move-split", "set-ratio":
+		return draw.Lavender, true
+	case "add-workspace", "clone-workspace":
+		return draw.Mint, true
+	case "listener.print", "verb.invoked":
+		return draw.Blue, true
+	case "window.managed":
+		return draw.Sage, true
+	}
+	return color.RGBA{}, false
 }
 
 func renderTrace(w, h int, world *World, accepting []string) (*image.RGBA, []Region) {
@@ -207,7 +218,7 @@ func renderTrace(w, h int, world *World, accepting []string) (*image.RGBA, []Reg
 		draw.Text(img, 6, y+13, seq, false, 10, draw.Faint)
 		obj, _ := pbui.NewObject("event", fmt.Sprintf("%d", ev.Seq))
 		obj.Label = fmt.Sprintf("#%d %s", ev.Seq, ev.Type)
-		tone, ok := traceTone[ev.Type]
+		tone, ok := traceTone(ev.Type)
 		if !ok {
 			tone = draw.PaneAlt
 		}

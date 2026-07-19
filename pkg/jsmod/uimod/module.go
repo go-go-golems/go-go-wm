@@ -12,6 +12,7 @@ package uimod
 import (
 	"fmt"
 	"image"
+	"sync"
 
 	"github.com/dop251/goja"
 	"github.com/dop251/goja_nodejs/require"
@@ -45,10 +46,31 @@ type Options struct {
 // Module binds one runtime's ui exports.
 type Module struct {
 	opts Options
+
+	mu   sync.Mutex
+	apps []*jsAppState // live apps, for cross-cutting repaints (themes)
 }
 
 // New creates the module.
 func New(opts Options) *Module { return &Module{opts: opts} }
+
+// Retheme repaints every live app surface. Callers swap the palette
+// first (draw.SetTheme); render paths pick the new colors up on the next
+// paint, so a posted redraw per app is the whole re-theme.
+func (m *Module) Retheme() {
+	m.mu.Lock()
+	apps := append([]*jsAppState(nil), m.apps...)
+	m.mu.Unlock()
+	for _, a := range apps {
+		a.postRedraw()
+	}
+}
+
+func (m *Module) trackApp(a *jsAppState) {
+	m.mu.Lock()
+	m.apps = append(m.apps, a)
+	m.mu.Unlock()
+}
 
 // Loader installs the exports.
 func (m *Module) Loader() require.ModuleLoader {

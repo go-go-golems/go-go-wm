@@ -52,9 +52,24 @@ type Row []Seg
 // Spec is a whole surface.
 type Spec []Row
 
-var tones = map[string]color.RGBA{
-	"rose": draw.Rose, "blue": draw.Blue, "mint": draw.Mint,
-	"mustard": draw.Mustard, "lavender": draw.Lavender, "sage": draw.Sage,
+// tone resolves a named accent at paint time so theme swaps
+// (draw.SetTheme) reach already-normalized specs.
+func tone(name string) (color.RGBA, bool) {
+	switch name {
+	case "rose":
+		return draw.Rose, true
+	case "blue":
+		return draw.Blue, true
+	case "mint":
+		return draw.Mint, true
+	case "mustard":
+		return draw.Mustard, true
+	case "lavender":
+		return draw.Lavender, true
+	case "sage":
+		return draw.Sage, true
+	}
+	return color.RGBA{}, false
 }
 
 // Normalize validates raw JS-shaped rows ([]interface{} of []interface{}
@@ -118,7 +133,7 @@ func normalizeSeg(v interface{}) (Seg, error) {
 		}
 		seg.Doc, _ = m["doc"].(string)
 		if c, ok := m["color"].(string); ok && c != "" {
-			if _, known := tones[c]; !known {
+			if _, known := tone(c); !known {
 				return Seg{}, fmt.Errorf("button color %q unknown (rose|blue|mint|mustard|lavender|sage)", c)
 			}
 			seg.Color = c
@@ -205,13 +220,15 @@ func Render(w, h int, spec Spec, accepting []string) (*image.RGBA, []apps.Region
 				x = r.Max.X + 8
 				rowH = maxInt(rowH, r.Dy()+4)
 			case KindButton:
-				tone := draw.Mustard
+				btnTone := draw.Mustard
 				if seg.Color != "" {
-					tone = tones[seg.Color]
+					if t, ok := tone(seg.Color); ok {
+						btnTone = t
+					}
 				}
 				estimate := draw.TextWidth(seg.Text, true, 11) + 26
 				place(estimate)
-				r := apps.Btn(img, x, y, seg.Text, tone)
+				r := apps.Btn(img, x, y, seg.Text, btnTone)
 				doc := seg.Doc
 				if doc == "" {
 					doc = seg.Text
