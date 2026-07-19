@@ -160,8 +160,33 @@ func (m *Module) Loader() require.ModuleLoader {
 
 		// ---- mutations (all compile to Ops) --------------------------
 		// apply(op): the generic escape hatch — any raw op object.
+		// apply([op, ...]): a batch — one WM reconcile for the burst
+		// (GGWM-006; workspace pre-creation went from 17 full repaints
+		// to 2 this way).
 		set("apply", func(call goja.FunctionCall) goja.Value {
-			op, err := jsmod.OpFromJS(call.Argument(0).Export())
+			raw := call.Argument(0).Export()
+			if arr, ok := raw.([]interface{}); ok {
+				ops := make([]wmcore.Op, 0, len(arr))
+				for i, e := range arr {
+					op, err := jsmod.OpFromJS(e)
+					if err != nil {
+						panic(vm.ToValue(fmt.Sprintf("wm.apply[%d]: %v", i, err)))
+					}
+					ops = append(ops, op)
+				}
+				ctx, cancel := context.WithTimeout(context.Background(), queryTimeout)
+				defer cancel()
+				results, err := m.backend.ApplyBatch(ctx, ops)
+				if err != nil {
+					panic(vm.ToValue("wm.apply: " + err.Error()))
+				}
+				plain, perr := jsmod.ToPlain(results)
+				if perr != nil {
+					panic(vm.ToValue("wm.apply: " + perr.Error()))
+				}
+				return vm.ToValue(plain)
+			}
+			op, err := jsmod.OpFromJS(raw)
 			if err != nil {
 				panic(vm.ToValue("wm.apply: " + err.Error()))
 			}

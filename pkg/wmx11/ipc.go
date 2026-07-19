@@ -21,11 +21,12 @@ import (
 // Responses: {"ok":true,"data":...} | {"ok":false,"error":"..."}
 
 type ipcRequest struct {
-	Q      string     `json:"q"`
-	Op     *wmcore.Op `json:"op,omitempty"`
-	Theme  string     `json:"theme,omitempty"`
-	Target string     `json:"target,omitempty"`
-	Dir    string     `json:"dir,omitempty"`
+	Q      string      `json:"q"`
+	Op     *wmcore.Op  `json:"op,omitempty"`
+	Ops    []wmcore.Op `json:"ops,omitempty"` // {"q":"batch","ops":[...]}
+	Theme  string      `json:"theme,omitempty"`
+	Target string      `json:"target,omitempty"`
+	Dir    string      `json:"dir,omitempty"`
 }
 
 type ipcResponse struct {
@@ -116,6 +117,17 @@ func (w *WM) dispatchIPC(req ipcRequest) ipcResponse {
 				return
 			}
 			done <- ipcResponse{OK: true, Data: res}
+		case "batch":
+			if len(req.Ops) == 0 {
+				done <- ipcResponse{OK: false, Error: "missing ops"}
+				return
+			}
+			results, err := w.ApplyBatch(req.Ops)
+			if err != nil {
+				done <- ipcResponse{OK: false, Error: err.Error()}
+				return
+			}
+			done <- ipcResponse{OK: true, Data: results}
 		case "theme":
 			done <- ipcResponse{OK: true, Data: ThemeInfo{Theme: draw.CurrentTheme(), Available: draw.ThemeNames()}}
 		case "set-theme":

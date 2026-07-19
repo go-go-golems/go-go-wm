@@ -24,6 +24,8 @@ type Backend interface {
 	Windows(ctx context.Context) ([]wmx11.WindowInfo, error)
 	// Apply executes one op.
 	Apply(ctx context.Context, op wmcore.Op) (wmcore.Result, error)
+	// ApplyBatch executes ops in order with one reconcile at the end.
+	ApplyBatch(ctx context.Context, ops []wmcore.Op) ([]wmcore.Result, error)
 	// Bind registers a keybinding (in-process runtimes only).
 	Bind(combo string, fire func()) error
 	// Theme returns the current theme name and the available names.
@@ -103,6 +105,15 @@ func (b *IPCBackend) Windows(ctx context.Context) ([]wmx11.WindowInfo, error) {
 func (b *IPCBackend) Apply(ctx context.Context, op wmcore.Op) (wmcore.Result, error) {
 	var res wmcore.Result
 	req := map[string]interface{}{"q": "op", "op": op}
+	if err := b.query(ctx, req, &res); err != nil {
+		return res, err
+	}
+	return res, nil
+}
+
+func (b *IPCBackend) ApplyBatch(ctx context.Context, ops []wmcore.Op) ([]wmcore.Result, error) {
+	var res []wmcore.Result
+	req := map[string]interface{}{"q": "batch", "ops": ops}
 	if err := b.query(ctx, req, &res); err != nil {
 		return res, err
 	}

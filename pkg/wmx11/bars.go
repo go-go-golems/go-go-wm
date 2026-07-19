@@ -5,6 +5,7 @@ import (
 	"image"
 
 	"github.com/jezek/xgb/xproto"
+	"github.com/jezek/xgbutil/xgraphics"
 	"github.com/jezek/xgbutil/xwindow"
 
 	"github.com/go-go-golems/go-go-wm/pkg/draw"
@@ -93,14 +94,42 @@ func (w *WM) paintBars() {
 	w.blit(w.bottomBar, bottom)
 }
 
-// blit paints an RGBA image onto a window.
+// blit paints an RGBA image onto a window. The two bar windows are
+// painted on every op, so their X images are cached (the same buffer
+// discipline as frames, GGWM-005/006); transient windows (menus,
+// dividers, overlay) keep the allocate-and-destroy path.
 func (w *WM) blit(win *xwindow.Window, img *image.RGBA) {
+	if w.topBar != nil && win.Id == w.topBar.Id {
+		w.blitCached(&w.topBarImg, win, img)
+		return
+	}
+	if w.bottomBar != nil && win.Id == w.bottomBar.Id {
+		w.blitCached(&w.bottomBarImg, win, img)
+		return
+	}
 	ximg := draw.ToXImage(w.X, img)
 	if err := ximg.XSurfaceSet(win.Id); err == nil {
 		ximg.XDraw()
 		ximg.XPaint(win.Id)
 	}
 	ximg.Destroy()
+}
+
+func (w *WM) blitCached(slot **xgraphics.Image, win *xwindow.Window, img *image.RGBA) {
+	if *slot == nil || (*slot).Bounds() != img.Bounds() {
+		if *slot != nil {
+			(*slot).Destroy()
+		}
+		*slot = xgraphics.New(w.X, img.Bounds())
+		if err := (*slot).XSurfaceSet(win.Id); err != nil {
+			(*slot).Destroy()
+			*slot = nil
+			return
+		}
+	}
+	draw.CopyToXImage(*slot, img)
+	(*slot).XDraw()
+	(*slot).XPaint(win.Id)
 }
 
 // --- drop preview ----------------------------------------------------------

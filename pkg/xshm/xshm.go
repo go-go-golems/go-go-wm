@@ -22,6 +22,8 @@ import (
 	"github.com/jezek/xgb/xproto"
 	"github.com/jezek/xgbutil"
 	"golang.org/x/sys/unix"
+
+	"github.com/go-go-golems/go-go-wm/pkg/draw"
 )
 
 var (
@@ -118,18 +120,11 @@ func (s *Surface) WriteRGBA(img *image.RGBA) {
 	if w != s.W || r.Dy() != s.H {
 		return
 	}
-	for y := 0; y < s.H; y++ {
-		so := img.PixOffset(r.Min.X, r.Min.Y+y)
-		do := y * s.W * 4
-		src := img.Pix[so : so+w*4 : so+w*4]
-		dst := s.Data[do : do+w*4 : do+w*4]
-		for i := 0; i < w*4; i += 4 {
-			dst[i+0] = src[i+2] // B
-			dst[i+1] = src[i+1] // G
-			dst[i+2] = src[i+0] // R
-			dst[i+3] = src[i+3] // A
-		}
-	}
+	draw.ConvertRows(r, func(y, w int) ([]byte, []byte) {
+		so := img.PixOffset(r.Min.X, y)
+		do := (y - r.Min.Y) * s.W * 4
+		return img.Pix[so : so+w*4 : so+w*4], s.Data[do : do+w*4 : do+w*4]
+	})
 }
 
 // Destroy releases the X-side resources and our mapping. The kernel

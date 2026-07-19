@@ -66,6 +66,15 @@ func (b *ScriptBackend) Apply(ctx context.Context, op wmcore.Op) (wmcore.Result,
 	return res, err
 }
 
+func (b *ScriptBackend) ApplyBatch(ctx context.Context, ops []wmcore.Op) ([]wmcore.Result, error) {
+	var res []wmcore.Result
+	var err error
+	if lerr := b.onLoop(ctx, func() { res, err = b.WM.ApplyBatch(ops) }); lerr != nil {
+		return res, lerr
+	}
+	return res, err
+}
+
 // Bind grabs combo on the root window; fire runs on the X event goroutine
 // and must only post.
 func (b *ScriptBackend) Bind(combo string, fire func()) error {

@@ -47,11 +47,19 @@ var TERMINAL = "kitty";
 // i3 creates workspaces on demand; here we pre-create 1..9 so names,
 // bar chips, and rules all agree from the start. The bootstrap
 // workspace becomes "1".
+// Two batches instead of 17 individual ops: adds first (their results
+// carry the new ids), then renames + come-home — the WM reconciles and
+// paints once per batch (GGWM-006), so pre-creation is near-free.
 var first = wm.tree().workspaces[0];
-wm.workspace(first.id).rename("1");
-for (var i = 2; i <= 9; i++) wm.workspace(String(i));
-// add-workspace switches to each as it is created; come home to 1.
-wm.workspace("1").switch();
+var adds = [];
+for (var i = 2; i <= 9; i++) adds.push({ op: "add-workspace" });
+var created = wm.apply(adds);
+var finish = [{ op: "rename-workspace", workspace: first.id, name: "1" }];
+for (var j = 0; j < created.length; j++) {
+  finish.push({ op: "rename-workspace", workspace: created[j].new_workspace, name: String(j + 2) });
+}
+finish.push({ op: "switch-workspace", workspace: first.id });
+wm.apply(finish);
 
 // --- workspace back-and-forth ---------------------------------------------
 var currentWs = wm.tree().current;

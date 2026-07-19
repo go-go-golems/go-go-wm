@@ -62,6 +62,18 @@ func (f *fakeBackend) Apply(_ context.Context, op wmcore.Op) (wmcore.Result, err
 	return res, err
 }
 
+func (f *fakeBackend) ApplyBatch(ctx context.Context, ops []wmcore.Op) ([]wmcore.Result, error) {
+	out := make([]wmcore.Result, 0, len(ops))
+	for i := range ops {
+		res, err := f.Apply(ctx, ops[i])
+		if err != nil {
+			return out, err
+		}
+		out = append(out, res)
+	}
+	return out, nil
+}
+
 func (f *fakeBackend) Bind(string, func()) error { return wmmod.ErrNoKeybindings }
 
 func (f *fakeBackend) Theme(context.Context) (wmx11.ThemeInfo, error) {

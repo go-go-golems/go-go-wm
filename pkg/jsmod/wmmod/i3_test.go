@@ -105,6 +105,33 @@ func TestExecSpawnsWhenEnabled(t *testing.T) {
 	t.Fatalf("wm.exec child never created %s", marker)
 }
 
+func TestApplyBatch(t *testing.T) {
+	fake := newFake("")
+	rt := newRuntime(t, fake)
+	got := run(t, rt, `
+var r = require("wm").apply([
+  {op: "add-workspace"},
+  {op: "add-workspace"},
+]);
+r.length + ":" + (r[0].new_workspace !== r[1].new_workspace)`)
+	if got != "2:true" {
+		t.Fatalf("batch result = %v", got)
+	}
+	fake.mu.Lock()
+	defer fake.mu.Unlock()
+	if len(fake.ops) != 2 || fake.d.Workspaces == nil || len(fake.d.Workspaces) != 3 {
+		t.Fatalf("backend saw %d ops, %d workspaces", len(fake.ops), len(fake.d.Workspaces))
+	}
+}
+
+func TestApplyBatchBadOpThrows(t *testing.T) {
+	rt := newRuntime(t, newFake(""))
+	err := runErr(t, rt, `require("wm").apply([{op: "add-workspace"}, {op: "no-such-op"}])`)
+	if err == nil || !strings.Contains(err.Error(), "no-such-op") {
+		t.Fatalf("expected bad-op error, got %v", err)
+	}
+}
+
 func TestRuleClassNormalization(t *testing.T) {
 	fake := newFake("")
 	rt := newRuntime(t, fake)

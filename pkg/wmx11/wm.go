@@ -140,11 +140,13 @@ type WM struct {
 	screen wmcore.Rect // full root geometry
 	area   wmcore.Rect // screen minus bars
 
-	topBar    *xwindow.Window
-	bottomBar *xwindow.Window
-	overlay   *xwindow.Window // drop preview
-	menu      *menuState
-	dividers  map[wmcore.NodeID]*dividerWin // split id → divider window
+	topBar       *xwindow.Window
+	bottomBar    *xwindow.Window
+	topBarImg    *xgraphics.Image // cached bar surfaces (blitCached)
+	bottomBarImg *xgraphics.Image
+	overlay      *xwindow.Window // drop preview
+	menu         *menuState
+	dividers     map[wmcore.NodeID]*dividerWin // split id → divider window
 
 	accepting *acceptState
 	mouseDoc  string
@@ -299,6 +301,17 @@ func (w *WM) Apply(op wmcore.Op) (wmcore.Result, error) {
 
 // Apply is split out so the IPC layer can call it too.
 func Apply(w *WM, op wmcore.Op) (wmcore.Result, error) {
+	res, err := applyOne(w, op)
+	if err != nil {
+		return res, err
+	}
+	w.afterOp(op)
+	return res, err
+}
+
+// applyOne mutates the tree and emits the op event, without X-side
+// reconciliation — the shared half of Apply and ApplyBatch.
+func applyOne(w *WM, op wmcore.Op) (wmcore.Result, error) {
 	res, err := wmcore.Apply(w.desktop, op)
 	if err != nil {
 		w.emitEvent("op.rejected", map[string]interface{}{"op": op.Op, "error": err.Error()})
@@ -308,8 +321,46 @@ func Apply(w *WM, op wmcore.Op) (wmcore.Result, error) {
 		"node": string(op.Node), "target": string(op.Target),
 		"workspace": op.Workspace, "zone": string(op.Zone),
 	})
-	w.afterOp(op)
-	return res, err
+	return res, nil
+}
+
+// ApplyBatch applies ops in order with ONE reconciliation pass at the
+// end (GGWM-006 batch-boot design): a burst like "create workspaces
+// 1..9" stops paying a full-screen relayout+paint per op — only the
+// final state is ever painted. Stops at the first failing op; results
+// cover the applied prefix. WM loop only (callers post).
+func (w *WM) ApplyBatch(ops []wmcore.Op) ([]wmcore.Result, error) {
+	results := make([]wmcore.Result, 0, len(ops))
+	anyReap, anySwitch := false, false
+	var err error
+	for i := range ops {
+		var res wmcore.Result
+		res, err = applyOne(w, ops[i])
+		if err != nil {
+			err = fmt.Errorf("batch op %d (%s): %w", i, ops[i].Op, err)
+			break
+		}
+		results = append(results, res)
+		switch ops[i].Op {
+		case wmcore.OpCloseLeaf, wmcore.OpRemoveWorkspace:
+			anyReap = true
+		case wmcore.OpSwitchWorkspace, wmcore.OpAddWorkspace:
+			anySwitch = true
+		}
+	}
+	// One reconcile for the whole burst — the same steps afterOp runs
+	// per op.
+	if anyReap {
+		w.reapOrphanFrames()
+	}
+	w.syncBuiltins()
+	w.relayout()
+	w.updateEWMH()
+	w.paintBars()
+	if anySwitch {
+		w.refocusCurrent()
+	}
+	return results, err
 }
 
 // afterOp reconciles X state with the desktop after a successful op.
@@ -329,13 +380,21 @@ func (w *WM) afterOp(op wmcore.Op) {
 	// keyboard navigation (directional focus is workspace-local); land
 	// on the first framed leaf of the new workspace, like i3.
 	if op.Op == wmcore.OpSwitchWorkspace {
-		if ws := w.desktop.CurrentWorkspace(); ws != nil && ws.Root.FindLeaf(w.focused) == nil {
-			for _, l := range ws.Root.Leaves() {
-				if _, ok := w.frames[l.ID]; ok {
-					w.focus(l.ID)
-					break
-				}
-			}
+		w.refocusCurrent()
+	}
+}
+
+// refocusCurrent moves focus onto the current workspace if it is not
+// already there.
+func (w *WM) refocusCurrent() {
+	ws := w.desktop.CurrentWorkspace()
+	if ws == nil || ws.Root.FindLeaf(w.focused) != nil {
+		return
+	}
+	for _, l := range ws.Root.Leaves() {
+		if _, ok := w.frames[l.ID]; ok {
+			w.focus(l.ID)
+			break
 		}
 	}
 }

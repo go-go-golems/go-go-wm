@@ -35,6 +35,8 @@ instead of hanging.
 - `wm.moveLeaf(leaf, workspaceId, {target?, dir?})` — move across
   workspaces; the leaf keeps its id, so its window survives.
 - `wm.apply(op)` — the escape hatch: any raw op object
+- `wm.apply([op, ...])` — a batch: ops apply in order, the WM repaints
+  once at the end; returns the array of results (GGWM-006)
   (`{op: "split-leaf", node: "n1", dir: "row"}`).
 
 ## Workspaces

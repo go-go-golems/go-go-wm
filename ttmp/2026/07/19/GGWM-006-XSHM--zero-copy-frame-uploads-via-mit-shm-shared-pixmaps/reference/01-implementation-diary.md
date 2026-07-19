@@ -71,6 +71,31 @@ renice, so wall numbers are finally clean)
   of what remains — the single irreducible pixel pass. Next win, if
   ever needed, is rendering directly in BGRA to delete that pass too.
 
+## Entry 2 — the rest of the list: batch ops, parallel convert, bar cache
+
+- `WM.ApplyBatch` + IPC `batch` + `Backend.ApplyBatch` +
+  `wm.apply([...])`; i3.js pre-creation rewritten as two batches (adds
+  first — the renames need the returned ids). Boot-to-nine-workspaces:
+  **0.00s measured** — done before the first socket poll (2.8s before
+  batching, 6.18s at the start of GGWM-005). Tests: JS batch round
+  trip (results carry distinct new_workspace ids), bad-op-in-batch
+  throws with the op index.
+- `draw.ConvertRows`: the RGBA→BGRA swap runs across ≤4 goroutines for
+  surfaces ≥128k pixels; CopyToXImage and xshm.WriteRGBA both ride it.
+  Full-BGRA rendering (#3 on the list) rejected with a decision record
+  — parallelism buys the latency without touching the RGBA invariant
+  the whole draw/test stack assumes.
+- Bar windows cache their X images (`blitCached`); transient windows
+  (menus/dividers/overlay) deliberately keep the old path.
+- Damage tracking (#4) deferred with a design sketch: renderers are
+  whole-surface today, and the trace scrolls (full-pane dirty) exactly
+  when it is busiest.
+- Verification: full test suite, 9/9 examples-smoke, rc-smoke, and the
+  shm pixel/leak harness all green. One triage note: a "leaked"
+  segment after the suite was the *live* perf stack on :84 still
+  holding its frame surface — `ipcs -m -i` attribution again; after
+  stopping the stacks, zero segments of our size remain.
+
 ### What was tricky
 
 - **The background-pixmap reference.** FreePixmap does not free a

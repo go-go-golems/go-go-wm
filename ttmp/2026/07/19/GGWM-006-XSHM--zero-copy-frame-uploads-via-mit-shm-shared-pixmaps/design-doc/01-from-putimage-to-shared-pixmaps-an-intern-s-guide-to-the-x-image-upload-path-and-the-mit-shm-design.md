@@ -187,7 +187,7 @@ disappears — first paints stop paying the multi-copy toll entirely,
 which is most of what remains of workspace-creation cost (76 ms CPU
 per workspace, dominated by exactly these copies).
 
-## Part IV — Implementation plan
+## Part IV — Implementation plan (XSHM)
 
 - **X1** — `pkg/xshm`: `Available`, `Surface`, lifecycle exactly as
   Part II's sequence (IPC_RMID immediately after attach); `WriteRGBA`
@@ -200,6 +200,66 @@ per workspace, dominated by exactly these copies).
   content through both paths, `GO_GO_WM_NO_SHM` as the control);
   `ipcs -m` clean after WM exit *and* after `kill -9`; both smoke
   suites; `ws-cpu.sh` and `perf-test.sh` before/after CPU numbers.
+
+## Part V — The rest of the optimization list (added after implementation)
+
+The user asked for the full GGWM-005 backlog; here is what each item
+became, with a decision record where the answer is "no".
+
+### Batch boot ops — implemented
+
+`WM.ApplyBatch(ops)` applies a burst in order and reconciles
+(syncBuiltins / relayout / paint / EWMH / refocus) **once** at the end;
+per-op events still fire, so the trace and rules see every op. Exposed
+as IPC `{"q":"batch","ops":[...]}`, `Backend.ApplyBatch`, and
+`wm.apply([op, ...])` — the existing escape hatch, now array-aware.
+i3.js pre-creates its nine workspaces in two batches (adds, then
+renames + come-home: renames need the ids the adds return). Result:
+boot-to-nine-workspaces went from 2.8s to *unmeasurable* — the
+workspaces exist before the control socket answers its first poll.
+Partial failure stops at the first bad op and returns the applied
+prefix's results plus an error naming the index.
+
+### Render directly in BGRA — rejected, superseded
+
+- **Context.** The conversion pass (~53% of what little CPU remains)
+  exists because pkg/draw renders RGBA and X wants BGRA.
+- **Decision.** Do not re-order pkg/draw. The correctness surface is
+  the whole rendering stack: golden tests, PNG screenshot tooling,
+  uispec, apps, and every color literal assume RGBA; a swap shim in
+  each would trade a mechanical hot loop for a diffuse invariant
+  ("which order is this buffer?") that every future contributor can
+  get wrong silently.
+- **Instead.** `draw.ConvertRows` parallelizes the swap across up to
+  4 goroutines for large surfaces (row bands; small surfaces stay
+  single-threaded to skip the handoff cost). Total CPU is unchanged
+  but per-paint wall latency drops ~3×, which was the observable cost.
+- **Status.** rejected (revisit only if a profile shows conversion
+  dominating *CPU budget*, not latency).
+
+### Damage-based partial repaints — deferred, designed
+
+- **Context.** Event-driven tile repaints (trace append, listener
+  print) re-render and re-convert whole panes.
+- **Why deferred.** The renderers (`apps.World`, uispec) are
+  whole-surface functions; nothing in the pipeline knows what changed.
+  Honest damage tracking means renderers returning dirty rects —
+  an API change across apps/uispec/scripttiles — and the trace, the
+  worst offender on paper, scrolls when full, which dirties the whole
+  pane anyway.
+- **Sketch for when it matters.** `render(...) (img, regions, dirty
+  image.Rectangle)`; `Surface.WriteRGBARect(img, dirty)` +
+  `ClearArea(dirty)` already fall out of the shm design; the Expose
+  path needs nothing.
+- **Status.** deferred until event volume makes a profile say so.
+
+### Cheap wins — implemented
+
+Parallel conversion (above), and the two bar windows now cache their
+X images like frames do (`blitCached`); menus, dividers, and the drop
+overlay keep the transient allocate-and-destroy path because their
+windows are short-lived and a cache keyed by window id would outlive
+them.
 
 ## Risks and open questions
 
