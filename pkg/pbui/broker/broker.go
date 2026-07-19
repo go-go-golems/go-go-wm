@@ -351,6 +351,21 @@ func (b *Broker) handle(c *conn, m *pbui.Msg) {
 			c.enqueue(&pbui.Msg{T: pbui.TError, Seq: m.Seq, Code: "bad-request", Msg: "menu.request needs object"})
 			return
 		}
+		// Presentation click contract: if an accept is pending and this
+		// object's type matches, a click ANSWERS the accept instead of
+		// opening a menu. This is what lets a git-commit scraped in a
+		// terminal (clicked → menu.request) answer a "Compare with…"
+		// accept, exactly like clicking a chip in a WM tile does.
+		if s := b.session; s != nil && pbui.TypeMatches(s.ptypes, m.Object.Ptype) {
+			if req, ok := b.clients[s.requester]; ok {
+				req.enqueue(&pbui.Msg{T: pbui.TAcceptResult, Seq: s.seq, Session: s.id, Object: m.Object})
+			}
+			c.enqueue(&pbui.Msg{T: pbui.TOK, Seq: m.Seq})
+			b.emit("accept.answered", jsonObj{"session": s.id, "ptype": m.Object.Ptype, "by": c.name}, c.name)
+			b.session = nil
+			b.broadcast(&pbui.Msg{T: pbui.TAcceptClear, Session: s.id, Reason: "done"})
+			return
+		}
 		verbs := b.verbsFor(m.Object.Ptype)
 		sent := false
 		for _, cl := range b.clients {

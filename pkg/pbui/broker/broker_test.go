@@ -322,3 +322,76 @@ func TestEventBus(t *testing.T) {
 		}
 	}
 }
+
+// A clicked presentation (menu.request) answers a matching pending
+// accept instead of popping a menu — the contract that lets a
+// terminal-scraped git-commit answer a "Compare with…" accept.
+func TestMenuRequestAnswersPendingAccept(t *testing.T) {
+	sock := startBroker(t)
+	requester := mustConnect(t, sock, "req")
+	clicker := mustConnect(t, sock, "cli-menu")
+
+	gotMode := make(chan string, 1)
+	clicker.OnAcceptMode(func(session string, ptypes []string, _ string) {
+		if len(ptypes) == 1 && ptypes[0] == "git-commit" {
+			gotMode <- session
+		}
+	})
+
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+
+	resultCh := make(chan *pbui.Object, 1)
+	go func() {
+		obj, err := requester.Accept(ctx, []string{"git-commit"}, "COMPARE — click another commit")
+		if err != nil {
+			t.Errorf("accept: %v", err)
+		}
+		resultCh <- obj
+	}()
+
+	select {
+	case <-gotMode:
+	case <-ctx.Done():
+		t.Fatal("clicker never saw accept.mode")
+	}
+
+	// The "click": a menu.request for a matching object. It must answer,
+	// not return a menu.
+	obj, _ := pbui.NewObject("git-commit", "deadbeef")
+	verbs, err := clicker.RequestMenu(ctx, obj, 0, 0)
+	if err != nil {
+		t.Fatalf("menu request: %v", err)
+	}
+	if verbs != nil {
+		t.Fatalf("during a matching accept, menu.request must answer (no verbs), got %v", verbs)
+	}
+	select {
+	case got := <-resultCh:
+		if got == nil || got.StringValue() != "deadbeef" {
+			t.Fatalf("accept answered with wrong object: %+v", got)
+		}
+	case <-ctx.Done():
+		t.Fatal("accept was not answered by the click")
+	}
+}
+
+// A non-matching click still opens a menu.
+func TestMenuRequestNonMatchingAcceptStillMenus(t *testing.T) {
+	sock := startBroker(t)
+	requester := mustConnect(t, sock, "req")
+	clicker := mustConnect(t, sock, "cli-menu")
+
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+	go func() { _, _ = requester.Accept(ctx, []string{"color"}, "pick a color") }()
+	time.Sleep(200 * time.Millisecond)
+
+	// Clicking an ip (no WM connected) returns the verb list, not an answer.
+	obj, _ := pbui.NewObject("ip", "1.2.3.4")
+	verbs, err := clicker.RequestMenu(ctx, obj, 0, 0)
+	if err != nil {
+		t.Fatalf("menu request: %v", err)
+	}
+	_ = verbs // no verbs registered here; the point is it did not answer/err
+}
