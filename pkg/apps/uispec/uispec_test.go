@@ -2,6 +2,7 @@ package uispec
 
 import (
 	"encoding/json"
+	"image"
 	"strings"
 	"testing"
 )
@@ -151,5 +152,96 @@ func TestSpecIsJSONStable(t *testing.T) {
 	}
 	if back[0][0].Ptype != "color" || back[0][0].Label != "w" {
 		t.Fatalf("round trip lost data: %+v", back)
+	}
+}
+
+func TestNormalizeTableSegment(t *testing.T) {
+	spec, err := Normalize([]interface{}{
+		[]interface{}{map[string]interface{}{
+			"kind":    "table",
+			"columns": []interface{}{"name", "n"},
+			"cells": []interface{}{
+				[]interface{}{"a", 1.0},
+				[]interface{}{"b", 2.5},
+			},
+			"more": 3.0,
+		}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	seg := spec[0][0]
+	if seg.Kind != KindTable || len(seg.Cells) != 2 || seg.More != 3 {
+		t.Fatalf("table seg: %+v", seg)
+	}
+	if seg.Cells[1][1] != "2.5" {
+		t.Fatalf("numeric cells must stringify: %+v", seg.Cells)
+	}
+	// Ragged rows rejected with the row index.
+	_, err = Normalize([]interface{}{
+		[]interface{}{map[string]interface{}{
+			"kind": "table", "columns": []interface{}{"a", "b"},
+			"cells": []interface{}{[]interface{}{"only-one"}},
+		}},
+	})
+	if err == nil || !strings.Contains(err.Error(), "row 0") {
+		t.Fatalf("ragged table: %v", err)
+	}
+}
+
+func TestNormalizeFieldAndImageRules(t *testing.T) {
+	spec, err := Normalize([]interface{}{
+		[]interface{}{map[string]interface{}{
+			"kind": "field", "text": "wm.tree()", "action": "submit", "focus": true,
+		}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if seg := spec[0][0]; seg.Kind != KindField || !seg.Focus || seg.Action != "submit" {
+		t.Fatalf("field seg: %+v", seg)
+	}
+	// Image segments are Go-side only.
+	_, err = Normalize([]interface{}{
+		[]interface{}{map[string]interface{}{"kind": "image"}},
+	})
+	if err == nil || !strings.Contains(err.Error(), "Go-side only") {
+		t.Fatalf("image from JS must be rejected: %v", err)
+	}
+}
+
+func TestRenderTableColorCellsAnswerAccepts(t *testing.T) {
+	spec := Spec{{Seg{
+		Kind:    KindTable,
+		Columns: []string{"name", "tone"},
+		Cells:   [][]string{{"rose", "#e05252"}, {"mint", "#52e0a0"}},
+	}}}
+	_, regions := Render(400, 200, spec, []string{"color"})
+	colorRegions := 0
+	for _, r := range regions {
+		if r.Object != nil && r.Object.Ptype == "color" {
+			colorRegions++
+		}
+	}
+	if colorRegions != 2 {
+		t.Fatalf("table color cells must be live objects: %d regions", colorRegions)
+	}
+}
+
+func TestRenderFieldRegionAndImage(t *testing.T) {
+	img := image.NewRGBA(image.Rect(0, 0, 40, 10))
+	spec := Spec{
+		{Seg{Kind: KindField, Text: "input", Action: "submit", Focus: true}},
+		{Seg{Kind: KindImage, Img: img}},
+	}
+	_, regions := Render(300, 200, spec, nil)
+	found := false
+	for _, r := range regions {
+		if r.Action == "field:submit" {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("field must emit its focus region: %+v", regions)
 	}
 }

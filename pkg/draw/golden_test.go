@@ -54,6 +54,9 @@ func TestGoldenTitleStrip(t *testing.T) {
 	checkGolden(t, "launcher-panel-empty", LauncherPanel{
 		Prompt: "run — type to filter", Width: 400, Height: 120, Compact: true,
 	}.Render())
+	checkGolden(t, "sparkline", Sparkline([]float64{1, 4, 2, 8, 5, 7, 3}, 200, 48))
+	checkGolden(t, "sparkline-flat", Sparkline([]float64{3, 3, 3}, 120, 32))
+	checkGolden(t, "bar-strip", BarStrip([]float64{2, -1, 4, 3, -2, 5}, 200, 48))
 }
 
 func TestGoldenBanner(t *testing.T) {
