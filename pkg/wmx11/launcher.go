@@ -351,18 +351,39 @@ func (w *WM) launchBuiltin(app string) {
 	w.focus(leafID)
 }
 
-// execCommand spawns a shell command detached, DISPLAY forced — the
-// one process-spawning path (shared with the terminal keybinding).
+// execCommand spawns a shell command detached with the desktop
+// environment injected — the one process-spawning path (shared with the
+// terminal keybinding and the launcher). Children inherit DISPLAY plus
+// the broker and WM-control sockets, so tools run inside the session
+// (go-go-wm scrape/menu/accept/query, clicked pbui:// links) reach THIS
+// desktop's sockets instead of the default paths, which an embedded
+// broker on a custom --socket is not using.
 func (w *WM) execCommand(cmdline string) {
 	c := exec.Command("sh", "-c", cmdline)
-	if w.cfg.Display != "" {
-		c.Env = append(c.Environ(), "DISPLAY="+w.cfg.Display)
-	}
+	c.Env = w.childEnv()
 	if err := c.Start(); err != nil {
 		log.Warn().Err(err).Str("cmd", cmdline).Msg("launch failed")
 		return
 	}
 	go func() { _ = c.Wait() }()
+}
+
+// childEnv is the environment handed to every process the WM spawns:
+// the inherited environment plus DISPLAY and the resolved socket paths.
+func (w *WM) childEnv() []string {
+	env := os.Environ()
+	if w.cfg.Display != "" {
+		env = append(env, "DISPLAY="+w.cfg.Display)
+	}
+	if !w.cfg.NoBroker && w.cfg.BrokerSocket != "" {
+		env = append(env, "PBUI_SOCKET="+w.cfg.BrokerSocket)
+	}
+	ipc := w.cfg.IPCSocket
+	if ipc == "" {
+		ipc = DefaultIPCSocketPath()
+	}
+	env = append(env, "GO_GO_WM_SOCKET="+ipc)
+	return env
 }
 
 // dispatchScriptCommand fires a script-registered command: in-process

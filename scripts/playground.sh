@@ -77,6 +77,12 @@ for _ in $(seq 40); do [ -S "$WM_SOCK" ] && break; sleep 0.25; done
 [ -S "$WM_SOCK" ] || { echo "WM never came up:"; tail -20 "$LOG/wm.log"; exit 1; }
 sleep 1
 
+# The WM sets these in its own process env; export them here too so the
+# xterm/repl/demos this SCRIPT spawns inherit them (clicked pbui:// links
+# and in-terminal go-go-wm tools then reach this desktop's broker).
+export PBUI_SOCKET="$PBUI_SOCK"
+export GO_GO_WM_SOCKET="$WM_SOCK"
+
 echo "populating the desktop…"
 # A terminal and the rich REPL as tiles.
 DISPLAY="$DPY" xterm -fa Monospace -fs 11 >"$LOG/xterm.log" 2>&1 &
@@ -182,8 +188,12 @@ FLOATS & FULLSCREEN
   · Mod4+f fullscreens the focused window; Mod4+f again restores
   · float toggle: $( [ "$RC" = "i3" ] && echo "Mod4+Shift+space" || echo "run: $BIN query … or bind it" )
 
-FROM ANOTHER TERMINAL (the desktop as an API)
-  export GO_GO_WM_SOCKET=$WM_SOCK
+FROM A TERMINAL INSIDE THE SESSION (xterm here, or Mod4+Return)
+  the broker/control sockets are already exported — tools just work:
+  scraped pbui:// links (git log | go-go-wm scrape, then click) open the
+  PBUI menu instead of a browser IF you ran 'go-go-wm kitty install' and
+  reloaded kitty (Ctrl+Shift+F5). From an OUTSIDE terminal, first:
+  export PBUI_SOCKET=$PBUI_SOCK  GO_GO_WM_SOCKET=$WM_SOCK
   $BIN accept --ptype color $SOCKS       # then click ANY swatch in Xephyr
   $BIN accept --ptype command $SOCKS     # launcher surfaces become pickers
   $BIN query tree $W --output json       # what the WM believes

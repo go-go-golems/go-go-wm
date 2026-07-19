@@ -86,6 +86,26 @@ func (c *WMCommand) Run(ctx context.Context, vals *values.Values) error {
 	}
 
 	sock := socketOrDefault(s.Socket)
+
+	// Publish the session's sockets into the WM process environment so
+	// everything it spawns — terminals, launcher apps, wm.exec children,
+	// and their grandchildren — reaches THIS desktop's broker and
+	// control socket. Without this, tools run inside the session
+	// (go-go-wm scrape/menu/accept, clicked pbui:// links) fall back to
+	// the default socket paths, which an embedded broker on a custom
+	// --socket is not using.
+	if !s.NoBroker {
+		_ = os.Setenv("PBUI_SOCKET", sock)
+	}
+	ipcSock := s.IPCSocket
+	if ipcSock == "" {
+		ipcSock = wmx11.DefaultIPCSocketPath()
+	}
+	_ = os.Setenv("GO_GO_WM_SOCKET", ipcSock)
+	if s.Display != "" {
+		_ = os.Setenv("DISPLAY", s.Display)
+	}
+
 	if s.EmbeddedBroker && !s.NoBroker {
 		b := broker.New()
 		go func() {

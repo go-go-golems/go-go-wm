@@ -30,8 +30,14 @@ Xvfb "$DPY" -screen 0 1024x768x24 >"$LOG/xvfb.log" 2>&1 &
 XVFB_PID=$!
 sleep 1
 
+# --spawn records the spawned child's environment: proves the WM
+# injects PBUI_SOCKET/GO_GO_WM_SOCKET (the custom sockets, not the
+# defaults) into everything it launches — so in-session tools and
+# clicked pbui:// links reach THIS desktop.
+CHILD_ENV="$LOG/child-env.txt"
 "$BIN" wm --display "$DPY" --embedded-broker \
   --socket "$PBUI_SOCK" --ipc-socket "$WM_SOCK" \
+  --spawn "env > $CHILD_ENV" \
   --rc examples/scripts/rc.js >"$LOG/wm.log" 2>&1 &
 WM_PID=$!
 
@@ -66,5 +72,21 @@ if [ "$AFTER" -le "$BEFORE" ]; then
   echo "FAIL: Mod4-e did not split (leaves $BEFORE → $AFTER)"; cat "$LOG/wm.log"; exit 1
 fi
 echo "ok: Mod4-e split the tree ($BEFORE → $AFTER leaves)"
+
+# 3. Mod4-Return spawns the --spawn command; assert the child inherited
+# this session's sockets (not the default paths).
+for _ in 1 2 3 4 5; do
+  DISPLAY="$DPY" xdotool key super+Return
+  sleep 0.6
+  [ -f "$CHILD_ENV" ] && break
+done
+[ -f "$CHILD_ENV" ] || { echo "FAIL: spawned child never recorded its env"; cat "$LOG/wm.log"; exit 1; }
+if ! grep -q "^PBUI_SOCKET=$PBUI_SOCK$" "$CHILD_ENV"; then
+  echo "FAIL: child PBUI_SOCKET not the session socket:"; grep -E 'PBUI_SOCKET|GO_GO_WM_SOCKET' "$CHILD_ENV"; exit 1
+fi
+if ! grep -q "^GO_GO_WM_SOCKET=$WM_SOCK$" "$CHILD_ENV"; then
+  echo "FAIL: child GO_GO_WM_SOCKET not the session socket:"; grep -E 'PBUI_SOCKET|GO_GO_WM_SOCKET' "$CHILD_ENV"; exit 1
+fi
+echo "ok: spawned children inherit the session sockets"
 
 echo "rc-smoke: PASS"
