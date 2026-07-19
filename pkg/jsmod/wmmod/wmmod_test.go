@@ -23,10 +23,10 @@ import (
 )
 
 type fakeBackend struct {
-	mu      sync.Mutex
-	d       *wmcore.Desktop
-	ops     []wmcore.Op
-	wins    []wmx11.WindowInfo
+	mu         sync.Mutex
+	d          *wmcore.Desktop
+	ops        []wmcore.Op
+	wins       []wmx11.WindowInfo
 	theme      string
 	focused    string
 	moves      []string
