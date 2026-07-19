@@ -45,3 +45,13 @@ P3 complete: wmx11.ScriptBackend (in-process Backend posting onto the WM loop), 
 - /home/manuel/workspaces/2026-07-18/go-go-wm/go-go-wm/pkg/wmx11/scripting.go — in-process backend
 - /home/manuel/workspaces/2026-07-18/go-go-wm/go-go-wm/scripts/rc-smoke.sh — E2E smoke
 
+
+## 2026-07-18
+
+P4 complete: rules.go normalize->compile (wm.layout/wm.layouts/wm.rule/wm.rules, workspace.apply idempotency contract), Go-side rule engine via EventFan.SubscribeGo (window.managed -> move-leaf, no JS in the path), glaze help topics wm-module/pbui-module, scripts/examples-smoke.sh running all 5 runnable examples as fixtures (PASS), example scripts cookbook reference doc. Live-verified: zoom-rule adoption into 'calls', project-switcher dev layout at 0.62.
+
+### Related Files
+
+- /home/manuel/workspaces/2026-07-18/go-go-wm/go-go-wm/pkg/jsmod/wmmod/rules.go — normalize->compile pipeline
+- /home/manuel/workspaces/2026-07-18/go-go-wm/go-go-wm/scripts/examples-smoke.sh — examples as CI fixtures
+

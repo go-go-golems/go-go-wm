@@ -21,7 +21,8 @@ pbui.verb(
   (tile) => pbui.print("noted tile ", pbui.object("tile", tile.value)),
 );
 
-// P4 preview: declarative placement rules, normalized and inspectable.
-// wm.rule({ title: /zoom/i, workspace: "calls" });
+// Declarative placement: new windows whose title matches go to their
+// workspace. Normalized at definition time; inspect with wm.rules().
+wm.rule({ title: /zoom/, workspace: "calls" });
 
 pbui.print("rc.js loaded — Mod4-e splits right, Mod4-Shift-e splits below");

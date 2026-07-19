@@ -23,13 +23,14 @@ const queryTimeout = 2 * time.Second
 
 // Module binds a Backend (and the shared event fan) to one goja runtime.
 type Module struct {
-	backend Backend
-	fan     *jsmod.EventFan // nil → wm.on unavailable
+	backend   Backend
+	fan       *jsmod.EventFan // nil → wm.on and rules unavailable
+	ruleState *ruleState
 }
 
 // New creates the module. fan may be nil (no event subscriptions).
 func New(backend Backend, fan *jsmod.EventFan) *Module {
-	return &Module{backend: backend, fan: fan}
+	return &Module{backend: backend, fan: fan, ruleState: newRuleState()}
 }
 
 func (m *Module) call(vm *goja.Runtime, what string, fn func(ctx context.Context) (interface{}, error)) goja.Value {
@@ -227,6 +228,9 @@ func (m *Module) Loader() require.ModuleLoader {
 			return goja.Undefined()
 		})
 		set("bind", m.jsBind(vm))
+
+		// ---- rules and layouts (P4) ----------------------------------
+		m.installRuleExports(vm, set)
 	}
 }
 

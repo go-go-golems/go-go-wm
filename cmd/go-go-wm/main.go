@@ -10,6 +10,7 @@ import (
 	"github.com/go-go-golems/glazed/pkg/help"
 	help_cmd "github.com/go-go-golems/glazed/pkg/help/cmd"
 	wmcmds "github.com/go-go-golems/go-go-wm/pkg/cmds"
+	"github.com/go-go-golems/go-go-wm/pkg/doc"
 	"github.com/spf13/cobra"
 )
 
@@ -38,6 +39,8 @@ func main() {
 	cobra.CheckErr(err)
 
 	helpSystem := help.NewHelpSystem()
+	err = doc.AddDocToHelpSystem(helpSystem)
+	cobra.CheckErr(err)
 	help_cmd.SetupCobraRootCommand(helpSystem, rootCmd)
 
 	// Daemons.

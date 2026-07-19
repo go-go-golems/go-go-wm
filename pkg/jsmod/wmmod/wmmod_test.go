@@ -255,3 +255,117 @@ func TestReplayReproducesTree(t *testing.T) {
 }
 
 func containsStr(s, sub string) bool { return strings.Contains(s, sub) }
+
+func TestLayoutNormalizeAndInspect(t *testing.T) {
+	fake := newFake("a")
+	rt := newRuntime(t, fake)
+	run(t, rt, `
+		const wm = require("wm");
+		wm.layout("dev", {
+			split: "row", ratio: 0.62,
+			a: { app: "editor" },
+			b: { split: "col", a: { app: "terminal" }, b: { app: "notes" } },
+		});
+		var plans = wm.layouts();
+	`)
+	plans, _ := run(t, rt, `wm.layouts()`).(map[string]interface{})
+	dev, _ := plans["dev"].(map[string]interface{})
+	if dev == nil || dev["kind"] != "split" || dev["ratio"] != 0.62 {
+		t.Fatalf("normalized plan wrong: %v", dev)
+	}
+	b, _ := dev["b"].(map[string]interface{})
+	if b == nil || b["kind"] != "split" || b["ratio"] != 0.5 {
+		t.Fatalf("nested split not normalized with default ratio: %v", b)
+	}
+
+	// Definition-time failure: unknown keys and bad ratios throw.
+	for _, bad := range []string{
+		`wm.layout("x", { split: "diagonal", a: {app:"a"}, b: {app:"b"} })`,
+		`wm.layout("x", { split: "row", frobnicate: 1, a: {app:"a"}, b: {app:"b"} })`,
+		`wm.layout("x", { split: "row", ratio: 0.05, a: {app:"a"}, b: {app:"b"} })`,
+		`wm.layout("x", { app: "a", extra: true })`,
+		`wm.layout("x", {})`,
+	} {
+		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+		_, err := rt.Owner.Call(ctx, "test", func(_ context.Context, vm *goja.Runtime) (any, error) {
+			return vm.RunScript("t.js", bad)
+		})
+		cancel()
+		if err == nil {
+			t.Fatalf("bad layout accepted: %s", bad)
+		}
+	}
+	if len(fake.ops) != 0 {
+		t.Fatalf("defining layouts must not mutate: %v", fake.ops)
+	}
+}
+
+func TestLayoutApplyBuildsOnceAndIsIdempotent(t *testing.T) {
+	fake := newFake("") // fresh desktop, single empty leaf
+	rt := newRuntime(t, fake)
+	built := run(t, rt, `
+		const wm = require("wm");
+		wm.layout("dev", {
+			split: "row", ratio: 0.62,
+			a: { app: "editor" },
+			b: { split: "col", a: { app: "terminal" }, b: { app: "notes" } },
+		});
+		wm.workspace("ws-1").apply("dev");
+	`)
+	if built != true {
+		t.Fatalf("first apply should build, got %v", built)
+	}
+	root := fake.d.Workspaces[0].Root
+	if root.Kind != wmcore.Split || root.Ratio != 0.62 || root.Dir != wmcore.Row {
+		t.Fatalf("root split wrong: %+v", root)
+	}
+	apps := map[string]bool{}
+	root.Walk(func(n *wmcore.Node) {
+		if n.Kind == wmcore.Leaf {
+			apps[n.App] = true
+		}
+	})
+	if !apps["editor"] || !apps["terminal"] || !apps["notes"] {
+		t.Fatalf("apps not placed: %v", apps)
+	}
+
+	before := len(fake.ops)
+	again := run(t, rt, `wm.workspace("ws-1").apply("dev")`)
+	if again != false {
+		t.Fatalf("second apply should no-op, got %v", again)
+	}
+	if len(fake.ops) != before {
+		t.Fatalf("idempotent apply minted ops: %v", fake.ops[before:])
+	}
+}
+
+func TestRuleNormalization(t *testing.T) {
+	fake := newFake("a")
+	rt := newRuntime(t, fake)
+	// Rules need a fan (broker); without one wm.rule must throw clearly.
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	_, err := rt.Owner.Call(ctx, "test", func(_ context.Context, vm *goja.Runtime) (any, error) {
+		return vm.RunScript("t.js", `require("wm").rule({ title: "zoom", workspace: "calls" })`)
+	})
+	if err == nil || !strings.Contains(err.Error(), "broker") {
+		t.Fatalf("rule without broker should throw about the broker, got %v", err)
+	}
+	// normalizeRule runs before the broker check, so shape errors throw
+	// regardless of the fan.
+	for _, bad := range []string{
+		`require("wm").rule({ title: "x", workspace: "w", frobnicate: 1 })`,
+		`require("wm").rule({ workspace: "w" })`,
+		`require("wm").rule({ title: "x" })`,
+		`require("wm").rule({ title: "[", workspace: "w" })`,
+	} {
+		c2, cancel2 := context.WithTimeout(context.Background(), 2*time.Second)
+		_, err := rt.Owner.Call(c2, "test", func(_ context.Context, vm *goja.Runtime) (any, error) {
+			return vm.RunScript("t.js", bad)
+		})
+		cancel2()
+		if err == nil {
+			t.Fatalf("bad rule accepted: %s", bad)
+		}
+	}
+}

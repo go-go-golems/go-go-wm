@@ -1,6 +1,7 @@
 package wmmod
 
 import (
+	"context"
 	"fmt"
 
 	"github.com/dop251/goja"
@@ -121,6 +122,25 @@ func (m *Module) workspaceObj(vm *goja.Runtime, name string) goja.Value {
 		res := m.apply(vm, "workspace.clone", wmcore.Op{Op: wmcore.OpCloneWorkspace, Workspace: id})
 		return vm.ToValue(res.NewWorkspace)
 	})
+	// apply(layoutName) — build a stored layout recipe on this workspace.
+	// Only fresh workspaces (single empty leaf) are built; anything else
+	// is a no-op returning false — that is the idempotency contract.
+	mustSetObj(obj, "apply", func(call goja.FunctionCall) goja.Value {
+		layoutName := call.Argument(0).String()
+		m.ruleState.mu.Lock()
+		plan := m.ruleState.layouts[layoutName]
+		m.ruleState.mu.Unlock()
+		if plan == nil {
+			panic(vm.ToValue("workspace.apply: no layout " + layoutName + " (define it with wm.layout)"))
+		}
+		ctx, cancel := goCtx()
+		defer cancel()
+		built, err := m.applyLayout(ctx, id, plan)
+		if err != nil {
+			panic(vm.ToValue("workspace.apply: " + err.Error()))
+		}
+		return vm.ToValue(built)
+	})
 	// adopt(leaf, {target?, dir?}) — pull a leaf from wherever it lives.
 	mustSetObj(obj, "adopt", func(call goja.FunctionCall) goja.Value {
 		op := wmcore.Op{Op: wmcore.OpMoveLeaf, Node: nodeArg(vm, call, 0, "workspace.adopt: leaf"), Workspace: id}
@@ -142,4 +162,8 @@ func mustSetObj(o *goja.Object, name string, v interface{}) {
 	if err := o.Set(name, v); err != nil {
 		panic(fmt.Errorf("wmmod: set %s: %w", name, err))
 	}
+}
+
+func goCtx() (context.Context, context.CancelFunc) {
+	return context.WithTimeout(context.Background(), queryTimeout)
 }

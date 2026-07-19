@@ -299,7 +299,65 @@ property.
 is opaque), `pkg/cmds/rc.go` (second broker connection, lifetime tied to
 WM ctx), then run `GO_GO_WM_BIN=<bin> scripts/rc-smoke.sh`.
 
+## Entry 4 — 2026-07-18: P4 — rules, layouts, help topics, examples as fixtures
+
+### What was done, in order
+
+1. `pkg/jsmod/wmmod/rules.go`: the normalize→compile pipeline.
+   `normalizeLayout` turns nested `{split, ratio, a, b}` / `{app}` specs
+   into `LayoutStep` trees — unknown keys, bad dirs, out-of-range ratios
+   all throw at `wm.layout()` definition time. `compileLayout` walks
+   top-down (split while the target is still a leaf, set the ratio via
+   the parent-split lookup, recurse) emitting only standard Ops.
+   `workspace.apply(name)` builds **only on a fresh workspace** (single
+   empty leaf) and returns false otherwise — the idempotency contract.
+2. Rules: `normalizeRule` accepts a string (Go regexp) or a JS RegExp
+   (via its `source` property), compiles case-insensitive, rejects
+   unknown keys. The rule engine is a **Go-side** subscriber — new
+   `EventFan.SubscribeGo` + `EnsurePump` so rules fire with no JS
+   handler involved: `window.managed` → match title → ensureWorkspace →
+   `move-leaf`. First match wins. `wm.rules()`/`wm.layouts()` expose the
+   normalized forms for tests and humans.
+3. `pkg/doc` + topics `wm-module`, `pbui-module` wired into the glaze
+   help system (`go-go-wm help wm-module`).
+4. `scripts/examples-smoke.sh`: every example is a CI fixture — hello,
+   git-verbs (verb registration asserted), palette (accept answered by
+   the CLI), golden (self-asserting), project-switcher (workspace
+   asserted) — bare broker for the first three, Xvfb for the rest.
+   **PASS** end to end.
+5. `reference/02-example-scripts-cookbook.md` — the show-and-tell tour.
+6. Tests: layout normalize/inspect (5 bad specs rejected, zero ops
+   minted by definitions), apply-once-idempotent (structure + ratio +
+   apps asserted, second apply mints nothing), rule shape rejection.
+
+### Live verification
+
+- rc.js with `wm.rule({title: /zoom/, workspace: "calls"})`:
+  `xterm -T "Zoom Meeting"` was moved into a freshly created "calls"
+  workspace by the Go-side engine (screenshot: tree dump in entry).
+- `project-switcher.js --once` against the live WM: workspace
+  `go-go-wm` built as editor | (terminal/notes) at ratio 0.62
+  (screenshot 04). Second run: no-op, as designed.
+
+### What didn't work
+
+- A JS RegExp `Export()`s as a plain map, so the first `normalizeRule`
+  type-switch rejected `/zoom/` with the very error message meant for
+  *invalid* titles. Reordered: try string export, then read `source`
+  off the `*goja.Object`. rc.js log caught it immediately
+  ("rc: script failed … rule.title must be a string or RegExp").
+
+### Code review instructions
+
+`rules.go` top to bottom (it is the P4 deliverable): check
+definition-time validation is exhaustive, `compileLayout`'s top-down
+order, and that the rule engine path never touches goja. Then
+`EventFan.SubscribeGo`/`EnsurePump` (Go handlers run on the drainer —
+verify nothing VM-related leaks in). Finish with
+`GO_GO_WM_BIN=<bin> scripts/examples-smoke.sh`.
+
 ## Related
 
 - design-doc/02 — the implementation guide this diary executes.
 - GGWM-001 reference/02 — the diary of the WM build itself.
+- reference/02 — the example scripts cookbook (P4).

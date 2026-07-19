@@ -2,6 +2,7 @@ package jsmod
 
 import (
 	"context"
+	"fmt"
 	"sync"
 	"time"
 
@@ -21,8 +22,12 @@ import (
 type EventFan struct {
 	cl *client.Client
 
-	mu   sync.Mutex
-	subs map[string][]namedHandler // event ("*" = all) → handlers
+	mu     sync.Mutex
+	subs   map[string][]namedHandler // event ("*" = all) → JS handlers
+	goSubs map[string][]func(*pbui.Msg)
+
+	services    runtimebridge.RuntimeServices // captured on first JS Subscribe
+	hasServices bool
 
 	pumpOnce  sync.Once
 	queue     *boundedQueue[*pbui.Msg]
@@ -42,13 +47,25 @@ func NewEventFan(cl *client.Client, queueSize int) *EventFan {
 	return &EventFan{
 		cl:        cl,
 		subs:      map[string][]namedHandler{},
+		goSubs:    map[string][]func(*pbui.Msg){},
 		queue:     newBoundedQueue[*pbui.Msg](queueSize),
 		queueSize: queueSize,
 	}
 }
 
-// Subscribe registers fn for event and lazily starts the pump. Must be
-// called on the VM thread (it is: only loader-installed functions call it).
+// SubscribeGo registers a Go-side handler (no VM involved — e.g. the
+// wmmod rule engine). Handlers run on the drainer goroutine and must not
+// touch goja state. The pump must already be running or be started later
+// by a JS Subscribe; call EnsurePump to start it explicitly.
+func (f *EventFan) SubscribeGo(event string, fn func(*pbui.Msg)) {
+	f.mu.Lock()
+	f.goSubs[event] = append(f.goSubs[event], fn)
+	f.mu.Unlock()
+}
+
+// Subscribe registers a JS handler for event and lazily starts the pump.
+// Must be called on the VM thread (it is: only loader-installed functions
+// call it).
 func (f *EventFan) Subscribe(vm *goja.Runtime, event, tag string, fn goja.Callable) error {
 	services, ok := runtimebridge.Lookup(vm)
 	if !ok {
@@ -56,27 +73,37 @@ func (f *EventFan) Subscribe(vm *goja.Runtime, event, tag string, fn goja.Callab
 	}
 	f.mu.Lock()
 	f.subs[event] = append(f.subs[event], namedHandler{fn: fn, tag: tag})
+	if !f.hasServices {
+		f.services, f.hasServices = services, true
+	}
 	f.mu.Unlock()
+	return f.EnsurePump(services.Lifetime())
+}
 
+// EnsurePump starts the read-pump and drainer once. ctx bounds the
+// drainer's life. Safe to call multiple times.
+func (f *EventFan) EnsurePump(ctx context.Context) error {
+	if f.cl == nil {
+		return fmt.Errorf("no broker connection")
+	}
 	var startErr error
 	f.pumpOnce.Do(func() {
-		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+		subCtx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 		defer cancel()
-		ch, err := f.cl.Events(ctx)
+		ch, err := f.cl.Events(subCtx)
 		if err != nil {
 			startErr = err
 			return
 		}
-		lifetime := services.Lifetime()
-		go func() { // pump: never blocks on the JS side
+		go func() { // pump: never blocks on the consumer side
 			for msg := range ch {
 				f.queue.Push(msg)
 			}
 		}()
-		go func() { // drainer: one Post delivers the whole batch
+		go func() { // drainer: Go handlers inline, one Post per JS batch
 			for {
 				select {
-				case <-lifetime.Done():
+				case <-ctx.Done():
 					return
 				case <-f.queue.Wake():
 				}
@@ -88,16 +115,39 @@ func (f *EventFan) Subscribe(vm *goja.Runtime, event, tag string, fn goja.Callab
 				if len(batch) == 0 {
 					continue
 				}
-				_ = services.PostWithLifetimeContext("events.batch",
-					func(_ context.Context, vm *goja.Runtime) {
-						for _, msg := range batch {
-							f.dispatch(vm, msg)
-						}
-					})
+				f.mu.Lock()
+				services, hasJS := f.services, f.hasServices && f.jsHandlerCount() > 0
+				goSubs := f.goSubs
+				f.mu.Unlock()
+				for _, msg := range batch {
+					for _, fn := range goSubs[msg.Event] {
+						fn(msg)
+					}
+					for _, fn := range goSubs["*"] {
+						fn(msg)
+					}
+				}
+				if hasJS {
+					_ = services.PostWithLifetimeContext("events.batch",
+						func(_ context.Context, vm *goja.Runtime) {
+							for _, msg := range batch {
+								f.dispatch(vm, msg)
+							}
+						})
+				}
 			}
 		}()
 	})
 	return startErr
+}
+
+// jsHandlerCount must be called with f.mu held.
+func (f *EventFan) jsHandlerCount() int {
+	n := 0
+	for _, hs := range f.subs {
+		n += len(hs)
+	}
+	return n
 }
 
 // dispatch runs on the owner loop.
