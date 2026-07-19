@@ -202,3 +202,134 @@ one genuinely embarrassing infinite loop.
   (Field surface + Sel block caret) but does not yet share code; the
   launcher panel predates the segment. Unification is recorded as
   cleanup, not required.
+
+## Step 3: R2+R3 — the surface, the kernel dance, and the thesis test
+
+The cell surface shipped as a pure model (`pkg/repl/session.go`) inside
+an xapp host (`pkg/cmds/replui.go`), and the ticket's thesis got an
+honest E2E: a color evaluated in the REPL, located on screen by
+scanning a screenshot for its exact RGB, clicked — and a CLI
+`accept --ptype color` received it. Out[n] is a live presentation.
+
+Getting console capture and raw-value capture to coexist took three
+kernel-profile rounds, all recorded below because the constraint set
+is non-obvious.
+
+### Prompt Context
+
+**User prompt (verbatim):** (see Step 1, "next ticket")
+
+**User prompt (verbatim, mid-step):** "are you making a repl app for the WM aswell? or is it CLI?"
+
+**Assistant interpretation:** Clarify the delivery form: terminal REPL,
+X-window app, or WM-embedded tile.
+
+**Inferred user intent:** Understand what they'll actually get to use —
+answered in the wrap-up (both: `repl` stays CLI, `repl --ui` is an X
+window the WM tiles + a launcher entry; the WM-embedded kernel variant
+is the recorded deferral below).
+
+**Commit (code):** bfff739 — "GGWM-009: the rich REPL surface — repl --ui, kernel capture, desktop integration"
+
+### What I did
+- `pkg/repl/session.go`: Cell/Session; Submit/Complete; history with
+  draft restore (Up/Down); per-cell view switcher rows and fold
+  buttons; bottom-anchored scroll windowing with an "… N earlier rows"
+  hint; the input field row always last and focused. Six model tests.
+- `pkg/cmds/replui.go`: `repl --ui` (new flags ui/display on the repl
+  command); richReplApp implements xapp.App+Keyer (mutex-guarded
+  model, evaluation in a goroutine, completion posted back); kernel =
+  replapi RawConfig + session prelude (Out(n), $_ getter, console
+  shim) + expression wrap with verbatim fallback + one WithRuntime
+  capture call per cell (console drain, raw export, __pbui__ call,
+  NormalizeRich→Derive).
+- Verbs `repl.use` / `repl.copy-input` registered for every produced
+  ptype; verb targets mapped back to cells by value equality (objects
+  carry values, not cell numbers).
+- Launcher entry "repl (notebook)" (`os.Executable() + " repl --ui"`)
+  in the WM's builtin command source.
+- `scripts/replui-smoke.sh`: 9 stages — window managed, number, color,
+  **the accept-by-click thesis stage**, dataset, console capture on
+  the statement path, error surfacing, Out(n) arithmetic, verb
+  registration.
+
+### Why
+- The screenshot-RGB click (ImageMagick `import … txt:- | grep -im1
+  AA5533`) is coordinate-free: it survives layout changes because it
+  finds the swatch by what makes it a swatch.
+
+### What worked
+- First live screenshot of the surface was already right: In[1] 1+1,
+  Out[1] chip + fold button, text view, focused field — the whole
+  keys→kernel→capture→derive→render pipeline on the first boot.
+- The thesis stage passed on its first executable run.
+
+### What didn't work
+1. **First smoke run: no events at all.** The `query events` follower
+   buffers rows until exit (glazed table output); a follower that
+   never reaches `--count` never flushes, so greping its file
+   mid-run sees nothing. Probed empirically: rows DO flush on
+   timeout/SIGTERM exit, and `--output json --output-as-objects`
+   flushes complete objects. Fix: per-assertion follower
+   (`expect_event`) with `timeout 8` + wait + grep.
+2. **Console capture absent under RawConfig.** `console.log("hello")`
+   went to the process stdout; `ExecutionReport.Console` stayed empty
+   — `Observe.ConsoleCapture` is off in the Raw profile.
+3. **Switching to InteractiveConfig broke the capture wrap**:
+   `SyntaxError: Line 4:5 Unexpected token ;` — the Interactive
+   profile's binding-capture IIFE rewriter rejects the multi-line
+   assignment wrap. Resolution: stay on RawConfig (identical semantics
+   to the terminal REPL) and capture console in the *prelude* (a JS
+   console shim pushing into `__pbui_console`, drained and reset in
+   the same WithRuntime call as value capture — both paths, statements
+   included).
+
+### What I learned
+- Kernel profiles are not interchangeable: Raw executes anything but
+  observes nothing; Interactive observes but rewrites (and its
+  rewriter has opinions about your syntax). Owning the capture in the
+  prelude decouples the surface from profile choice entirely.
+- glazed processors flush on exit even when killed — a usable contract
+  for E2E followers, but only once you know it.
+
+### What was tricky to build
+- The per-cell capture call must run even for failed and statement
+  cells (console must drain, or lines leak into the *next* cell's
+  output); the error return had to move after the WithRuntime pass.
+- Submit-then-evaluate across two loops: Submit mutates the model
+  under the xapp loop, evaluation runs in a goroutine against the
+  owner-serialized kernel, completion posts back — the uimod
+  snapshot discipline, with the mutex only ever held for model edits.
+
+### What warrants a second pair of eyes
+- The wrap's SyntaxError sniffing (`strings.Contains(exec.Error,
+  "SyntaxError")`) — a *runtime* SyntaxError thrown by user code
+  (e.g. `eval("(")`) would re-evaluate the input once. Side-effectful
+  code before such a throw would run twice. Rare, but real; a parse
+  pre-check via the kernel's static report would close it.
+- `findCellByValue` maps verb targets by (ptype, string value) — two
+  cells with equal values resolve to the newest, which is the intended
+  ambiguity but worth knowing.
+
+### What should be done in the future
+- **Recorded deferral:** the design's `builtin:repl` WM-tile host
+  (a second replapi kernel inside the WM process). The standalone
+  window already *is* a tile once managed, and the launcher entry
+  makes it one keystroke away; embedding buys process-freeness at the
+  cost of a full in-WM kernel + module wiring. The keyboard substrate
+  it needs exists (GGWM-008 L3), so it is unblocked whenever wanted.
+- R4 enrichment beyond the schema view (wm.tree outline, string link
+  scraping, session save/replay) — deferred; cells are already data.
+- Completion/interrupt: kernel support absent upstream (unchanged).
+
+### Code review instructions
+- Read `replKernel.eval` in pkg/cmds/replui.go (the capture dance),
+  then `Session.Spec`/`outRows` in pkg/repl/session.go. Validate:
+  `go test ./pkg/repl/` and `scripts/replui-smoke.sh` (9 stages).
+
+### Technical details
+- Event: `repl.cell-done {n, input, error, console, ptype?, summary?}`
+  — the E2E assertion surface.
+- The accept answer path for Out chips is plain uispec: object
+  segments with real ptypes highlight and answer exactly like any
+  builtin app's chips (zero REPL-specific accept code).
