@@ -18,6 +18,7 @@ import (
 
 	"github.com/go-go-golems/go-go-wm/pkg/jsmod"
 	"github.com/go-go-golems/go-go-wm/pkg/jsmod/pbuimod"
+	"github.com/go-go-golems/go-go-wm/pkg/jsmod/uimod"
 	"github.com/go-go-golems/go-go-wm/pkg/jsmod/wmmod"
 	"github.com/go-go-golems/go-go-wm/pkg/pbui/client"
 )
@@ -98,7 +99,7 @@ func (c *RunCommand) Run(ctx context.Context, vals *values.Values) error {
 		defer func() { _ = cl.Close() }()
 	}
 
-	rt, err := buildScriptRuntime(ctx, cl, s.WMSocket, s.AllowExec)
+	rt, err := buildScriptRuntime(ctx, cl, socketOrDefault(s.Socket), s.WMSocket, s.AllowExec)
 	if err != nil {
 		return err
 	}
@@ -148,7 +149,7 @@ func (c *RunCommand) Run(ctx context.Context, vals *values.Values) error {
 // pbui and wm modules plus the data-only default modules, and exec only
 // when the capability flag grants it. Both modules share one event-bus
 // subscription (the EventFan).
-func buildScriptRuntime(ctx context.Context, cl *client.Client, wmSocket string, allowExec bool) (*engine.Runtime, error) {
+func buildScriptRuntime(ctx context.Context, cl *client.Client, brokerSocket, wmSocket string, allowExec bool) (*engine.Runtime, error) {
 	fan := jsmod.NewEventFan(cl, 256)
 	var wmFan *jsmod.EventFan
 	if cl != nil {
@@ -165,6 +166,11 @@ func buildScriptRuntime(ctx context.Context, cl *client.Client, wmSocket string,
 			ModuleID:   "wm",
 			ModuleName: wmmod.ModuleName,
 			Loader:     wmmod.New(&wmmod.IPCBackend{Socket: wmSocket}, wmFan).Loader(),
+		},
+		engine.NativeModuleRegistrar{
+			ModuleID:   "ui",
+			ModuleName: uimod.ModuleName,
+			Loader:     uimod.New(uimod.Options{BrokerSocket: brokerSocket}).Loader(),
 		},
 	)
 	if allowExec {

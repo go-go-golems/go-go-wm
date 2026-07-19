@@ -18,6 +18,7 @@ cd "$(dirname "$0")/.."
 
 cleanup() {
   [ -n "${GITVERBS_PID:-}" ] && kill "$GITVERBS_PID" 2>/dev/null || true
+  [ -n "${JSCOLORS_PID:-}" ] && kill "$JSCOLORS_PID" 2>/dev/null || true
   [ -n "${WM_PID:-}" ] && kill "$WM_PID" 2>/dev/null || true
   [ -n "${BROKER_PID:-}" ] && kill "$BROKER_PID" 2>/dev/null || true
   [ -n "${XVFB_PID:-}" ] && kill "$XVFB_PID" 2>/dev/null || true
@@ -56,7 +57,8 @@ Xvfb "$DPY" -screen 0 1024x768x24 >"$LOG/xvfb.log" 2>&1 &
 XVFB_PID=$!
 sleep 1
 "$BIN" wm --display "$DPY" --embedded-broker \
-  --socket "$PBUI_SOCK" --ipc-socket "$WM_SOCK" >"$LOG/wm.log" 2>&1 &
+  --socket "$PBUI_SOCK" --ipc-socket "$WM_SOCK" \
+  --rc examples/scripts/rc-tile.js >"$LOG/wm.log" 2>&1 &
 WM_PID=$!
 for _ in $(seq 40); do [ -S "$WM_SOCK" ] && break; sleep 0.25; done
 [ -S "$WM_SOCK" ] || { echo "FAIL: WM never came up"; cat "$LOG/wm.log"; exit 1; }
@@ -69,5 +71,20 @@ echo "ok: golden.js self-asserted"
 "$BIN" query tree --wm-socket "$WM_SOCK" | grep -q "go-go-wm" \
   || { echo "FAIL: project-switcher workspace missing"; exit 1; }
 echo "ok: project-switcher.js built its workspace"
+
+# rc-tile.js ran as the WM's rc: the scripted tile must be in the tree.
+"$BIN" query tree --wm-socket "$WM_SOCK" | grep -q "script:js-counter" \
+  || { echo "FAIL: rc-tile.js script tile missing"; cat "$LOG/wm.log"; exit 1; }
+echo "ok: rc-tile.js registered and placed its tile"
+
+# js-colors.js: a JS ui.app serving verbs on the desktop.
+DISPLAY="$DPY" "$BIN" run --socket "$PBUI_SOCK" --wm-socket "$WM_SOCK" \
+  examples/scripts/js-colors.js >"$LOG/jscolors.log" 2>&1 &
+JSCOLORS_PID=$!
+sleep 2
+"$BIN" query verbs --socket "$PBUI_SOCK" --ptype color | grep -q "color.darken" \
+  || { echo "FAIL: js-colors.js verb missing"; cat "$LOG/jscolors.log"; exit 1; }
+kill "$JSCOLORS_PID" 2>/dev/null || true
+echo "ok: js-colors.js ui.app is a desktop citizen"
 
 echo "examples-smoke: PASS"

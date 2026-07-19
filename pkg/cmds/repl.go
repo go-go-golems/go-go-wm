@@ -17,6 +17,7 @@ import (
 
 	"github.com/go-go-golems/go-go-wm/pkg/jsmod"
 	"github.com/go-go-golems/go-go-wm/pkg/jsmod/pbuimod"
+	"github.com/go-go-golems/go-go-wm/pkg/jsmod/uimod"
 	"github.com/go-go-golems/go-go-wm/pkg/jsmod/wmmod"
 	"github.com/go-go-golems/go-go-wm/pkg/pbui/client"
 )
@@ -84,6 +85,10 @@ func (c *ReplCommand) Run(ctx context.Context, vals *values.Values) error {
 		engine.NativeModuleRegistrar{
 			ModuleID: "wm", ModuleName: wmmod.ModuleName,
 			Loader: wmmod.New(&wmmod.IPCBackend{Socket: s.WMSocket}, fan).Loader(),
+		},
+		engine.NativeModuleRegistrar{
+			ModuleID: "ui", ModuleName: uimod.ModuleName,
+			Loader: uimod.New(uimod.Options{BrokerSocket: socketOrDefault(s.Socket)}).Loader(),
 		},
 	)
 	factory, err := builder.Build()

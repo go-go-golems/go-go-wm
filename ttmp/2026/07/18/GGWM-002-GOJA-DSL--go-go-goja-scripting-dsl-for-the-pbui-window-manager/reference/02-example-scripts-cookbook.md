@@ -16,7 +16,7 @@ RelatedFiles:
     - Path: repo://scripts/examples-smoke.sh
       Note: runs every script here as a CI fixture
 ExternalSources: []
-Summary: The seven example scripts that demonstrate the go-go-wm scripting layer, from a three-line hello to a declarative project switcher — what each one shows, how to run it, and what it proves about the architecture.
+Summary: The example scripts that demonstrate the go-go-wm scripting layer, from a three-line hello to a declarative project switcher — what each one shows, how to run it, and what it proves about the architecture.
 LastUpdated: 2026-07-18T23:05:00-04:00
 WhatFor: Show-and-tell tour of the scripting DSL; each script is also a live test fixture.
 WhenToUse: Read alongside design-doc/01 §examples; run them with `go-go-wm run` against a live desktop (or let scripts/examples-smoke.sh run them for you).
@@ -24,7 +24,7 @@ WhenToUse: Read alongside design-doc/01 §examples; run them with `go-go-wm run`
 
 # Example scripts cookbook
 
-Seven scripts, ordered simple → interesting. Canonical copies:
+Nine scripts, ordered simple → interesting. Canonical copies:
 `examples/scripts/` (repo). Copies for reading live in this ticket's
 `sources/scripts/`. Every one of them runs in CI via
 `scripts/examples-smoke.sh` (broker-only ones against a bare broker, the
@@ -131,3 +131,26 @@ wm> wm.split(wm.focused(), "col", {app: "builtin:trace"})
 Same modules, live desktop, persistent bindings across lines (the REPL
 kernel IIFE-rewrites cells). The API you explore here is exactly the API
 of `run` scripts and rc.js.
+
+## 8. js-colors.js — a whole app in JavaScript (GGWM-003)
+
+```bash
+go-go-wm run examples/scripts/js-colors.js            # daemon
+```
+
+`ui.app({render, actions, verbs})` — the render() returns rows of
+segments; Go draws them and wires the click contract. The color chips
+answer desktop accepts (highlighting included), the buttons mutate JS
+state, and `color.darken` appears in every color's right-click menu,
+served by this script.
+
+## 9. rc-tile.js — a WM-painted scripted tile (GGWM-003)
+
+```bash
+go-go-wm wm --display :1 --embedded-broker --rc examples/scripts/rc-tile.js
+```
+
+`app.tile()` registers the surface with the WM itself; the WM paints it
+like trace/listener and routes clicks back into the rc runtime. The
+returned `"script:js-counter"` string is placed with an ordinary
+`wm.split`.

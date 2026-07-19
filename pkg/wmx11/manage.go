@@ -2,6 +2,7 @@ package wmx11
 
 import (
 	"image"
+	"strings"
 
 	"github.com/jezek/xgb/xproto"
 	"github.com/jezek/xgbutil"
@@ -276,8 +277,13 @@ func (w *WM) paintFrame(f *frame) {
 	draw.Fill(img, img.Bounds(), draw.Pane)
 	stripColor := draw.AppColor(leafColor(f.leaf))
 	if name := w.builtinAppOf(f); f.client == 0 && name != "" {
-		stripColor = apps.BuiltinColor(name)
-		f.title = apps.BuiltinTitle(name)
+		if strings.HasPrefix(name, scriptPrefix) {
+			stripColor = draw.Lavender
+			f.title = strings.TrimPrefix(name, scriptPrefix) + " (js)"
+		} else {
+			stripColor = apps.BuiltinColor(name)
+			f.title = apps.BuiltinTitle(name)
+		}
 	}
 	strip := draw.TitleStrip{
 		Title:   f.title,

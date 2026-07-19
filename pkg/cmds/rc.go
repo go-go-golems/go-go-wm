@@ -11,6 +11,7 @@ import (
 
 	"github.com/go-go-golems/go-go-wm/pkg/jsmod"
 	"github.com/go-go-golems/go-go-wm/pkg/jsmod/pbuimod"
+	"github.com/go-go-golems/go-go-wm/pkg/jsmod/uimod"
 	"github.com/go-go-golems/go-go-wm/pkg/jsmod/wmmod"
 	"github.com/go-go-golems/go-go-wm/pkg/pbui/client"
 	"github.com/go-go-golems/go-go-wm/pkg/wmx11"
@@ -45,6 +46,7 @@ func startRC(ctx context.Context, w *wmx11.WM, rcPath, brokerSocket string, noBr
 			}
 		}
 
+		backend := &wmx11.ScriptBackend{WM: w}
 		fan := jsmod.NewEventFan(cl, 256)
 		builder := engine.NewRuntimeFactoryBuilder()
 		builder.WithModules(
@@ -54,7 +56,14 @@ func startRC(ctx context.Context, w *wmx11.WM, rcPath, brokerSocket string, noBr
 			},
 			engine.NativeModuleRegistrar{
 				ModuleID: "wm", ModuleName: wmmod.ModuleName,
-				Loader: wmmod.New(&wmx11.ScriptBackend{WM: w}, fan).Loader(),
+				Loader: wmmod.New(backend, fan).Loader(),
+			},
+			engine.NativeModuleRegistrar{
+				ModuleID: "ui", ModuleName: uimod.ModuleName,
+				Loader: uimod.New(uimod.Options{
+					BrokerSocket: brokerSocket,
+					TileHost:     backend,
+				}).Loader(),
 			},
 		)
 		factory, err := builder.Build()

@@ -113,6 +113,8 @@ type WM struct {
 
 	world *apps.World // state behind the embedded trace/listener/inspector
 
+	scriptTiles map[string]*scriptTile // "script:<name>" renderers (rc.js apps)
+
 	broker *client.Client // nil in pure-WM mode
 	ops    chan func()
 	ctx    context.Context

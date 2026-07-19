@@ -19,6 +19,8 @@ topics:
       description: go-go-goja JavaScript runtime embedding
     - slug: scripting
       description: Scripting surfaces, DSLs, automation
+    - slug: ui
+      description: 'Scripted UI surfaces: the ui module, uispec IR, script tiles'
 docTypes:
     - slug: design-doc
       description: Structured rationale and architecture notes

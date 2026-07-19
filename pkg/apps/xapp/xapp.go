@@ -43,6 +43,13 @@ type Keyer interface {
 	HandleKey(ctx Ctx, key string)
 }
 
+// Starter is an optional App extension: Started runs once on the xapp
+// loop after the window and broker are up, handing the app its Ctx so
+// out-of-band state changes (timers, bus events) can trigger Redraw.
+type Starter interface {
+	Started(ctx Ctx)
+}
+
 // Ctx is what handlers get: broker access plus a repaint trigger.
 type Ctx struct {
 	Broker *client.Client
@@ -133,6 +140,9 @@ func Run(ctx context.Context, display, brokerSocket string, app App) error {
 	}).Connect(X, win.Id)
 
 	a.w, a.h = 640, 420
+	if starter, ok := app.(Starter); ok {
+		starter.Started(a.appCtx())
+	}
 	a.redraw()
 
 	pingBefore, pingAfter, pingQuit := xevent.MainPing(X)

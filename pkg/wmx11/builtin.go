@@ -24,12 +24,18 @@ import (
 const builtinPrefix = "builtin:"
 
 func isBuiltinLeaf(app string) bool {
-	return app == "" || app == apps.AppLauncher || strings.HasPrefix(app, builtinPrefix)
+	return app == "" || app == apps.AppLauncher ||
+		strings.HasPrefix(app, builtinPrefix) || strings.HasPrefix(app, scriptPrefix)
 }
 
+// builtinName maps a leaf app to its renderer name. Script tiles keep
+// their "script:" prefix so the paint path can branch on it.
 func builtinName(app string) string {
 	if app == "" || app == apps.AppLauncher {
 		return apps.AppLauncher
+	}
+	if strings.HasPrefix(app, scriptPrefix) {
+		return app
 	}
 	return strings.TrimPrefix(app, builtinPrefix)
 }
@@ -81,7 +87,11 @@ func (w *WM) openBuiltin(leafID wmcore.NodeID, name string) {
 	if err != nil {
 		return
 	}
-	f := &frame{leaf: leafID, client: 0, win: fw, title: apps.BuiltinTitle(name)}
+	title := apps.BuiltinTitle(name)
+	if strings.HasPrefix(name, scriptPrefix) {
+		title = strings.TrimPrefix(name, scriptPrefix) + " (js)"
+	}
+	f := &frame{leaf: leafID, client: 0, win: fw, title: title}
 	w.frames[leafID] = f
 	w.byFrame[fw.Id] = f
 	w.connectFrameEvents(fw)
@@ -116,7 +126,13 @@ func (w *WM) paintBuiltin(f *frame, img *image.RGBA) []apps.Region {
 	if w.accepting != nil {
 		accepting = w.accepting.ptypes
 	}
-	content, regions := apps.RenderBuiltin(name, cw, ch, w.world, accepting)
+	var content *image.RGBA
+	var regions []apps.Region
+	if strings.HasPrefix(name, scriptPrefix) {
+		content, regions = w.renderScriptTile(name, cw, ch, accepting)
+	} else {
+		content, regions = apps.RenderBuiltin(name, cw, ch, w.world, accepting)
+	}
 	copyImage(img, content, draw.BorderW, draw.TitleH)
 	// Shift regions into frame coordinates.
 	for i := range regions {
@@ -149,6 +165,11 @@ func (w *WM) builtinClick(f *frame, x, y, rootX, rootY, button int) {
 
 // builtinAction runs launcher buttons and listener commands.
 func (w *WM) builtinAction(f *frame, action string) {
+	// Script tiles own their whole action namespace.
+	if name := w.builtinAppOf(f); strings.HasPrefix(name, scriptPrefix) {
+		w.scriptTileAction(name, action)
+		return
+	}
 	switch {
 	case strings.HasPrefix(action, "launch:"):
 		name := strings.TrimPrefix(action, "launch:")
