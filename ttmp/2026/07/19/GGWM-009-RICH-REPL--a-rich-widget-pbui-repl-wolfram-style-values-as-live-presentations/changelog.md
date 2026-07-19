@@ -25,3 +25,8 @@ Implemented R1-R3: pkg/repl (Value/Derive/NormalizeRich, bounded), uispec table/
 
 Dogfooding fix: notebook prelude pre-binds wm/pbui/ui (user hit 'wm is not defined'); terminal REPL keeps explicit require. replui-smoke stage added (10 green). Commit b2bc199.
 
+
+## 2026-07-19
+
+Dogfooding: theme switches now repaint standalone windows — xapp WithThemeFollowing (demo apps), fan-ordered redraw subscription (repl --ui), explicit fullscreen-frame paint in setTheme. Pixel-verified 245,240,227→38,38,38; replui-smoke stage 10. Commit dd931f3.
+
