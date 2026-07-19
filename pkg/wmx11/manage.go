@@ -409,12 +409,39 @@ func matchesTile(ptypes []string) bool {
 	return false
 }
 
+// copyImage blits src into dst at (x, y) by row copies. The obvious
+// per-pixel dst.Set(src.At(...)) version allocates a color interface
+// per pixel and was 73% of the workspace-creation CPU (GGWM-005
+// follow-up profile) — blits are memmove jobs.
 func copyImage(dst *image.RGBA, src *image.RGBA, x, y int) {
 	b := src.Bounds()
+	w := b.Dx()
+	if w <= 0 {
+		return
+	}
+	db := dst.Bounds()
 	for yy := b.Min.Y; yy < b.Max.Y; yy++ {
-		for xx := b.Min.X; xx < b.Max.X; xx++ {
-			dst.Set(x+xx, y+yy, src.At(xx, yy))
+		dy := y + yy - b.Min.Y
+		if dy < db.Min.Y || dy >= db.Max.Y {
+			continue
 		}
+		// Clip the row horizontally against dst.
+		sx, cw := b.Min.X, w
+		dx := x
+		if dx < db.Min.X {
+			sx += db.Min.X - dx
+			cw -= db.Min.X - dx
+			dx = db.Min.X
+		}
+		if dx+cw > db.Max.X {
+			cw = db.Max.X - dx
+		}
+		if cw <= 0 {
+			continue
+		}
+		so := src.PixOffset(sx, yy)
+		do := dst.PixOffset(dx, dy)
+		copy(dst.Pix[do:do+cw*4], src.Pix[so:so+cw*4])
 	}
 }
 

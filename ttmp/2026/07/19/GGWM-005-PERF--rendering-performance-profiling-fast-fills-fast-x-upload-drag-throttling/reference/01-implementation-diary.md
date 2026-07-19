@@ -84,6 +84,38 @@ convicts, and prove the symptom moved.
   fixture retries up to five presses — a real binding regression still
   fails. Both smoke suites green afterwards (9/9 + rc-smoke).
 
+## Entry 4 — the blit the first profiles hid (user follow-up)
+
+The user asked what workspace creation actually costs in CPU and
+whether the loaded machine (load average 19–51 on 8 cores — ollama
+et al.) was inflating the numbers. Measuring CPU seconds instead of
+wall time (`/proc/<pid>/stat` utime+stime around the op burst,
+`ws-cpu.sh` in this ticket's scripts/) separated the two:
+
+- Before this entry: 8×(add+rename) cost **2.75s of WM CPU** — 344ms
+  per workspace, load-independent, so no, it was not just the load.
+- A pprof capture scoped to the burst convicted `wmx11.copyImage`
+  (73% cum): the strip/content blit did `dst.Set(x, y, src.At(x, y))`
+  per pixel — `image.RGBA.Set` allocates a `color.Color` interface
+  per call, so the top flat nodes were mallocgcTiny/convTnoptr/
+  color.Convert. Entry 1's profile never showed it because Fill and
+  convertRGBA drowned it; each optimization round exposes the next
+  layer.
+- After rewriting copyImage as clipped row copies: **0.61s CPU total,
+  76ms per workspace (4.5×)**; the burst profile is now only
+  CopyToXImage + memmove + upload syscalls — the irreducible
+  pipeline.
+- Wall time under load 51 was 4.1s for 0.61s of CPU: at this point
+  ~85% of perceived boot latency is scheduler queueing from the
+  overloaded machine, not the WM. On an idle machine the same burst
+  should take well under a second.
+
+Lesson recorded in the guide: profile → fix → re-profile is not
+optional ceremony — three rounds found three different dominant costs
+(convert/Fill, then GC/Expose, then this blit), each invisible until
+the previous one was removed. And: measure CPU seconds when the
+machine is busy; wall time conflates your code with everyone else's.
+
 ### What was tricky
 
 - Optimizing in the wrong order would have lied: Fill/convert had to
