@@ -133,6 +133,13 @@ func (w *WM) cancelAccept() {
 		return
 	}
 	if w.accepting == nil || w.broker == nil {
+		// No modal state: Escape clears the focused launcher tile's query.
+		if st := w.launcherTiles[w.focused]; st != nil && st.query != "" {
+			st.query, st.sel = "", 0
+			if f := w.frames[w.focused]; f != nil {
+				w.paintFrame(f)
+			}
+		}
 		return
 	}
 	session := w.accepting.session

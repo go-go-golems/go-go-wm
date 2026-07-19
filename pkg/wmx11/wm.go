@@ -164,8 +164,9 @@ type WM struct {
 	accepting *acceptState
 	mouseDoc  string
 
-	registry *launcher.Registry // the command registry (GGWM-008)
-	launcher *launcherUI        // the open popup, nil when closed
+	registry      *launcher.Registry              // the command registry (GGWM-008)
+	launcher      *launcherUI                     // the open popup, nil when closed
+	launcherTiles map[wmcore.NodeID]*launcherTile // empty-tile query states (L3)
 
 	drag *dragState
 

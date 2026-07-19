@@ -172,6 +172,8 @@ func (w *WM) dispatchIPC(req ipcRequest) ipcResponse {
 			done <- ipcResponse{OK: true}
 		case "launcher":
 			done <- ipcResponse{OK: true, Data: w.launcherInfo()}
+		case "launcher-tile":
+			done <- ipcResponse{OK: true, Data: w.launcherTileInfo()}
 		default:
 			done <- ipcResponse{OK: false, Error: "unknown query " + req.Q}
 		}

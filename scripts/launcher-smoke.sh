@@ -145,4 +145,62 @@ done
 [ "$TOK" = 1 ] || fail "builtin:trace never appeared in the tree"
 echo "ok: builtin launch sets the leaf app"
 
+# --- L3: the launcher tile (frame keyboard substrate) ----------------------
+
+tfield() {
+  ipc '{"q":"launcher-tile"}' | python3 -c "
+import json, sys
+d = json.loads(sys.stdin.read())['data']
+print($1)
+"
+}
+
+# 7. A fresh workspace focuses its empty launcher tile; typing filters it.
+ipc '{"q":"op","op":{"op":"add-workspace"}}' >/dev/null
+sleep 0.5
+[ -n "$(tfield "d['leaf']")" ] || fail "no launcher tile focused after add-workspace"
+DISPLAY="$DPY" xdotool type --delay 40 "trace"
+TQ=0
+for _ in $(seq 20); do
+  [ "$(tfield "d['query']")" = "trace" ] && TQ=1 && break
+  sleep 0.25
+done
+[ "$TQ" = 1 ] || fail "typed query never reached the tile (query=$(tfield "d['query']"))"
+[ "$(tfield "d['rows'][0]")" = "builtin:trace" ] || fail "tile filter did not rank builtin:trace first"
+echo "ok: typed keys reach the focused launcher tile"
+
+# 8. WM chords still win while a tile is focused: Mod4+d opens the
+# popup and the tile's query is untouched.
+CHORD=0
+for _ in 1 2 3 4 5; do
+  DISPLAY="$DPY" xdotool key super+d
+  sleep 0.5
+  is_open && CHORD=1 && break
+done
+[ "$CHORD" = 1 ] || fail "Mod4+d chord swallowed by the tile"
+ipc '{"q":"launcher-close"}' >/dev/null
+[ "$(tfield "d['query']")" = "trace" ] || fail "chord leaked characters into the tile"
+echo "ok: WM chords never reach the tile"
+
+# 9. Enter launches into this tile (builtin takes the leaf over).
+LEAF="$(tfield "d['leaf']")"
+DISPLAY="$DPY" xdotool key Return
+TOK=0
+for _ in $(seq 20); do
+  ipc '{"q":"tree"}' | python3 -c "
+import json, sys
+d = json.loads(sys.stdin.read())['data']
+def walk(n):
+    if n is None: return False
+    if n.get('id') == '$LEAF': return n.get('app') == 'builtin:trace'
+    return walk(n.get('a')) or walk(n.get('b'))
+ok = any(walk(w['root']) for w in d['workspaces'])
+raise SystemExit(0 if ok else 1)
+" && TOK=1 && break
+  sleep 0.25
+done
+[ "$TOK" = 1 ] || fail "Enter did not launch builtin:trace into leaf $LEAF"
+[ -z "$(tfield "d['leaf']")" ] || fail "launcher tile state survived the launch"
+echo "ok: Enter launches into the tile itself"
+
 echo "PASS: launcher smoke"

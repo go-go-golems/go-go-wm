@@ -36,6 +36,11 @@ func (w *WM) connectFrameEvents(fw *xwindow.Window) {
 		// Frames see motion during grip drags that started on them.
 		w.handleMotion(int(ev.RootX), int(ev.RootY))
 	}).Connect(w.X, id)
+	xevent.KeyPressFun(func(_ *xgbutil.XUtil, ev xevent.KeyPressEvent) {
+		if f := w.byFrame[ev.Event]; f != nil {
+			w.handleFrameKey(f, ev.State, ev.Detail)
+		}
+	}).Connect(w.X, id)
 	xevent.ButtonReleaseFun(func(_ *xgbutil.XUtil, ev xevent.ButtonReleaseEvent) {
 		w.handleRelease(int(ev.RootX), int(ev.RootY))
 	}).Connect(w.X, id)

@@ -1,8 +1,10 @@
 package wmx11
 
 import (
+	"image"
 	"image/color"
 	"os/exec"
+	"strings"
 
 	"github.com/jezek/xgb/xproto"
 	"github.com/jezek/xgbutil"
@@ -315,12 +317,202 @@ func (w *WM) dispatchScriptCommand(cmd launcher.Command) {
 	log.Warn().Str("id", cmd.ID).Msg("script command dispatch not wired yet (L4)")
 }
 
+// --- the keyboard substrate + launcher tile (L3) ---------------------------
+
+// handleFrameKey routes a KeyPress delivered to a frame window to the
+// focused WM-rendered surface. The design rule: typed input goes to the
+// focused surface; chords with a WM modifier never do (global grabs
+// fire first by X semantics, and unbound chords are dropped here).
+func (w *WM) handleFrameKey(f *frame, mods uint16, code xproto.Keycode) {
+	if f.client != 0 {
+		return
+	}
+	if mods&(xproto.ModMask4|xproto.ModMask1|xproto.ModMaskControl) != 0 {
+		return
+	}
+	s := keybind.LookupString(w.X, mods, code)
+	if s == "" {
+		return
+	}
+	name := w.builtinAppOf(f)
+	if strings.HasPrefix(name, scriptPrefix) {
+		// The uimod seam: the key closure is a single post to the JS loop.
+		if tile := w.scriptTiles[strings.TrimPrefix(name, scriptPrefix)]; tile != nil && tile.key != nil {
+			tile.key(s)
+		}
+		return
+	}
+	if name == apps.AppLauncher {
+		w.launcherTileKey(f, s)
+	}
+}
+
+// launcherTile is one empty tile's live query state (WM-side; the
+// renderer in pkg/apps is stateless). Keyed by leaf id — leaf ids are
+// never reused, and syncBuiltins prunes states of vanished leaves.
+type launcherTile struct {
+	query string
+	sel   int
+}
+
+func (w *WM) launcherTileState(leaf wmcore.NodeID) *launcherTile {
+	if w.launcherTiles == nil {
+		w.launcherTiles = map[wmcore.NodeID]*launcherTile{}
+	}
+	st := w.launcherTiles[leaf]
+	if st == nil {
+		st = &launcherTile{}
+		w.launcherTiles[leaf] = st
+	}
+	return st
+}
+
+// launcherTileRows are the visible matches for a tile's query.
+func (w *WM) launcherTileRows(st *launcherTile, maxRows int) []launcher.Scored {
+	if w.registry == nil {
+		return nil
+	}
+	rows := w.registry.Match(st.query)
+	if len(rows) > maxRows {
+		rows = rows[:maxRows]
+	}
+	if st.sel >= len(rows) {
+		st.sel = 0
+	}
+	return rows
+}
+
+// launcherTileKey is the tile's keyboard: same vocabulary as the popup,
+// but Enter launches into this tile.
+func (w *WM) launcherTileKey(f *frame, s string) {
+	st := w.launcherTileState(f.leaf)
+	switch s {
+	case "Return", "KP_Enter":
+		rows := w.launcherTileRows(st, launcherMaxShown)
+		if st.sel < len(rows) {
+			w.launchIntoTile(f, rows[st.sel].Command)
+		}
+		return
+	case "Up":
+		if st.sel > 0 {
+			st.sel--
+		}
+	case "Down":
+		st.sel++ // clamped by launcherTileRows on render
+	case "BackSpace":
+		if st.query != "" {
+			st.query = st.query[:len(st.query)-1]
+			st.sel = 0
+		}
+	case "space":
+		st.query += " "
+	default:
+		if len(s) == 1 && s[0] >= 0x20 && s[0] < 0x7f {
+			st.query += s
+			st.sel = 0
+		} else {
+			return
+		}
+	}
+	w.paintFrame(f)
+}
+
+// launchIntoTile launches a command with this tile as the target:
+// builtins take the leaf over; apps spawn (the new client lands in the
+// empty leaf via placementLeaf); scripts dispatch to their runtime.
+func (w *WM) launchIntoTile(f *frame, cmd launcher.Command) {
+	w.registry.Bump(cmd.ID)
+	delete(w.launcherTiles, f.leaf)
+	switch cmd.Kind {
+	case launcher.KindBuiltin:
+		_, _ = w.Apply(wmcore.Op{Op: wmcore.OpSetLeafApp, Node: f.leaf, App: cmd.ID})
+		w.focus(f.leaf)
+	case launcher.KindApp:
+		cmdline := cmd.Exec
+		if cmd.Terminal {
+			term := w.cfg.Spawn
+			if term == "" {
+				term = "xterm"
+			}
+			cmdline = term + " -e " + cmd.Exec
+		}
+		w.execCommand(cmdline)
+		w.paintFrame(f)
+	case launcher.KindScript:
+		w.dispatchScriptCommand(cmd)
+		w.paintFrame(f)
+	}
+	w.emitEvent("command.launched", map[string]interface{}{
+		"id": cmd.ID, "label": cmd.Label, "kind": string(cmd.Kind),
+		"leaf": string(f.leaf),
+	})
+}
+
+// renderLauncherTile is the empty tile's surface (launcher tile v2):
+// the compact panel over the shared registry, plus a hint line.
+// Regions carry launchcmd: actions so rows are clickable.
+func (w *WM) renderLauncherTile(f *frame, cw, ch int) (*image.RGBA, []apps.Region) {
+	st := w.launcherTileState(f.leaf)
+	panel := draw.LauncherPanel{
+		Query:   st.query,
+		Prompt:  "type to run — Enter launches here",
+		Compact: true,
+		Width:   cw,
+		Height:  ch - 18,
+	}
+	rows := w.launcherTileRows(st, panel.MaxRows())
+	for _, r := range rows {
+		panel.Rows = append(panel.Rows, draw.LauncherRow{
+			Label: r.Label, Doc: r.Doc, Tag: string(r.Kind),
+			Tone: commandTone(r.Command),
+		})
+	}
+	panel.Selected = st.sel
+
+	img := apps.NewSurface(cw, ch)
+	copyImage(img, panel.Render(), 0, 0)
+	draw.Text(img, 8, ch-6, "empty tile — Mod4-Return: terminal · Mod4-d: popup · X clients land here",
+		false, 10, draw.Faint)
+
+	var regions []apps.Region
+	for i, r := range panel.RowRects() {
+		regions = append(regions, apps.Region{
+			Rect: r, Action: "launchcmd:" + rows[i].ID,
+			Doc: rows[i].Label + " — click to launch here",
+		})
+	}
+	return img, regions
+}
+
 // LauncherInfo is the debug/introspection view ({"q":"launcher"}).
 type LauncherInfo struct {
 	Open     bool     `json:"open"`
 	Query    string   `json:"query"`
 	Selected int      `json:"selected"`
 	Rows     []string `json:"rows"` // visible command ids, in order
+}
+
+// LauncherTileInfo is the focused launcher tile's debug view
+// ({"q":"launcher-tile"}).
+type LauncherTileInfo struct {
+	Leaf     string   `json:"leaf"`
+	Query    string   `json:"query"`
+	Selected int      `json:"selected"`
+	Rows     []string `json:"rows"`
+}
+
+func (w *WM) launcherTileInfo() LauncherTileInfo {
+	f := w.frames[w.focused]
+	if f == nil || f.client != 0 || w.builtinAppOf(f) != apps.AppLauncher {
+		return LauncherTileInfo{}
+	}
+	st := w.launcherTileState(f.leaf)
+	rows := w.launcherTileRows(st, launcherMaxShown)
+	ids := make([]string, len(rows))
+	for i, r := range rows {
+		ids[i] = r.ID
+	}
+	return LauncherTileInfo{Leaf: string(f.leaf), Query: st.query, Selected: st.sel, Rows: ids}
 }
 
 func (w *WM) launcherInfo() LauncherInfo {

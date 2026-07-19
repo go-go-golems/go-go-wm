@@ -50,6 +50,7 @@ func (w *WM) syncBuiltins() {
 			if f.client == 0 {
 				delete(w.frames, leaf)
 				delete(w.byFrame, f.win.Id)
+				delete(w.launcherTiles, leaf)
 				xevent.Detach(w.X, f.win.Id)
 				f.dropBuffers()
 				f.win.Destroy()
@@ -79,6 +80,9 @@ func (w *WM) openBuiltin(leafID wmcore.NodeID, name string) {
 	if err != nil {
 		return
 	}
+	// KeyPress is the L3 substrate (GGWM-008): builtin frames take input
+	// focus themselves (client == 0), so typed keys arrive here and
+	// route to the focused surface via handleFrameKey.
 	err = fw.CreateChecked(w.X.RootWin(), 0, 0, 100, 100,
 		xproto.CwBackPixel|xproto.CwEventMask,
 		uint32(pixel(draw.Pane)),
@@ -86,7 +90,8 @@ func (w *WM) openBuiltin(leafID wmcore.NodeID, name string) {
 			xproto.EventMaskButtonRelease|
 			xproto.EventMaskPointerMotion|
 			xproto.EventMaskExposure|
-			xproto.EventMaskEnterWindow)
+			xproto.EventMaskEnterWindow|
+			xproto.EventMaskKeyPress)
 	if err != nil {
 		return
 	}
@@ -131,9 +136,14 @@ func (w *WM) paintBuiltin(f *frame, img *image.RGBA) []apps.Region {
 	}
 	var content *image.RGBA
 	var regions []apps.Region
-	if strings.HasPrefix(name, scriptPrefix) {
+	switch {
+	case strings.HasPrefix(name, scriptPrefix):
 		content, regions = w.renderScriptTile(name, cw, ch, accepting)
-	} else {
+	case name == apps.AppLauncher:
+		// Launcher tile v2 (GGWM-008 L3): the live registry surface,
+		// rendered WM-side because its query state lives with the WM.
+		content, regions = w.renderLauncherTile(f, cw, ch)
+	default:
 		content, regions = apps.RenderBuiltin(name, cw, ch, w.world, accepting)
 	}
 	copyImage(img, content, draw.BorderW, draw.TitleH)
@@ -174,6 +184,11 @@ func (w *WM) builtinAction(f *frame, action string) {
 		return
 	}
 	switch {
+	case strings.HasPrefix(action, "launchcmd:"):
+		// Launcher tile row click: launch into this tile (GGWM-008 L3).
+		if cmd, ok := w.registry.Get(strings.TrimPrefix(action, "launchcmd:")); ok {
+			w.launchIntoTile(f, cmd)
+		}
 	case strings.HasPrefix(action, "launch:"):
 		name := strings.TrimPrefix(action, "launch:")
 		_, _ = w.Apply(wmcore.Op{Op: wmcore.OpSetLeafApp, Node: f.leaf, App: builtinPrefix + name})
