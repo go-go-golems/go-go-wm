@@ -251,9 +251,22 @@ func (b *Broker) handle(c *conn, m *pbui.Msg) {
 			})
 		}
 	case pbui.TRegister:
+		// Upsert by (owner, id): re-registration replaces, so clients can
+		// send their verb set as often as they like (scripts do this on
+		// every pbui.verb call) without duplicating menu entries.
 		for _, v := range m.Verbs {
 			v.Owner = c.name
-			b.verbs = append(b.verbs, v)
+			replaced := false
+			for i := range b.verbs {
+				if b.verbs[i].Owner == v.Owner && b.verbs[i].ID == v.ID {
+					b.verbs[i] = v
+					replaced = true
+					break
+				}
+			}
+			if !replaced {
+				b.verbs = append(b.verbs, v)
+			}
 		}
 		c.enqueue(&pbui.Msg{T: pbui.TOK, Seq: m.Seq})
 		b.emit("verbs.registered", jsonObj{"owner": c.name, "count": len(m.Verbs)}, "broker")

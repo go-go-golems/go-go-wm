@@ -57,6 +57,8 @@ func main() {
 	addBare(rootCmd, menuCmd, err)
 	scrapeCmd, err := wmcmds.NewScrapeCommand()
 	addBare(rootCmd, scrapeCmd, err)
+	runCmd, err := wmcmds.NewRunCommand()
+	addBare(rootCmd, runCmd, err)
 	demoCmd, err := wmcmds.NewDemoCommand()
 	addBare(rootCmd, demoCmd, err)
 

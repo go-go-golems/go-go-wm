@@ -14,3 +14,13 @@ Ticket created. Studied the go-go-goja and widget-dsl KB MOCs plus tribal notes 
 
 Added intern implementation guide (design-doc 02): go-go-goja runtime model (factory/owner/loop/runtimebridge), promise settlement pattern from fs_async, Backend interface for dual attachment, module implementation notes, concurrency contract with failure modes, testing strategy, phased file-level plan. Expanded tasks to file level.
 
+
+## 2026-07-18
+
+P1 complete: pkg/jsmod bridge+errors, pbuimod (promise accept, verbs, events w/ bounded queue, data helpers), go-go-wm run --once/--allow-exec, 9 broker-backed tests + queue tests + FuzzBridge (found & fixed 2 pre-existing pbui URI bugs + broker verb duplication), example scripts in examples/scripts/. Live-verified: hello.js print, git-verbs.js daemon verbs, palette.js cross-process accept flow.
+
+### Related Files
+
+- /home/manuel/workspaces/2026-07-18/go-go-wm/go-go-wm/pkg/cmds/run.go — run command
+- /home/manuel/workspaces/2026-07-18/go-go-wm/go-go-wm/pkg/jsmod/pbuimod/module.go — pbui native module
+

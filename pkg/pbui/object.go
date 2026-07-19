@@ -21,8 +21,31 @@ type Object struct {
 	Doc   string          `json:"doc,omitempty"`   // mouse-doc line text
 }
 
+// ValidPtype reports whether s is a legal presentation type name. Ptypes
+// are slugs ([A-Za-z0-9._-]) because they travel in the host position of
+// pbui:// URIs, where anything else cannot round-trip. Enforced at every
+// entry point (NewObject, ObjectFromURI) so nothing downstream has to
+// re-check.
+func ValidPtype(s string) bool {
+	if s == "" {
+		return false
+	}
+	for _, r := range s {
+		switch {
+		case r >= 'a' && r <= 'z', r >= 'A' && r <= 'Z', r >= '0' && r <= '9',
+			r == '.', r == '_', r == '-':
+		default:
+			return false
+		}
+	}
+	return true
+}
+
 // NewObject builds an Object from any JSON-representable value.
 func NewObject(ptype string, value interface{}) (Object, error) {
+	if !ValidPtype(ptype) {
+		return Object{}, fmt.Errorf("pbui: invalid ptype %q (want [A-Za-z0-9._-]+)", ptype)
+	}
 	raw, err := json.Marshal(value)
 	if err != nil {
 		return Object{}, fmt.Errorf("pbui: value for %q not JSON-representable: %w", ptype, err)
@@ -93,7 +116,7 @@ func ObjectFromURI(uri string) (Object, error) {
 		return Object{}, fmt.Errorf("pbui: not a %s:// uri: %q", URIScheme, uri)
 	}
 	ptype, err := url.PathUnescape(u.Host)
-	if err != nil || ptype == "" {
+	if err != nil || !ValidPtype(ptype) {
 		return Object{}, fmt.Errorf("pbui: bad ptype in uri %q", uri)
 	}
 	if v := u.Query().Get("v"); v != "" {
@@ -106,7 +129,9 @@ func ObjectFromURI(uri string) (Object, error) {
 		}
 		return Object{Ptype: ptype, Value: raw}, nil
 	}
-	s, err := url.PathUnescape(strings.TrimPrefix(u.Path, "/"))
+	// Unescape the *raw* path: url.Parse has already decoded u.Path once,
+	// so unescaping that again would double-decode values containing '%'.
+	s, err := url.PathUnescape(strings.TrimPrefix(u.EscapedPath(), "/"))
 	if err != nil {
 		return Object{}, fmt.Errorf("pbui: bad value in uri %q", uri)
 	}
