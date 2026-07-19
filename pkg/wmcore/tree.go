@@ -370,3 +370,53 @@ func MoveSplit(root *Node, from, target NodeID, zone Zone, g *IDGen) (*Node, err
 	})
 	return out, nil
 }
+
+// DetachLeaf removes leaf id from root and returns the shrunk tree plus a
+// copy of the detached leaf (same id, ready to graft elsewhere). Refuses
+// to detach the only leaf — the caller decides what an empty tree means.
+func DetachLeaf(root *Node, id NodeID) (*Node, *Node, error) {
+	leaf := root.FindLeaf(id)
+	if leaf == nil {
+		return root, nil, fmt.Errorf("detach-leaf: no leaf %q", id)
+	}
+	if root.Kind == Leaf {
+		return root, nil, fmt.Errorf("detach-leaf: cannot detach the only leaf")
+	}
+	out := removeLeaf(root, id)
+	if out.FindLeaf(id) != nil {
+		return root, nil, fmt.Errorf("detach-leaf: could not detach %q", id)
+	}
+	return out, leaf.Clone(), nil
+}
+
+// GraftLeaf inserts an existing (detached) leaf into root by splitting
+// target — or wrapping the whole root when target is empty. The leaf
+// keeps its id, which is what lets a window frame survive a move across
+// workspaces.
+func GraftLeaf(root *Node, leaf *Node, target NodeID, dir Dir, g *IDGen) (*Node, error) {
+	if leaf == nil || leaf.Kind != Leaf {
+		return root, fmt.Errorf("graft-leaf: not a leaf")
+	}
+	if root.Find(leaf.ID) != nil {
+		return root, fmt.Errorf("graft-leaf: id %q already present", leaf.ID)
+	}
+	if target == "" {
+		return NewSplit(g.Next(), dir, root, leaf, 0.5), nil
+	}
+	if root.FindLeaf(target) == nil {
+		return root, fmt.Errorf("graft-leaf: no target leaf %q", target)
+	}
+	return update(root, target, func(n *Node) *Node {
+		return NewSplit(g.Next(), dir, n, leaf, 0.5)
+	}), nil
+}
+
+// Walk visits every node depth-first (parent before children).
+func (n *Node) Walk(fn func(*Node)) {
+	if n == nil {
+		return
+	}
+	fn(n)
+	n.A.Walk(fn)
+	n.B.Walk(fn)
+}

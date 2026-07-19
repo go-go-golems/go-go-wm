@@ -162,6 +162,91 @@ broker upsert in `pkg/pbui/broker/broker.go` and the URI fixes in
 `pkg/pbui/object.go` (run `go test -fuzz=FuzzBridge -fuzztime=30s
 ./pkg/jsmod/`). `run.go` is glazed boilerplate plus `waitForCompletion`.
 
+## Entry 2 — 2026-07-18: P2 — the `wm` module over the control socket
+
+### What I set out to do
+
+`pkg/jsmod/wmmod` (Backend seam + IPC backend + sugar + events +
+fluent workspace), the fake-backend test suite, and the two example
+scripts that prove it live in Xvfb: `golden.js` (self-asserting layout
+build) and `router.js` (event-driven window routing).
+
+### What was done, in order
+
+1. **New wmcore op: `move-leaf`** — the op vocabulary had no way to move
+   a window across workspaces (router.js's whole point). Added
+   `DetachLeaf`/`GraftLeaf` tree functions and the `move-leaf` Apply case:
+   destination named by `op.Workspace`, optional `op.Target` leaf to
+   split, `op.Dir`; the leaf **keeps its id**, which is exactly why
+   frames survive the move (frames are keyed by leaf id — reconciliation
+   needs zero new code). Moving a workspace's only leaf leaves a fresh
+   launcher leaf behind instead of an empty tree. Target validated
+   *before* detaching so failure never mutates. Three new unit tests.
+2. `backend.go`: the `Backend` interface (Tree/Windows/Apply/Bind) — the
+   seam that makes one module serve both attachment points — plus
+   `IPCBackend` over `wmx11.QueryIPC` with context-bounded calls, and
+   `ErrNoKeybindings` pointing at rc.js.
+3. `module.go`/`sugar.go`: queries (tree/windows/focused/leaves),
+   mutations that all compile to Ops (apply/split/close/setApp/setRatio/
+   swap/moveSplit/moveLeaf), `wm.split` ratio handling (split-leaf
+   reports the new *leaf*, so the module finds the new parent split in a
+   tree fetch before issuing set-ratio), the fluent
+   `wm.workspace(name)` (find-by-name-or-create; methods switch/rename/
+   remove/clone/adopt each one Op; resolved id owned by Go), `wm.on`
+   via the shared EventFan, `wm.bind` (posts only; IPC throws).
+4. **EventFan refactor**: the P1 event pump moved from pbuimod to
+   `pkg/jsmod/eventfan.go` so pbui.on and wm.on share one broker
+   subscription per process (two subscriptions would have raced over the
+   client's single events channel).
+5. `run.go` wires `wm` + `--wm-socket`; `window.managed` now carries the
+   workspace id.
+6. Tests: sugar→exact-Op-sequence assertions, fluent workspace
+   (re-lookup mints no ops), adopt-across-workspaces, bind error text,
+   failed-op-mutates-nothing, and the **replay property**: the op stream
+   a session records, replayed onto a fresh desktop, must serialize
+   identically (it does).
+7. Live in Xvfb :78: `golden.js` built editor|((trace)/(listener)) with
+   ratio 0.62 and self-asserted via `wm.tree()` (exit 0; screenshot 01 —
+   the trace tiles show the script's own ops as events);
+   `router.js` + `xterm -T "Mozilla Firefox"` → the window was adopted
+   into a freshly created "web" workspace, frame intact (screenshot 02).
+
+### What worked
+
+- The Backend seam did its job on the first try: the entire test suite
+  runs against `fakeBackend` (a real `wmcore.Desktop` + op recorder), no
+  X anywhere, and the same module code then drove the live WM unchanged.
+- `move-leaf` slotted into the WM with zero X-side changes — frames
+  keyed by leaf id meant reconciliation was already correct.
+
+### What didn't work
+
+- **goja exposes Go struct *field names*, not json tags**: `wm.tree()`
+  returned `{Workspaces: …}` and golden.js crashed on `d.workspaces`.
+  Fixed with `jsmod.ToPlain` (JSON round trip) on every query result —
+  scripts see wire shapes, always.
+- **pkill self-match, terminally**: even a kill script is not enough if
+  the *outer* shell's eval string mentions the pattern (the parent's
+  cmdline matches). The only reliable pattern: the Bash call that runs
+  the kill script must contain nothing but the script path.
+
+### Bugs found and fixed (pre-existing)
+
+- `add-workspace` defaulted the first leaf's app to the literal string
+  `"launcher"`, but the WM renders builtins only for `""` or
+  `builtin:*` — every workspace created by Mod4-n or script showed a
+  blank, unpaintable tile. Fixed both sides: the op keeps `""` (the
+  launcher convention), and `isBuiltinLeaf` also accepts `"launcher"`.
+
+### Code review instructions
+
+`pkg/wmcore/ops.go` move-leaf case first (check the validate-before-
+detach ordering and the only-leaf branch), then `wmmod/sugar.go`
+(`findParentSplit` — it scans all workspaces), then the EventFan
+(`pkg/jsmod/eventfan.go`) for the no-blocking chain. Run
+`go test ./pkg/jsmod/wmmod/ -run TestReplay -v` for the ops-as-data
+property.
+
 ## Related
 
 - design-doc/02 — the implementation guide this diary executes.

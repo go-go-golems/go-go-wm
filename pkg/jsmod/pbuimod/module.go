@@ -39,14 +39,12 @@ type Module struct {
 	mu        sync.Mutex
 	verbs     map[string]pbui.Verb     // id → descriptor (registration set)
 	handlers  map[string]goja.Callable // id → JS handler (VM-owned; call on loop only)
-	subs      map[string][]goja.Callable
-	acceptFns []goja.Callable // onAcceptMode handlers
-	clearFns  []goja.Callable // onAcceptClear handlers
+	acceptFns []goja.Callable          // onAcceptMode handlers
+	clearFns  []goja.Callable          // onAcceptClear handlers
 
-	pumpOnce     sync.Once // event pump started
 	dispatchOnce sync.Once // OnVerbRun bridge installed
 	acceptOnce   sync.Once // OnAcceptMode/Clear bridges installed
-	queue        *boundedQueue[*pbui.Msg]
+	fan          *jsmod.EventFan
 	queueSize    int
 }
 
@@ -56,6 +54,10 @@ type Option func(*Module)
 // WithQueueSize overrides the event queue bound (default 256).
 func WithQueueSize(n int) Option { return func(m *Module) { m.queueSize = n } }
 
+// WithEventFan shares an existing event-bus fan (one subscription per
+// process, shared with the wm module).
+func WithEventFan(f *jsmod.EventFan) Option { return func(m *Module) { m.fan = f } }
+
 // New creates the module. cl may be nil, in which case only the data-only
 // helpers work and everything else throws a clear error.
 func New(cl *client.Client, opts ...Option) *Module {
@@ -63,13 +65,14 @@ func New(cl *client.Client, opts ...Option) *Module {
 		cl:        cl,
 		verbs:     map[string]pbui.Verb{},
 		handlers:  map[string]goja.Callable{},
-		subs:      map[string][]goja.Callable{},
 		queueSize: 256,
 	}
 	for _, o := range opts {
 		o(m)
 	}
-	m.queue = newBoundedQueue[*pbui.Msg](m.queueSize)
+	if m.fan == nil {
+		m.fan = jsmod.NewEventFan(cl, m.queueSize)
+	}
 	return m
 }
 
@@ -116,7 +119,20 @@ func (m *Module) Loader() require.ModuleLoader {
 		mustSet(exports, "verb", m.jsVerb(vm))
 		mustSet(exports, "print", m.jsPrint(vm))
 		mustSet(exports, "emit", m.jsEmit(vm))
-		mustSet(exports, "on", m.jsOn(vm))
+		// pbui.on(event, fn): subscribe to the broker event bus ("*" =
+		// everything). Delivery via the shared bounded EventFan.
+		mustSet(exports, "on", func(call goja.FunctionCall) goja.Value {
+			m.requireClient(vm)
+			event := call.Argument(0).String()
+			fn, ok := goja.AssertFunction(call.Argument(1))
+			if !ok {
+				panic(vm.ToValue("pbui.on: second argument must be a function"))
+			}
+			if err := m.fan.Subscribe(vm, event, "pbui.on", fn); err != nil {
+				panic(vm.ToValue("pbui.on: subscribe: " + err.Error()))
+			}
+			return goja.Undefined()
+		})
 		mustSet(exports, "menu", m.jsMenu(vm))
 		mustSet(exports, "hover", m.jsHover(vm))
 		mustSet(exports, "onAcceptMode", m.jsOnAcceptMode(vm))

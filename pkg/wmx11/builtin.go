@@ -24,11 +24,11 @@ import (
 const builtinPrefix = "builtin:"
 
 func isBuiltinLeaf(app string) bool {
-	return app == "" || strings.HasPrefix(app, builtinPrefix)
+	return app == "" || app == apps.AppLauncher || strings.HasPrefix(app, builtinPrefix)
 }
 
 func builtinName(app string) string {
-	if app == "" {
+	if app == "" || app == apps.AppLauncher {
 		return apps.AppLauncher
 	}
 	return strings.TrimPrefix(app, builtinPrefix)

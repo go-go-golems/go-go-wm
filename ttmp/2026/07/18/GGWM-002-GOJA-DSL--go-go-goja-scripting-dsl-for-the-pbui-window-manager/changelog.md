@@ -24,3 +24,13 @@ P1 complete: pkg/jsmod bridge+errors, pbuimod (promise accept, verbs, events w/ 
 - /home/manuel/workspaces/2026-07-18/go-go-wm/go-go-wm/pkg/cmds/run.go — run command
 - /home/manuel/workspaces/2026-07-18/go-go-wm/go-go-wm/pkg/jsmod/pbuimod/module.go — pbui native module
 
+
+## 2026-07-18
+
+P2 complete: wmmod (Backend seam + IPCBackend, sugar compiling to Ops, fluent workspace, wm.on via shared EventFan, wm.bind stub), new wmcore move-leaf op (DetachLeaf/GraftLeaf; frames survive cross-workspace moves), 6-test fake-backend suite incl. replay property, live Xvfb verification of golden.js (self-asserting) and router.js (adopted fake-firefox into 'web' workspace). Fixed pre-existing launcher-app bug (blank tile in new workspaces).
+
+### Related Files
+
+- /home/manuel/workspaces/2026-07-18/go-go-wm/go-go-wm/pkg/jsmod/wmmod/module.go — wm native module
+- /home/manuel/workspaces/2026-07-18/go-go-wm/go-go-wm/pkg/wmcore/ops.go — move-leaf op
+

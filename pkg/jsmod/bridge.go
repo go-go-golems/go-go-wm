@@ -122,3 +122,18 @@ func EventToJS(m *pbui.Msg) map[string]interface{} {
 	}
 	return out
 }
+
+// ToPlain converts any Go value into plain maps/slices/scalars via a JSON
+// round trip, so goja sees the wire field names (json tags), not Go
+// struct field names.
+func ToPlain(v interface{}) (interface{}, error) {
+	raw, err := json.Marshal(v)
+	if err != nil {
+		return nil, err
+	}
+	var out interface{}
+	if err := json.Unmarshal(raw, &out); err != nil {
+		return nil, err
+	}
+	return out, nil
+}

@@ -1,4 +1,4 @@
-// golden.js — reshape the desktop, then assert the result. [P2: wm module]
+// golden.js — reshape the desktop, then assert the result. [works: P2]
 //
 //   go-go-wm run --once examples/scripts/golden.js
 //
@@ -8,25 +8,33 @@
 // postconditions and exits non-zero on failure IS the integration test.
 
 const wm = require("wm");
+const pbui = require("pbui");
 
 function assert(cond, msg) {
   if (!cond) throw new Error("golden.js: " + msg);
 }
 
-const before = wm.tree();
-const ws = before.current;
+// Start from whatever tile is focused (or the first one).
+const start = wm.focused() || wm.leaves()[0].id;
 
 // Build:  editor | (terminal / notes)
-const first = wm.focused() || before.workspaces[0].leaves[0].id;
-const right = wm.split(first, "row", { ratio: 0.6 });
-const bottom = wm.split(right, "col");
-wm.setApp(first, "editor");
-wm.setApp(right, "terminal");
-wm.setApp(bottom, "notes");
+const right = wm.split(start, "row", { ratio: 0.62, app: "builtin:trace" });
+const bottom = wm.split(right, "col", { app: "builtin:listener" });
 
-const after = wm.tree();
-const leaves = wm.leaves(after.current);
+const leaves = wm.leaves();
 assert(leaves.length >= 3, "expected at least 3 leaves, got " + leaves.length);
-assert(leaves.some((l) => l.app === "notes"), "notes leaf missing");
+assert(leaves.some((l) => l.app === "builtin:trace"), "trace leaf missing");
+assert(leaves.some((l) => l.app === "builtin:listener"), "listener leaf missing");
 
-require("pbui").print("golden.js: layout verified — ", String(leaves.length), " tiles");
+// The ratio must have landed on the parent split of the trace leaf.
+const d = wm.tree();
+const ws = d.workspaces.find((w) => w.id === d.current);
+let ratioOK = false;
+(function walk(n) {
+  if (!n) return;
+  if (n.kind === "split" && Math.abs(n.ratio - 0.62) < 1e-9) ratioOK = true;
+  walk(n.a); walk(n.b);
+})(ws.root);
+assert(ratioOK, "no split with ratio 0.62 found");
+
+pbui.print("golden.js: layout verified — ", String(leaves.length), " tiles ✓");

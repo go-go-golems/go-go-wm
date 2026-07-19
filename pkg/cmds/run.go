@@ -16,7 +16,9 @@ import (
 	"github.com/go-go-golems/glazed/pkg/cmds/values"
 	"github.com/go-go-golems/go-go-goja/pkg/engine"
 
+	"github.com/go-go-golems/go-go-wm/pkg/jsmod"
 	"github.com/go-go-golems/go-go-wm/pkg/jsmod/pbuimod"
+	"github.com/go-go-golems/go-go-wm/pkg/jsmod/wmmod"
 	"github.com/go-go-golems/go-go-wm/pkg/pbui/client"
 )
 
@@ -30,6 +32,7 @@ type RunCommand struct {
 type runSettings struct {
 	Script    string `glazed:"script"`
 	Socket    string `glazed:"socket"`
+	WMSocket  string `glazed:"wm-socket"`
 	Once      bool   `glazed:"once"`
 	AllowExec bool   `glazed:"allow-exec"`
 	NoBroker  bool   `glazed:"no-broker"`
@@ -60,6 +63,8 @@ Examples:
 		),
 		glazed_cmds.WithFlags(
 			socketFlag(),
+			fields.New("wm-socket", fields.TypeString, fields.WithDefault(""),
+				fields.WithHelp("WM control socket for the wm module (default: $GO_GO_WM_SOCKET)")),
 			fields.New("once", fields.TypeBool, fields.WithDefault(false),
 				fields.WithHelp("exit when the script's result settles instead of serving forever")),
 			fields.New("allow-exec", fields.TypeBool, fields.WithDefault(false),
@@ -93,7 +98,7 @@ func (c *RunCommand) Run(ctx context.Context, vals *values.Values) error {
 		defer func() { _ = cl.Close() }()
 	}
 
-	rt, err := buildScriptRuntime(ctx, cl, s.AllowExec)
+	rt, err := buildScriptRuntime(ctx, cl, s.WMSocket, s.AllowExec)
 	if err != nil {
 		return err
 	}
@@ -140,15 +145,28 @@ func (c *RunCommand) Run(ctx context.Context, vals *values.Values) error {
 }
 
 // buildScriptRuntime assembles the goja runtime for script processes: the
-// pbui module plus the data-only default modules, and exec only when the
-// capability flag grants it.
-func buildScriptRuntime(ctx context.Context, cl *client.Client, allowExec bool) (*engine.Runtime, error) {
+// pbui and wm modules plus the data-only default modules, and exec only
+// when the capability flag grants it. Both modules share one event-bus
+// subscription (the EventFan).
+func buildScriptRuntime(ctx context.Context, cl *client.Client, wmSocket string, allowExec bool) (*engine.Runtime, error) {
+	fan := jsmod.NewEventFan(cl, 256)
+	var wmFan *jsmod.EventFan
+	if cl != nil {
+		wmFan = fan
+	}
 	builder := engine.NewRuntimeFactoryBuilder()
-	builder.WithModules(engine.NativeModuleRegistrar{
-		ModuleID:   "pbui",
-		ModuleName: pbuimod.ModuleName,
-		Loader:     pbuimod.New(cl).Loader(),
-	})
+	builder.WithModules(
+		engine.NativeModuleRegistrar{
+			ModuleID:   "pbui",
+			ModuleName: pbuimod.ModuleName,
+			Loader:     pbuimod.New(cl, pbuimod.WithEventFan(fan)).Loader(),
+		},
+		engine.NativeModuleRegistrar{
+			ModuleID:   "wm",
+			ModuleName: wmmod.ModuleName,
+			Loader:     wmmod.New(&wmmod.IPCBackend{Socket: wmSocket}, wmFan).Loader(),
+		},
+	)
 	if allowExec {
 		builder.UseModuleMiddleware(engine.MiddlewareOnly("exec"))
 	}

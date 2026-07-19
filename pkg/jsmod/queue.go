@@ -1,4 +1,4 @@
-package pbuimod
+package jsmod
 
 import "sync"
 

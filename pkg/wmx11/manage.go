@@ -104,7 +104,11 @@ func (w *WM) manage(clientWin xproto.Window) {
 	fw.Map()
 	xproto.MapWindow(w.X.Conn(), clientWin)
 	w.focus(leafID)
-	w.emitEvent("window.managed", map[string]interface{}{"leaf": string(leafID), "title": title})
+	managedData := map[string]interface{}{"leaf": string(leafID), "title": title}
+	if ws := w.desktop.FindLeafWorkspace(leafID); ws != nil {
+		managedData["workspace"] = ws.ID
+	}
+	w.emitEvent("window.managed", managedData)
 	w.relayout()
 	w.updateEWMH()
 	w.paintBars()

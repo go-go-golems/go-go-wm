@@ -31,6 +31,7 @@ const (
 	OpSetLeafApp      = "set-leaf-app"     // Node, App
 	OpSwapLeaves      = "swap-leaves"      // Node, Target
 	OpMoveSplit       = "move-split"       // Node(from), Target, Zone
+	OpMoveLeaf        = "move-leaf"        // Node, Workspace(dst), Target?, Dir?
 	OpAddWorkspace    = "add-workspace"    // App(first leaf's app)
 	OpRemoveWorkspace = "remove-workspace" // Workspace
 	OpRenameWorkspace = "rename-workspace" // Workspace, Name
@@ -132,12 +133,54 @@ func Apply(d *Desktop, op Op) (Result, error) {
 			return res, err
 		}
 		w.Root = root
-	case OpAddWorkspace:
-		app := op.App
-		if app == "" {
-			app = "launcher"
+	case OpMoveLeaf:
+		// Cross-workspace move: op.Node is the leaf, op.Workspace names
+		// the *destination*, op.Target optionally picks the leaf to split
+		// there (empty = wrap the destination root), op.Dir the split
+		// direction (empty = row). The leaf keeps its id so window frames
+		// survive the move.
+		src := d.FindLeafWorkspace(op.Node)
+		if src == nil {
+			return res, fmt.Errorf("move-leaf: leaf %q not found", op.Node)
 		}
-		res.NewWorkspace = d.AddWorkspace(app).ID
+		dst := d.WorkspaceByID(op.Workspace)
+		if dst == nil {
+			return res, fmt.Errorf("move-leaf: no workspace %q", op.Workspace)
+		}
+		if src.ID == dst.ID {
+			return res, fmt.Errorf("move-leaf: %q is already in %s", op.Node, dst.ID)
+		}
+		dir := op.Dir
+		if dir == "" {
+			dir = Row
+		}
+		// Validate the graft point first so failure leaves d unchanged.
+		if op.Target != "" && dst.Root.FindLeaf(op.Target) == nil {
+			return res, fmt.Errorf("move-leaf: no target leaf %q in %s", op.Target, dst.ID)
+		}
+		var moved *Node
+		if src.Root.Kind == Leaf {
+			// Moving the only leaf: the source workspace keeps a fresh
+			// launcher leaf instead of going empty.
+			moved = src.Root.Clone()
+			src.Root = NewLeaf(d.gen.Next(), "")
+			res.NewLeaf = src.Root.ID
+		} else {
+			shrunk, detached, err := DetachLeaf(src.Root, op.Node)
+			if err != nil {
+				return res, err
+			}
+			src.Root, moved = shrunk, detached
+		}
+		grafted, err := GraftLeaf(dst.Root, moved, op.Target, dir, &d.gen)
+		if err != nil {
+			return res, err
+		}
+		dst.Root = grafted
+	case OpAddWorkspace:
+		// Empty app = the launcher tile (the WM's empty-tile convention);
+		// new workspaces open on a launcher unless the op names an app.
+		res.NewWorkspace = d.AddWorkspace(op.App).ID
 	case OpRemoveWorkspace:
 		return res, d.RemoveWorkspace(op.Workspace)
 	case OpRenameWorkspace:
