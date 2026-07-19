@@ -22,6 +22,7 @@ type TitleStrip struct {
 	Color   color.RGBA
 	Focused bool
 	Width   int
+	Float   bool // floating windows: close button only (no split buttons)
 }
 
 // Button hit zones, right-aligned: [✕][⬍][⬌] from the right edge.
@@ -61,12 +62,17 @@ func (t TitleStrip) Render() *image.RGBA {
 		Fill(img, image.Rect(24, 17, 24+w, 18), Ink)
 	}
 
-	// Buttons, right-aligned boxes with 1px borders.
+	// Buttons, right-aligned boxes with 1px borders. Floats get close
+	// only — splitting a dialog is meaningless.
 	_, sr, sd, cl := TitleButtons(t.Width)
-	for i, b := range []struct {
+	buttons := []struct {
 		r     image.Rectangle
 		label string
-	}{{sr, "|"}, {sd, "-"}, {cl, "x"}} {
+	}{{sr, "|"}, {sd, "-"}, {cl, "x"}}
+	if t.Float {
+		buttons = buttons[2:]
+	}
+	for i, b := range buttons {
 		_ = i
 		inner := image.Rect(b.r.Min.X+3, 3, b.r.Max.X-3, TitleH-5)
 		Fill(img, inner, PaneAlt)

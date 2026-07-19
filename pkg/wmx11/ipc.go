@@ -21,12 +21,13 @@ import (
 // Responses: {"ok":true,"data":...} | {"ok":false,"error":"..."}
 
 type ipcRequest struct {
-	Q      string      `json:"q"`
-	Op     *wmcore.Op  `json:"op,omitempty"`
-	Ops    []wmcore.Op `json:"ops,omitempty"` // {"q":"batch","ops":[...]}
-	Theme  string      `json:"theme,omitempty"`
-	Target string      `json:"target,omitempty"`
-	Dir    string      `json:"dir,omitempty"`
+	Q          string      `json:"q"`
+	Op         *wmcore.Op  `json:"op,omitempty"`
+	Ops        []wmcore.Op `json:"ops,omitempty"` // {"q":"batch","ops":[...]}
+	Theme      string      `json:"theme,omitempty"`
+	Target     string      `json:"target,omitempty"`
+	Dir        string      `json:"dir,omitempty"`
+	FloatRules []FloatRule `json:"float_rules,omitempty"` // {"q":"set-float-rules"}
 }
 
 type ipcResponse struct {
@@ -45,6 +46,8 @@ type WindowInfo struct {
 	Workspace string `json:"workspace"`
 	Rect      string `json:"rect"`
 	Focused   bool   `json:"focused"`
+	Floating  bool   `json:"floating,omitempty"` // GGWM-007: shell-state floats
+	Leader    uint32 `json:"leader,omitempty"`   // WM_TRANSIENT_FOR target
 }
 
 func (w *WM) startIPC() error {
@@ -148,6 +151,19 @@ func (w *WM) dispatchIPC(req ipcRequest) ipcResponse {
 				return
 			}
 			done <- ipcResponse{OK: true, Data: string(w.focused)}
+		case "set-float-rules":
+			if err := w.SetFloatRules(req.FloatRules); err != nil {
+				done <- ipcResponse{OK: false, Error: err.Error()}
+				return
+			}
+			done <- ipcResponse{OK: true, Data: len(req.FloatRules)}
+		case "float":
+			floating, err := w.toggleFloat()
+			if err != nil {
+				done <- ipcResponse{OK: false, Error: err.Error()}
+				return
+			}
+			done <- ipcResponse{OK: true, Data: floating}
 		default:
 			done <- ipcResponse{OK: false, Error: "unknown query " + req.Q}
 		}

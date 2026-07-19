@@ -83,6 +83,14 @@ type frame struct {
 	rect     wmcore.Rect   // current frame rect (screen coords)
 	regions  []apps.Region // builtin tiles: clickable presentation regions
 
+	// Floating overlay layer (GGWM-007). A floating frame has leaf == ""
+	// and never appears in the wmcore tree; it belongs to workspace ws
+	// and is tracked in WM.floats instead of WM.frames.
+	floating               bool
+	leader                 xproto.Window // WM_TRANSIENT_FOR target, 0 if none
+	ws                     string        // owning workspace id (floats only)
+	minW, minH, maxW, maxH int           // WM_NORMAL_HINTS bounds, 0 = unbounded
+
 	// Paint buffers, reused between paints and dropped on resize/unmap
 	// (per-paint allocation made GC ~30% of the profile, GGWM-005).
 	// surf is the zero-copy MIT-SHM shared pixmap (GGWM-006); ximg is
@@ -137,6 +145,10 @@ type WM struct {
 	byFrame  map[xproto.Window]*frame // frame window → frame
 	focused  wmcore.NodeID
 
+	floats       map[xproto.Window]*frame // client → floating frame (GGWM-007)
+	focusedFloat xproto.Window            // 0 = the tiled world holds focus
+	floatRules   []compiledFloatRule      // scripting-layer float overrides
+
 	screen wmcore.Rect // full root geometry
 	area   wmcore.Rect // screen minus bars
 
@@ -190,6 +202,7 @@ func New(cfg Config) (*WM, error) {
 		frames:   map[wmcore.NodeID]*frame{},
 		byClient: map[xproto.Window]*frame{},
 		byFrame:  map[xproto.Window]*frame{},
+		floats:   map[xproto.Window]*frame{},
 		ops:      make(chan func(), 256),
 		ctx:      ctx,
 		cancel:   cancel,
@@ -376,10 +389,10 @@ func (w *WM) afterOp(op wmcore.Op) {
 	w.relayout()
 	w.updateEWMH()
 	w.paintBars()
-	// A workspace switch that leaves focus on a hidden leaf strands
-	// keyboard navigation (directional focus is workspace-local); land
-	// on the first framed leaf of the new workspace, like i3.
-	if op.Op == wmcore.OpSwitchWorkspace {
+	// A workspace switch that leaves focus on a hidden leaf (or a hidden
+	// float) strands keyboard navigation; land on the first framed leaf
+	// of the new workspace, like i3. AddWorkspace switches Current too.
+	if op.Op == wmcore.OpSwitchWorkspace || op.Op == wmcore.OpAddWorkspace {
 		w.refocusCurrent()
 	}
 }
@@ -388,7 +401,18 @@ func (w *WM) afterOp(op wmcore.Op) {
 // already there.
 func (w *WM) refocusCurrent() {
 	ws := w.desktop.CurrentWorkspace()
-	if ws == nil || ws.Root.FindLeaf(w.focused) != nil {
+	if ws == nil {
+		return
+	}
+	// A workspace switch can leave focusedFloat pointing at a float that
+	// is now hidden; keyboard input would go to an unmapped window.
+	if pf := w.floats[w.focusedFloat]; pf != nil && pf.ws != w.desktop.Current {
+		w.focusedFloat = 0
+		if w.frames[w.focused] != nil {
+			w.focus(w.focused)
+		}
+	}
+	if ws.Root.FindLeaf(w.focused) != nil {
 		return
 	}
 	for _, l := range ws.Root.Leaves() {

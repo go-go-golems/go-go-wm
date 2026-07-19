@@ -50,15 +50,9 @@ func (w *WM) handleMapRequest(ev xevent.MapRequestEvent) {
 	w.manage(ev.Window)
 }
 
-// manage wraps a client in a frame and gives it a leaf.
+// manage wraps a client in a frame — a tiled one (a leaf in the tree) or,
+// when the float decision says so, a floating one (shell state only).
 func (w *WM) manage(clientWin xproto.Window) {
-	// Pick a leaf: reuse the current workspace's empty leaf if there is
-	// exactly one unoccupied slot, else split the focused (or last) leaf.
-	leafID := w.placementLeaf()
-	if leafID == "" {
-		return
-	}
-
 	title, _ := ewmh.WmNameGet(w.X, clientWin)
 	if title == "" {
 		title, _ = icccm.WmNameGet(w.X, clientWin)
@@ -66,12 +60,29 @@ func (w *WM) manage(clientWin xproto.Window) {
 	if title == "" {
 		title = "window"
 	}
-
-	f := &frame{leaf: leafID, client: clientWin, title: title}
+	var class, instance string
 	if wmClass, err := icccm.WmClassGet(w.X, clientWin); err == nil && wmClass != nil {
-		f.class = wmClass.Class
-		f.instance = wmClass.Instance
+		class = wmClass.Class
+		instance = wmClass.Instance
 	}
+
+	// The third exit from the front door (GGWM-007): dialogs, utility
+	// palettes, and rule-forced windows float above the tree.
+	props := fetchFloatProps(w, clientWin)
+	verdict := w.floatRuleVerdict(title, class, instance)
+	if floatDecision(verdict, props.leader, props.types, props.fixedSize) {
+		w.manageFloat(clientWin, title, class, instance, props)
+		return
+	}
+
+	// Pick a leaf: reuse the current workspace's empty leaf if there is
+	// exactly one unoccupied slot, else split the focused (or last) leaf.
+	leafID := w.placementLeaf()
+	if leafID == "" {
+		return
+	}
+
+	f := &frame{leaf: leafID, client: clientWin, title: title, class: class, instance: instance}
 
 	fw, err := xwindow.Generate(w.X)
 	if err != nil {
@@ -97,37 +108,7 @@ func (w *WM) manage(clientWin xproto.Window) {
 	xproto.ConfigureWindow(w.X.Conn(), clientWin,
 		xproto.ConfigWindowBorderWidth, []uint32{0})
 	xproto.ReparentWindow(w.X.Conn(), clientWin, fw.Id, 0, draw.TitleH)
-
-	// Track client lifetime and title changes. The callbacks must be
-	// connected to the CLIENT window: after reparenting, the client's
-	// StructureNotify events (DestroyNotify, UnmapNotify) carry the
-	// client as their event window, and xgbutil dispatches callbacks by
-	// that window. The root-connected handlers in setupInput never see
-	// them — which left zombie frames whenever a client exited on its
-	// own (Ctrl-D in an xterm), with BadWindow spam from focusing and
-	// configuring the dead client id.
-	cw := xwindow.New(w.X, clientWin)
-	_ = cw.Listen(xproto.EventMaskStructureNotify, xproto.EventMaskPropertyChange)
-	xevent.DestroyNotifyFun(func(_ *xgbutil.XUtil, ev xevent.DestroyNotifyEvent) {
-		w.handleDestroyNotify(ev)
-	}).Connect(w.X, clientWin)
-	xevent.UnmapNotifyFun(func(_ *xgbutil.XUtil, ev xevent.UnmapNotifyEvent) {
-		w.handleUnmapNotify(ev)
-	}).Connect(w.X, clientWin)
-
-	// Click-to-focus: clients consume their own clicks, so without this
-	// only the title strip could focus a tile. A synchronous passive
-	// grab lets the WM see the press first; ReplayPointer then hands
-	// the click to the app untouched.
-	xproto.GrabButton(w.X.Conn(), true, clientWin,
-		uint16(xproto.EventMaskButtonPress), xproto.GrabModeSync, xproto.GrabModeAsync,
-		xproto.WindowNone, xproto.CursorNone, xproto.ButtonIndexAny, xproto.ModMaskAny)
-	xevent.ButtonPressFun(func(_ *xgbutil.XUtil, ev xevent.ButtonPressEvent) {
-		if w.focused != f.leaf {
-			w.focus(f.leaf)
-		}
-		xproto.AllowEvents(w.X.Conn(), xproto.AllowReplayPointer, ev.Time)
-	}).Connect(w.X, clientWin)
+	w.wireClient(f)
 
 	_, _ = wmcore.Apply(w.desktop, wmcore.Op{Op: wmcore.OpSetLeafApp, Node: leafID, App: "win"})
 	w.frames[leafID] = f
@@ -149,6 +130,47 @@ func (w *WM) manage(clientWin xproto.Window) {
 	w.relayout()
 	w.updateEWMH()
 	w.paintBars()
+}
+
+// wireClient connects the per-client lifecycle handlers and the
+// click-to-focus grab — shared by the tile and float paths.
+//
+// Track client lifetime and title changes. The callbacks must be
+// connected to the CLIENT window: after reparenting, the client's
+// StructureNotify events (DestroyNotify, UnmapNotify) carry the
+// client as their event window, and xgbutil dispatches callbacks by
+// that window. The root-connected handlers in setupInput never see
+// them — which left zombie frames whenever a client exited on its
+// own (Ctrl-D in an xterm), with BadWindow spam from focusing and
+// configuring the dead client id.
+func (w *WM) wireClient(f *frame) {
+	clientWin := f.client
+	cw := xwindow.New(w.X, clientWin)
+	_ = cw.Listen(xproto.EventMaskStructureNotify, xproto.EventMaskPropertyChange)
+	xevent.DestroyNotifyFun(func(_ *xgbutil.XUtil, ev xevent.DestroyNotifyEvent) {
+		w.handleDestroyNotify(ev)
+	}).Connect(w.X, clientWin)
+	xevent.UnmapNotifyFun(func(_ *xgbutil.XUtil, ev xevent.UnmapNotifyEvent) {
+		w.handleUnmapNotify(ev)
+	}).Connect(w.X, clientWin)
+
+	// Click-to-focus: clients consume their own clicks, so without this
+	// only the title strip could focus a tile. A synchronous passive
+	// grab lets the WM see the press first; ReplayPointer then hands
+	// the click to the app untouched.
+	xproto.GrabButton(w.X.Conn(), true, clientWin,
+		uint16(xproto.EventMaskButtonPress), xproto.GrabModeSync, xproto.GrabModeAsync,
+		xproto.WindowNone, xproto.CursorNone, xproto.ButtonIndexAny, xproto.ModMaskAny)
+	xevent.ButtonPressFun(func(_ *xgbutil.XUtil, ev xevent.ButtonPressEvent) {
+		if f.floating {
+			if w.focusedFloat != f.client {
+				w.focusFloat(f)
+			}
+		} else if w.focused != f.leaf || w.focusedFloat != 0 {
+			w.focus(f.leaf)
+		}
+		xproto.AllowEvents(w.X.Conn(), xproto.AllowReplayPointer, ev.Time)
+	}).Connect(w.X, clientWin)
 }
 
 // placementLeaf decides which leaf a new client lands in.
@@ -186,6 +208,10 @@ func (w *WM) placementLeaf() wmcore.NodeID {
 func (w *WM) unmanage(clientWin xproto.Window) {
 	f := w.byClient[clientWin]
 	if f == nil {
+		return
+	}
+	if f.floating {
+		w.unmanageFloat(f)
 		return
 	}
 	delete(w.byClient, clientWin)
@@ -338,6 +364,7 @@ func (w *WM) relayoutPaint(paintAll bool) {
 			f.win.Map()
 		}
 	}
+	w.syncFloats(paintAll)
 }
 
 // paintFrame draws the title strip + border for a frame (and, for builtin
@@ -368,10 +395,11 @@ func (w *WM) paintFrame(f *frame) {
 	strip := draw.TitleStrip{
 		Title:   f.title,
 		Color:   stripColor,
-		Focused: w.focused == f.leaf,
+		Focused: w.frameFocused(f),
 		Width:   f.rect.W,
+		Float:   f.floating,
 	}
-	if w.accepting != nil && matchesTile(w.accepting.ptypes) {
+	if !f.floating && w.accepting != nil && matchesTile(w.accepting.ptypes) {
 		// Tiles are acceptable: highlight the strip (the pulsing red
 		// outline of the prototype, statically).
 		strip.Color = draw.Sel
@@ -477,6 +505,13 @@ func copyImage(dst *image.RGBA, src *image.RGBA, x, y int) {
 func (w *WM) focus(leaf wmcore.NodeID) {
 	prev := w.focused
 	w.focused = leaf
+	// A navigation or tile click means "back to the tiled world": the
+	// float band keeps its windows but loses the keyboard.
+	if pf := w.floats[w.focusedFloat]; pf != nil {
+		w.focusedFloat = 0
+		w.paintFrame(pf)
+	}
+	w.focusedFloat = 0
 	if f := w.frames[leaf]; f != nil {
 		if f.client != 0 {
 			xwindow.New(w.X, f.client).Focus()
@@ -504,6 +539,15 @@ func (w *WM) handleUnmapNotify(ev xevent.UnmapNotifyEvent) {
 	if f == nil {
 		return
 	}
+	if f.floating {
+		// Same distinction for floats: workspace switches unmap only the
+		// frame (the client stays mapped inside it), so a client-window
+		// UnmapNotify here is a genuine withdraw.
+		if f.ws == w.desktop.Current {
+			w.unmanage(ev.Window)
+		}
+		return
+	}
 	if ws := w.desktop.CurrentWorkspace(); ws != nil && ws.Root.FindLeaf(f.leaf) != nil {
 		w.unmanage(ev.Window)
 	}
@@ -513,6 +557,11 @@ func (w *WM) handleUnmapNotify(ev xevent.UnmapNotifyEvent) {
 // windows; managed geometry belongs to the tree.
 func (w *WM) handleConfigureRequest(ev xevent.ConfigureRequestEvent) {
 	if f := w.byClient[ev.Window]; f != nil {
+		if f.floating {
+			// Floats own their geometry: honor the request (clamped).
+			w.configureFloat(f, ev)
+			return
+		}
 		// Re-assert our geometry (send a synthetic ConfigureNotify).
 		w.relayout()
 		return

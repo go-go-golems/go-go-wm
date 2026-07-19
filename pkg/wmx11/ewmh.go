@@ -43,6 +43,13 @@ func (w *WM) updateEWMH() {
 	for cw, f := range w.byClient {
 		clients = append(clients, cw)
 		for i, ws := range w.desktop.Workspaces {
+			if f.floating {
+				if ws.ID == f.ws {
+					_ = ewmh.WmDesktopSet(w.X, cw, uint(i))
+					break
+				}
+				continue
+			}
 			if ws.Root.FindLeaf(f.leaf) != nil {
 				_ = ewmh.WmDesktopSet(w.X, cw, uint(i))
 				break

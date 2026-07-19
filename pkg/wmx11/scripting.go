@@ -137,6 +137,23 @@ func (b *ScriptBackend) Move(ctx context.Context, dir string) (string, error) {
 	return focused, err
 }
 
+func (b *ScriptBackend) SetFloatRules(ctx context.Context, rules []FloatRule) error {
+	var err error
+	if lerr := b.onLoop(ctx, func() { err = b.WM.SetFloatRules(rules) }); lerr != nil {
+		return lerr
+	}
+	return err
+}
+
+func (b *ScriptBackend) Float(ctx context.Context) (bool, error) {
+	var floating bool
+	var err error
+	if lerr := b.onLoop(ctx, func() { floating, err = b.WM.toggleFloat() }); lerr != nil {
+		return false, lerr
+	}
+	return floating, err
+}
+
 // windowsSnapshot builds the WindowInfo table (WM loop only) — shared by
 // the IPC dispatcher and ScriptBackend.
 func (w *WM) windowsSnapshot() []WindowInfo {
@@ -149,12 +166,25 @@ func (w *WM) windowsSnapshot() []WindowInfo {
 			Class:    f.class,
 			Instance: f.instance,
 			Rect:     f.rect.String(),
-			Focused:  w.focused == leaf,
+			Focused:  w.frameFocused(f),
 		}
 		if ws := w.desktop.FindLeafWorkspace(leaf); ws != nil {
 			info.Workspace = ws.ID
 		}
 		out = append(out, info)
+	}
+	for _, f := range w.floats {
+		out = append(out, WindowInfo{
+			Client:    uint32(f.client),
+			Title:     f.title,
+			Class:     f.class,
+			Instance:  f.instance,
+			Workspace: f.ws,
+			Rect:      f.rect.String(),
+			Focused:   w.focusedFloat == f.client,
+			Floating:  true,
+			Leader:    uint32(f.leader),
+		})
 	}
 	return out
 }

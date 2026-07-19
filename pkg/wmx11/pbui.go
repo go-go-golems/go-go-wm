@@ -141,6 +141,11 @@ func (w *WM) repaintAllFrames() {
 			w.paintFrame(f)
 		}
 	}
+	for _, f := range w.floats {
+		if f.ws == w.desktop.Current {
+			w.paintFrame(f)
+		}
+	}
 }
 
 // --- menu rendering ---------------------------------------------------------

@@ -19,12 +19,15 @@ import (
 
 // dragState tracks an in-progress pointer drag.
 type dragState struct {
-	kind    string        // "divider" | "grip"
+	kind    string        // "divider" | "grip" | "float"
 	split   wmcore.NodeID // divider drags
 	from    wmcore.NodeID // grip drags
 	over    wmcore.NodeID
 	zone    wmcore.Zone
 	snapped bool
+
+	fl         *frame // float drags: the frame being moved
+	offX, offY int    // pointer offset inside the float frame
 
 	// Divider drags repaint whole panes; X delivers motion far faster
 	// than panes can paint, so motion is coalesced to ~60Hz and the
@@ -114,6 +117,9 @@ func (w *WM) splitFocused(dir wmcore.Dir) {
 
 func (w *WM) closeFocused() {
 	f := w.frames[w.focused]
+	if pf := w.floats[w.focusedFloat]; pf != nil {
+		f = pf // the float band holds focus; Mod4-w closes the float
+	}
 	if f == nil {
 		return
 	}
@@ -147,6 +153,22 @@ func (w *WM) switchWorkspaceIndex(i int) {
 
 // FramePress handles a ButtonPress inside a frame window (title strip area).
 func (w *WM) handleFramePress(f *frame, x, y int, button byte, rootX, rootY int) {
+	if f.floating {
+		// Float strips have close only (splitting a dialog is
+		// meaningless); everywhere else on the strip drags the float.
+		if y < draw.TitleH {
+			_, _, _, cl := draw.TitleButtons(f.rect.W)
+			if image_Pt(x, y).In(cl) {
+				w.closeClient(f)
+				return
+			}
+			w.focusFloat(f)
+			w.beginFloatDrag(f, rootX, rootY)
+			return
+		}
+		w.focusFloat(f)
+		return
+	}
 	if y >= draw.TitleH {
 		w.focus(f.leaf)
 		if f.client == 0 {
@@ -253,6 +275,15 @@ func (w *WM) beginDividerDrag(split wmcore.NodeID) {
 	w.setMouseDoc("drag divider — sticky at ¼ ⅓ ½ ⅔ ¾")
 }
 
+func (w *WM) beginFloatDrag(f *frame, rootX, rootY int) {
+	if !w.grabPointer() {
+		return
+	}
+	w.drag = &dragState{kind: "float", fl: f,
+		offX: rootX - f.rect.X, offY: rootY - f.rect.Y}
+	w.setMouseDoc("drag float — release to place")
+}
+
 func (w *WM) beginGripDrag(from wmcore.NodeID) {
 	if !w.grabPointer() {
 		return
@@ -279,7 +310,24 @@ func (w *WM) handleMotion(x, y int) {
 		w.dividerMotion(d, x, y)
 	case "grip":
 		w.gripMotion(d, x, y)
+	case "float":
+		w.floatMotion(d, x, y)
 	}
+}
+
+// floatMotion moves the dragged float with the pointer. No repaint is
+// needed: the frame's content rides along in its background pixmap.
+func (w *WM) floatMotion(d *dragState, x, y int) {
+	f := d.fl
+	r := f.rect
+	r.X = x - d.offX
+	r.Y = y - d.offY
+	r = w.clampFloatRect(r)
+	if r == f.rect {
+		return
+	}
+	f.rect = r
+	f.win.Move(r.X, r.Y)
 }
 
 func (w *WM) dividerMotion(d *dragState, x, y int) {

@@ -66,6 +66,8 @@ func main() {
 	addBare(rootCmd, replCmd, err)
 	demoCmd, err := wmcmds.NewDemoCommand()
 	addBare(rootCmd, demoCmd, err)
+	testwinCmd, err := wmcmds.NewTestwinCommand()
+	addBare(rootCmd, testwinCmd, err)
 
 	// Introspection.
 	queryCmd := &cobra.Command{Use: "query", Short: "Ask the WM and broker what they believe"}

@@ -42,6 +42,7 @@ func checkGolden(t *testing.T, name string, img *image.RGBA) {
 func TestGoldenTitleStrip(t *testing.T) {
 	checkGolden(t, "title-strip", TitleStrip{Title: "color lab", Color: Rose, Width: 420}.Render())
 	checkGolden(t, "title-strip-focused", TitleStrip{Title: "listener", Color: Mint, Focused: true, Width: 420}.Render())
+	checkGolden(t, "title-strip-float", TitleStrip{Title: "save as", Color: Blue, Float: true, Width: 420}.Render())
 }
 
 func TestGoldenBanner(t *testing.T) {

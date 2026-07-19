@@ -41,7 +41,11 @@ func (w *WM) connectFrameEvents(fw *xwindow.Window) {
 	}).Connect(w.X, id)
 	xevent.EnterNotifyFun(func(_ *xgbutil.XUtil, ev xevent.EnterNotifyEvent) {
 		if f := w.byFrame[ev.Event]; f != nil {
-			w.setMouseDoc("tile [" + f.title + "] — title: menu · ⠿: drag to move · buttons: split/close")
+			if f.floating {
+				w.setMouseDoc("float [" + f.title + "] — strip: drag to move · ✕: close")
+			} else {
+				w.setMouseDoc("tile [" + f.title + "] — title: menu · ⠿: drag to move · buttons: split/close")
+			}
 		}
 	}).Connect(w.X, id)
 }

@@ -30,6 +30,9 @@ func (w *WM) setTheme(name string) error {
 	for _, f := range w.frames {
 		f.win.Change(xproto.CwBackPixel, uint32(pixel(draw.Pane)))
 	}
+	for _, f := range w.floats {
+		f.win.Change(xproto.CwBackPixel, uint32(pixel(draw.Pane)))
+	}
 	for _, d := range w.dividers {
 		d.win.Change(xproto.CwBackPixel, uint32(pixel(draw.Paper)))
 	}
