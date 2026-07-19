@@ -9,16 +9,19 @@ DocType: reference
 Intent: long-term
 Owners: []
 RelatedFiles:
-    - Path: repo://pkg/wmx11/float.go
-      Note: the float layer this diary narrates
     - Path: repo://pkg/cmds/testwin.go
       Note: the purpose-built test client
+    - Path: repo://pkg/wmx11/float.go
+      Note: |-
+        the float layer this diary narrates
+        implementation narrated by this diary
 ExternalSources: []
 Summary: Chronological implementation diary for the floating-transients layer — decisions made against the design doc, what broke, and how each phase was verified.
 LastUpdated: 2026-07-19T19:00:00-04:00
 WhatFor: Continuation context for anyone extending the float layer; records deviations from design-doc/01.
 WhenToUse: Read alongside design-doc/01; the diary records what the implementation actually did where it differs.
 ---
+
 
 # Implementation diary
 
@@ -130,4 +133,28 @@ rc-smoke and examples-smoke both PASS (no regression).
 
 Commit: T3 scripting surface.
 
-## Entries continue below as work proceeds.
+## Entry 4 — docs, bookkeeping, wrap (2026-07-19)
+
+Help topics updated for the float layer: `wm-module` (floating section,
+rule float semantics, windows fields), `js-api-reference` (wm.float,
+float rules, the two new events, windows fields), `user-guide` (floats
+in the tiles concept, drag row in the gesture table, removed floats
+from the not-yet-supported list). `query windows` CLI table gained
+`class` and `floating` columns. Design doc gained Part VII as-built
+notes (frame-reuse amendment to F-D1, add-workspace refocus, testwin
+SIGTERM trap). tasks.md all checked; changelog updated; doctor clean.
+
+**Code review instructions.** Start at `pkg/wmx11/float.go` top comment,
+then read `manage()` in manage.go (the three-exit front door) and
+`frameFocused` call sites (the two-register focus invariant). The E2E
+truth is `scripts/float-smoke.sh`; run it on any display number. The
+one deliberately-unported i3 behavior: border styles / sticky /
+`resize set` on for_window rules (recorded in i3.js comments).
+
+**Open follow-ups** (not blocking): modal dialogs
+(`_NET_WM_STATE_MODAL`) don't block their leader; `focusNext`
+(Mod4-space) skips floats by design — revisit if it feels wrong in
+daily use; float positions are not persisted across workspace hides
+beyond the rect field; multi-output centering deferred to the future
+multi-output ticket.
+

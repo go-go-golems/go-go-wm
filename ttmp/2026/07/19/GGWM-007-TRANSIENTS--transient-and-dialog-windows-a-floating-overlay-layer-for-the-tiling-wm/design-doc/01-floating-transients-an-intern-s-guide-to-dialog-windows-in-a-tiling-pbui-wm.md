@@ -287,6 +287,37 @@ xgbutil): flags for `--transient-for <id>`, `--type dialog|utility`,
   rules.
 - **T4** — the toggle (`wm.float`), i3.js `$mod+Shift+space`.
 
+## Part VII — as-built notes (added after implementation, 2026-07-19)
+
+All four phases shipped in one session (commits `234e5ca`, `5a5312d`,
+and the docs commit following them). Where the implementation deviates
+from Parts III–IV, the implementation is authoritative:
+
+- **No separate `floatWin` struct.** F-D1's actual constraint —
+  floats never enter the wmcore tree — holds, but the record type is
+  `frame` with a `floating` flag, `leaf == ""`, and `ws`/`leader`/
+  size-hint fields, tracked in `WM.floats[client]`. The lookup maps,
+  frame-event dispatch, Expose fast path, buffer discipline, and shm
+  upload are all typed on `*frame`; a second struct would have
+  duplicated all of it. F-D1 status: accepted, amended.
+- **The strip variant** is `draw.TitleStrip{Float: true}` (close
+  button only), not a new renderer — as designed.
+- **Focus** is the designed two-register system; the single visual
+  predicate is `WM.frameFocused`. One addition the design missed:
+  `afterOp` now refocuses on `add-workspace` too (it switches Current),
+  otherwise a hidden float kept the keyboard after Mod4-n.
+- **T4 shipped with T1/T2**, not later — `liftTile`/`sinkFloat` reuse
+  `placementLeaf` and the unmanage tree-handling verbatim, so the edge
+  cases the design worried about collapsed into existing code paths.
+- **testwin** gained WM_DELETE_WINDOW handling (exercises the polite
+  close path) and prints its window id for `--transient-for` chaining.
+  Trap for future clients: on SIGTERM, `xevent.Quit` alone never exits
+  a blocked `xevent.Main` — close the X connection from the signal
+  goroutine.
+- **E2E**: `scripts/float-smoke.sh` (six stages: detection ×2, clean
+  teardown, rule overrides both ways, workspace round trip, toggle
+  alternation). rc-smoke and examples-smoke stayed green.
+
 ## Risks and open questions
 
 - Modal dialogs (`_NET_WM_STATE_MODAL`) arguably should block input to

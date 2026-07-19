@@ -19,7 +19,10 @@ ops the keyboard and mouse produce — there is no second mutation path.
 
 - `wm.tree()` — the full desktop: `{workspaces: [{id, name, root}], current}`.
   Nodes are `{id, kind: "leaf"|"split", app?, dir?, ratio?, a?, b?}`.
-- `wm.windows()` — managed windows: `[{leaf, client, title, workspace, rect, focused}]`.
+- `wm.windows()` — managed windows: `[{leaf, client, title, class,
+  instance, workspace, rect, focused, floating?, leader?}]`. Floating
+  windows (GGWM-007) have `floating: true`, an empty `leaf`, and the
+  WM_TRANSIENT_FOR target in `leader`.
 - `wm.focused()` — the focused leaf id, or null.
 - `wm.leaves(workspace?)` — `[{id, app}]` in layout order (default: current workspace).
 
@@ -85,13 +88,31 @@ write it, never when it fires — and inspectable before execution:
 
     wm.rule({ title: /zoom/, workspace: "calls" });
     wm.rule({ class: /Slack/, workspace: "8" });   // i3 assign [class=...]
-    wm.rules();                         // normalized: [{title, workspace}]
+    wm.rule({ class: /Galculator/, float: true }); // i3 for_window floating
+    wm.rule({ class: /mpv/, float: false });       // force tiling
+    wm.rules();                         // normalized rules
 
-A rule watches `window.managed` and moves matching windows with a
-`move-leaf` op — sugar over the event bus, not a new WM mechanism.
-Rules match on `title` and/or `class` (WM_CLASS class or instance);
-every present pattern must match. First matching rule wins; matching
-is case-insensitive.
+A workspace rule watches `window.managed` and moves matching windows
+with a `move-leaf` op — sugar over the event bus, not a new WM
+mechanism. A `float` rule is pushed down to the WM instead and decides
+at map time (before placement); `float: false` overrides even a
+dialog's own float signals. A rule needs a workspace and/or a float
+field. Rules match on `title` and/or `class` (WM_CLASS class or
+instance); every present pattern must match. First matching rule wins;
+matching is case-insensitive.
+
+## Floating windows (GGWM-007)
+
+Dialogs, utility palettes, splash screens, and fixed-size windows
+float automatically: the WM reads WM_TRANSIENT_FOR, the EWMH window
+type, and min==max size hints at map time. Floats live outside the
+tiling tree — `wm.tree()` never shows them; `wm.windows()` does.
+
+- `wm.float()` — toggle the focused window between tiled and floating;
+  returns the new floating state. Builtin tiles cannot float.
+- Floats belong to the workspace they appeared on, drag by their title
+  strip, honor client resize requests, and stack above tiles (below
+  the WM's bars and menus).
 
 ## See also
 

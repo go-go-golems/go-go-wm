@@ -16,11 +16,15 @@ scripting in `glaze help js-api-reference`.
 
 ## The five concepts
 
-- **Tiles.** Every window lives in a tile of a binary split tree — no
-  overlap, no gaps in coverage. Splits are rows (side by side) or
+- **Tiles.** Every main window lives in a tile of a binary split tree —
+  no overlap, no gaps in coverage. Splits are rows (side by side) or
   columns (stacked). Builtin tiles (trace, listener, inspector,
   launcher) are drawn by the WM itself; script tiles are drawn from a
-  JavaScript app's state.
+  JavaScript app's state. Dialogs, utility palettes, splash screens,
+  and fixed-size windows *float* above the tiled world instead: they
+  keep their own size, center on their parent window, drag by their
+  title strip, and never disturb the tree. `wm.float()` (Mod4-Shift-
+  space in i3.js) toggles any window between the two worlds.
 - **Workspaces.** Independent trees, switched via the top-bar chips or
   Mod4-1..9. New workspaces open on an empty launcher tile.
 - **Presentations.** Colors, files, numbers, commits — anything typed —
@@ -43,6 +47,7 @@ scripting in `glaze help js-api-reference`.
 | title-strip buttons | split right · split down · close |
 | drag ⠿ grip onto a tile | center = swap, edge = dock beside |
 | drag a divider | resize (sticky at ¼ ⅓ ½ ⅔ ¾) |
+| drag a float's title strip | move the float (strip stays on screen) |
 | left-click a chip | primary action / answer a pending accept |
 | right-click a chip | verb menu |
 | top-bar chip | switch workspace (answers `workspace` accepts too) |
@@ -104,5 +109,5 @@ text console (Ctrl+Alt+F3) and
 
 where the session script execs `go-go-wm wm --embedded-broker --rc
 ~/.config/go-go-wm/rc.js ...`. Ctrl+Alt+F2/F3 switches between your
-sessions. Not yet supported: floating/dialog windows, multi-output
-workspace pinning (both designed, see the GGWM-007 ticket).
+sessions. Not yet supported: multi-output workspace pinning,
+scratchpad/sticky windows, fullscreen toggle.

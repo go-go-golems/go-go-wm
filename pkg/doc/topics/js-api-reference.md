@@ -34,7 +34,8 @@ Queries (synchronous, 2s-bounded; wire field names):
   current}`; nodes are `{id, kind: "leaf"|"split", app?, dir?, ratio?,
   a?, b?}`.
 - `wm.windows()` — `[{leaf, client, title, class, instance, workspace,
-  rect, focused}]`.
+  rect, focused, floating?, leader?}]`. Floats have `floating: true`
+  and an empty `leaf` (they live outside the tree).
 - `wm.focused()` — focused leaf id (or undefined).
 - `wm.leaves(workspace?)` — `[{id, app}]` in layout order.
 
@@ -63,6 +64,9 @@ Navigation and themes:
 - `wm.move(dir)` — swap focused leaf with its neighbor in dir.
 - `wm.theme()` → current name; `wm.theme("dark")` — switch (repaints,
   emits `theme.changed`); `wm.themes()` → `["paper","light","dark"]`.
+- `wm.float()` — toggle the focused window tiled↔floating; returns the
+  new state. Dialogs/utility/splash/fixed-size windows float on their
+  own (WM_TRANSIENT_FOR, window type, min==max hints).
 
 Processes, keys, events:
 
@@ -83,11 +87,16 @@ inspectable, compiled to ops on execution):
 
     wm.rule({ title: /zoom/, workspace: "calls" });
     wm.rule({ class: /Slack/, workspace: "8", dir: "col" });
+    wm.rule({ class: /Galculator/, float: true });   // i3 for_window floating
+    wm.rule({ class: /mpv/, float: false });         // force tiling
     wm.rules();
 
-Rules watch `window.managed`; `title` and/or `class` (string = Go
-regexp, or JS RegExp; case-insensitive; class matches WM_CLASS class
-or instance); all present patterns must match; first match wins.
+Workspace rules watch `window.managed`; `float` rules are pushed down
+to the WM and decide at map time (a `float: false` beats even a
+dialog's own signals). A rule needs a workspace and/or a float field.
+`title` and/or `class` (string = Go regexp, or JS RegExp;
+case-insensitive; class matches WM_CLASS class or instance); all
+present patterns must match; first match wins.
 
 ## Module `pbui` — presentations, accepts, verbs
 
@@ -145,8 +154,10 @@ Every op is emitted under its op name: `split-leaf`, `close-leaf`,
 `set-ratio`, `set-leaf-app`, `swap-leaves`, `move-split`, `move-leaf`,
 `add-workspace`, `remove-workspace`, `rename-workspace`,
 `clone-workspace`, `switch-workspace`. Plus: `window.managed`
-`{leaf, title, class, instance, workspace}`, `close_tile`,
-`split_tile`, `theme.changed {theme}`, `accept.started` /
+`{leaf?, title, class, instance, workspace, floating?, leader?}`,
+`close_tile`, `split_tile`, `window.float-closed {client, title,
+class}`, `window.float-toggled {client, floating, leaf?}`,
+`theme.changed {theme}`, `accept.started` /
 `accept.answered` / `accept.cleared`, `listener.print`,
 `verb.invoked`, `op.rejected`, `script.error`. Handlers receive
 `{event, data, source, seq}`.
