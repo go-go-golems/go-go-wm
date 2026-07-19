@@ -121,8 +121,13 @@ func (w *WM) runVerb(verbID string, obj *pbui.Object) {
 	}
 }
 
-// cancelAccept is the Escape handler.
+// cancelAccept is the Escape handler. Escape is a global grab, so an
+// open launcher popup never sees the KeyPress itself — close it here.
 func (w *WM) cancelAccept() {
+	if w.launcher != nil {
+		w.closeLauncher()
+		return
+	}
 	if w.menu != nil {
 		w.closeMenu()
 		return

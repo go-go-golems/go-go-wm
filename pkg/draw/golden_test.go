@@ -43,6 +43,17 @@ func TestGoldenTitleStrip(t *testing.T) {
 	checkGolden(t, "title-strip", TitleStrip{Title: "color lab", Color: Rose, Width: 420}.Render())
 	checkGolden(t, "title-strip-focused", TitleStrip{Title: "listener", Color: Mint, Focused: true, Width: 420}.Render())
 	checkGolden(t, "title-strip-float", TitleStrip{Title: "save as", Color: Blue, Float: true, Width: 420}.Render())
+	checkGolden(t, "launcher-panel", LauncherPanel{
+		Query: "fire", Selected: 0, Width: 640, Height: 240,
+		Rows: []LauncherRow{
+			{Label: "Firefox", Doc: "Browse the web", Tag: "app", Tone: Rose},
+			{Label: "firewall config", Doc: "gufw", Tag: "app", Tone: Blue},
+			{Label: "trace", Doc: "open the trace tile", Tag: "builtin", Tone: Sage},
+		},
+	}.Render())
+	checkGolden(t, "launcher-panel-empty", LauncherPanel{
+		Prompt: "run — type to filter", Width: 400, Height: 120, Compact: true,
+	}.Render())
 }
 
 func TestGoldenBanner(t *testing.T) {

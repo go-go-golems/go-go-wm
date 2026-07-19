@@ -29,6 +29,7 @@ import (
 
 	"github.com/go-go-golems/go-go-wm/pkg/apps"
 	"github.com/go-go-golems/go-go-wm/pkg/draw"
+	"github.com/go-go-golems/go-go-wm/pkg/launcher"
 	"github.com/go-go-golems/go-go-wm/pkg/pbui"
 	"github.com/go-go-golems/go-go-wm/pkg/pbui/client"
 	"github.com/go-go-golems/go-go-wm/pkg/wmcore"
@@ -163,6 +164,9 @@ type WM struct {
 	accepting *acceptState
 	mouseDoc  string
 
+	registry *launcher.Registry // the command registry (GGWM-008)
+	launcher *launcherUI        // the open popup, nil when closed
+
 	drag *dragState
 
 	world *apps.World // state behind the embedded trace/listener/inspector
@@ -232,6 +236,7 @@ func (w *WM) Run(ctx context.Context) error {
 	}
 	w.setupEWMH()
 	w.setupInput()
+	w.setupLauncher()
 	w.manageExisting()
 
 	if err := w.startIPC(); err != nil {
@@ -244,6 +249,7 @@ func (w *WM) Run(ctx context.Context) error {
 
 	w.syncBuiltins()
 	w.relayout()
+	w.refocusCurrent() // boot: land focus on the first tile
 
 	if w.cfg.OnReady != nil {
 		w.cfg.OnReady(w)

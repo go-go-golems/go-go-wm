@@ -69,6 +69,10 @@ func (w *WM) connectMenuEvents(mw *xwindow.Window) {
 // connectBarEvents wires the top bar (chip clicks) and bottom bar.
 func (w *WM) connectBarEvents() {
 	xevent.ButtonPressFun(func(_ *xgbutil.XUtil, ev xevent.ButtonPressEvent) {
+		if w.launcher != nil {
+			w.closeLauncher()
+			return
+		}
 		if w.menu != nil {
 			w.closeMenu()
 			return

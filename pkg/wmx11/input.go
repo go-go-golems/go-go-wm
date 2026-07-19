@@ -3,7 +3,6 @@ package wmx11
 import (
 	"context"
 	"fmt"
-	"os/exec"
 	"time"
 
 	"github.com/jezek/xgb/xproto"
@@ -55,7 +54,8 @@ func (w *WM) setupInput() {
 	// cancellation), not a layout binding.
 	if !w.cfg.NoDefaultBinds {
 		bind("Mod4-Return", w.spawnTerminal)
-		bind("Mod4-d", func() { w.splitFocused(wmcore.Row) })
+		bind("Mod4-d", w.toggleLauncher)
+		bind("Mod4-Shift-d", func() { w.splitFocused(wmcore.Row) })
 		bind("Mod4-s", func() { w.splitFocused(wmcore.Col) })
 		bind("Mod4-w", w.closeFocused)
 		bind("Mod4-space", w.focusNext)
@@ -97,15 +97,7 @@ func (w *WM) spawnTerminal() {
 	if cmd == "" {
 		cmd = "xterm"
 	}
-	c := exec.Command("sh", "-c", cmd)
-	if w.cfg.Display != "" {
-		c.Env = append(c.Environ(), "DISPLAY="+w.cfg.Display)
-	}
-	if err := c.Start(); err != nil {
-		log.Warn().Err(err).Str("cmd", cmd).Msg("spawn failed")
-		return
-	}
-	go func() { _ = c.Wait() }()
+	w.execCommand(cmd)
 }
 
 func (w *WM) splitFocused(dir wmcore.Dir) {
@@ -220,7 +212,11 @@ func (w *WM) tileClicked(leaf wmcore.NodeID, _ byte, rootX, rootY int) {
 func (w *WM) handleRootPress(ev xevent.ButtonPressEvent) {
 	x, y := int(ev.RootX), int(ev.RootY)
 
-	// Menu open? Any root press outside it closes it.
+	// Popup open? Any root press outside it closes it.
+	if w.launcher != nil {
+		w.closeLauncher()
+		return
+	}
 	if w.menu != nil {
 		w.closeMenu()
 		return

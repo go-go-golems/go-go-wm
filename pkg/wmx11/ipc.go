@@ -164,6 +164,14 @@ func (w *WM) dispatchIPC(req ipcRequest) ipcResponse {
 				return
 			}
 			done <- ipcResponse{OK: true, Data: floating}
+		case "launcher-open":
+			w.openLauncher()
+			done <- ipcResponse{OK: true, Data: w.launcherInfo()}
+		case "launcher-close":
+			w.closeLauncher()
+			done <- ipcResponse{OK: true}
+		case "launcher":
+			done <- ipcResponse{OK: true, Data: w.launcherInfo()}
 		default:
 			done <- ipcResponse{OK: false, Error: "unknown query " + req.Q}
 		}
