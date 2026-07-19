@@ -11,16 +11,20 @@ DocType: reference
 Intent: long-term
 Owners: []
 RelatedFiles:
-    - Path: repo://pkg/cmds/repl.go
-      Note: the A3 terminal REPL whose kernel (replapi) the rich surface reuses
     - Path: repo://pkg/apps/xapp/xapp.go
       Note: the standalone host the R2 surface runs in (Keyer/Starter extensions)
+    - Path: repo://pkg/cmds/repl.go
+      Note: the A3 terminal REPL whose kernel (replapi) the rich surface reuses
+    - Path: repo://pkg/cmds/replui.go
+      Note: the kernel capture dance narrated in steps 1+3
 ExternalSources:
-    - "wolframjs-repl prototype: /home/manuel/code/wesen/2026-05-16--js-repl-wolfram/wolframjs-repl"
+    - 'wolframjs-repl prototype: /home/manuel/code/wesen/2026-05-16--js-repl-wolfram/wolframjs-repl'
 Summary: Step-formatted implementation diary for the rich REPL — kernel capture strategy, uispec extensions, the cell surface, and desktop integration, with verbatim failures.
+LastUpdated: 0001-01-01T00:00:00Z
 WhatFor: Continuation context; records where the implementation deviates from design-doc/01 (esp. the raw-value capture path).
 WhenToUse: Read alongside design-doc/01 and the GGWM-008 diary (the keyboard substrate this inherits).
 ---
+
 
 # Diary
 

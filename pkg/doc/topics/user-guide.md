@@ -88,7 +88,9 @@ Any JavaScript file runs against the live desktop:
 
     go-go-wm run --once script.js     # run and exit when settled
     go-go-wm run script.js            # keep serving verbs/subscriptions
-    go-go-wm repl                     # interactive, same API
+    go-go-wm repl                     # interactive terminal, same API
+    go-go-wm repl --ui                # the notebook: results are live
+                                      #   presentations (Out[3] answers accepts)
 
 One-shot scripts automate ("build my project workspace"); daemons
 extend (register verbs, route windows on events, put whole JS-rendered

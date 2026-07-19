@@ -21,6 +21,7 @@ identically at three attachment points:
 | rc file (in-process) | `go-go-wm wm --rc file.js` | only place `wm.bind` and `app.tile()` work; `wm.exec` always on |
 | standalone script | `go-go-wm run [--once] file.js` | daemon without `--once`; `--allow-exec` gates exec |
 | interactive | `go-go-wm repl` | same API; bindings persist across lines |
+| notebook | `go-go-wm repl --ui` | the rich REPL: an X window where every result is a live presentation |
 
 Sockets: `--socket` (broker) and `--wm-socket` (WM control), with
 sensible env/XDG defaults. Scripts are also broker clients: the
@@ -158,6 +159,32 @@ coordinates); a throwing render keeps the previous frame and emits
 `script.error`. Render hosts never execute JavaScript — handlers run
 on the JS loop and post snapshots.
 
+## The rich REPL (`repl --ui`)
+
+Every evaluation result derives a typed presentation: colors become
+swatches (they answer desktop accepts), numeric arrays become series
+(sparkline/bars/table views), arrays of same-shaped objects become
+datasets (table/schema views), everything else gets a capped json
+view. `Out(n)` and `$_` return the raw JS values. Right-click any
+Out chip for `repl.use` / `repl.copy-input` plus whatever verbs the
+desktop serves for that ptype.
+
+Any object can override derivation with a `__pbui__()` method:
+
+    class Matrix {
+      __pbui__() {
+        return { ptype: "matrix", summary: "2×2 matrix",
+                 input: "Matrix.from(...)",
+                 views: [{ name: "grid", rows: [ui.row(...)] }] };
+      }
+    }
+
+Views use the ui.row vocabulary plus `{kind:"table", columns, cells,
+more?}` and `{kind:"field", text, action, focus?}` segments; a
+throwing or invalid `__pbui__` falls back to derivation with the
+error shown as a hint. Each cell emits `repl.cell-done {n, input,
+error, console, ptype?, summary?}`.
+
 ## Events (the bus vocabulary)
 
 Every op is emitted under its op name: `split-leaf`, `close-leaf`,
@@ -170,7 +197,7 @@ class}`, `window.float-toggled {client, floating, leaf?}`,
 `command.launched {id, label, kind, leaf?}`,
 `theme.changed {theme}`, `accept.started` /
 `accept.answered` / `accept.cleared`, `listener.print`,
-`verb.invoked`, `op.rejected`, `script.error`. Handlers receive
+`verb.invoked`, `op.rejected`, `script.error`, `repl.cell-done`. Handlers receive
 `{event, data, source, seq}`.
 
 ## Gotchas

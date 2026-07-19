@@ -76,7 +76,10 @@ else builds on it.
     pbui.print("hello from a script:", pbui.object("color", "#b0563f"));
     EOF
 
-The color it printed is live — click it.
+The color it printed is live — click it. For an interactive version
+of this, `go-go-wm repl --ui` opens the notebook REPL (also in the
+Mod4-d launcher as "repl"): evaluate `"#b0563f"` and the result is a
+clickable swatch; evaluate `[1,2,5,3]` and you get a sparkline.
 
 ## Your config is a JavaScript file
 
