@@ -305,3 +305,97 @@ bug that would have bitten daily use: on a fresh boot nothing holds
 - Fixture trick: `Exec=touch $MARKER` in a temp XDG dir +
   `HOME`/`XDG_DATA_DIRS`/`XDG_STATE_HOME` overrides isolate the
   registry (no real ~/.local/share pollution, no frecency bleed).
+
+## Step 4: L3 — the frame keyboard substrate and launcher tile v2
+
+The substrate GGWM-009 inherits: builtin frames select KeyPress, and
+`handleFrameKey` routes typed input to the focused WM-rendered
+surface. With it, the empty-tile placeholder became a real launcher —
+the compact panel over the same registry, with per-leaf query state
+living WM-side (the Step 1 survey called this: `pkg/apps` renderers
+are stateless).
+
+A satisfying find: `scriptTile.key` and uimod's `dispatchKey` had
+existed since GGWM-003 with *nothing ever delivering keys* — the JS
+half of the seam was waiting for exactly this substrate. Script tiles
+with `onKey` now work with zero uimod changes.
+
+### Prompt Context
+
+**User prompt (verbatim):** (see Step 1, "do it")
+
+**Commit (code):** 1f2dadf — "GGWM-008: frame keyboard substrate + launcher tile v2"
+
+### What I did
+- `openBuiltin` frame windows add `EventMaskKeyPress`;
+  `connectFrameEvents` gains a KeyPress dispatch to `handleFrameKey`.
+- `handleFrameKey`: client frames and WM-modifier chords return
+  immediately; keysym via `keybind.LookupString`; script tiles →
+  `tile.key(s)` (a post to the JS loop), launcher tiles →
+  `launcherTileKey`.
+- Launcher tile: `launcherTiles map[leaf]*launcherTile{query, sel}`
+  (pruned in syncBuiltins' destroy branch; leaf ids never recycle),
+  `renderLauncherTile` (Compact panel + hint line + `launchcmd:<id>`
+  click regions), `launchIntoTile` (builtin → set-leaf-app this leaf;
+  app → exec, the client lands here via placementLeaf; script → L4
+  stub), Escape-clears-query in `cancelAccept`'s idle branch.
+- `paintBuiltin` branches launcher tiles to the WM-side renderer;
+  `builtinAction` handles `launchcmd:`; `{"q":"launcher-tile"}` debug
+  view (focused tile only).
+- launcher-smoke stages 7–9: fresh workspace focuses its tile and
+  typing filters it; Mod4+d still opens the popup with a tile focused
+  and leaks no characters; Enter launches builtin:trace into that
+  exact leaf and drops the tile state.
+
+### Why
+- The design rule "typed input goes to the focused surface; chords
+  with the WM modifier never do" is enforced in one place
+  (handleFrameKey's mods check) — X grab semantics already keep bound
+  chords away; the check covers unbound ones.
+
+### What worked
+- All three new E2E stages green on the first run — the substrate
+  worked immediately because focus() already lands on frame windows
+  for client-less tiles (the GGWM-004 SetInputFocus(None) fix built
+  the foundation).
+
+### What didn't work
+- Nothing failed in this step. (The Step 3 boot-focus fix is what
+  made "fresh workspace focuses its tile" hold; without it stage 7
+  would have failed the same way stage 6 did.)
+
+### What I learned
+- The `scriptTile.key` closure was dead code since GGWM-003 — a
+  designed seam that nothing exercised. The substrate completed it
+  without touching uimod: evidence the original layering was right.
+
+### What was tricky to build
+- Escape has three meanings now (close popup > close menu > cancel
+  accept > clear tile query) and is a global grab — the priority chain
+  lives entirely in `cancelAccept`, and the tile-clear branch must be
+  the *idle* fallback or it would eat accept cancellation.
+- Tile state lifetime: keyed by leaf id, cleared on launch, pruned
+  with the frame in syncBuiltins — three sites, any missed one is a
+  slow leak or a ghost query on a reused empty tile.
+
+### What warrants a second pair of eyes
+- `launcherTileRows` clamps `sel` as a side effect of rendering
+  (Down past the end relies on the next render clamping); ugly but
+  contained.
+- The printable filter is ASCII-only (0x20–0x7e), same as the popup —
+  recorded limitation, not an accident.
+
+### What should be done in the future
+- L4: script command dispatch (the `dispatchScriptCommand` stub),
+  command ptype + verbs + accept mode, wm.command/wm.launch/
+  wm.launcher exports, i3.js `d` binding, help topics.
+
+### Code review instructions
+- `handleFrameKey` + `launcherTileKey` + `launchIntoTile` in
+  `pkg/wmx11/launcher.go`; the `paintBuiltin` branch in builtin.go.
+  Validate: `scripts/launcher-smoke.sh` (9 stages).
+
+### Technical details
+- Debug: `{"q":"launcher-tile"}` → `{leaf, query, selected, rows}`
+  for the focused launcher tile ({} when none focused) — stage 7-9's
+  assertion surface.
