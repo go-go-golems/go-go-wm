@@ -21,6 +21,8 @@ topics:
       description: Scripting surfaces, DSLs, automation
     - slug: ui
       description: 'Scripted UI surfaces: the ui module, uispec IR, script tiles'
+    - slug: performance
+      description: Profiling, rendering performance, optimization work
 docTypes:
     - slug: design-doc
       description: Structured rationale and architecture notes
