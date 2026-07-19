@@ -7,6 +7,7 @@ import (
 	"context"
 	"fmt"
 	"net"
+	"strings"
 	"sync"
 	"sync/atomic"
 
@@ -69,6 +70,14 @@ func Connect(ctx context.Context, opts Options) (*Client, error) {
 	}
 	if _, err := c.request(ctx, &pbui.Msg{T: pbui.THello, Name: opts.Name, Roles: roles, Protocol: pbui.Protocol}); err != nil {
 		_ = nc.Close()
+		// The commonest cause of a garbled handshake is pointing at the
+		// wrong socket — most often the go-go-wm *control* socket, which
+		// speaks {"q":…}/{"ok":…} and answers the pbui hello with a
+		// frame that has no "t". Name that so it is self-diagnosing.
+		if strings.Contains(err.Error(), "frame missing t") || strings.Contains(err.Error(), "bad frame") {
+			return nil, fmt.Errorf("pbui: %s is not a pbui broker (it looks like the go-go-wm control socket). "+
+				"Point PBUI_SOCKET / --socket at the broker socket, and GO_GO_WM_SOCKET / --wm-socket at the control socket: %w", path, err)
+		}
 		return nil, err
 	}
 	return c, nil
