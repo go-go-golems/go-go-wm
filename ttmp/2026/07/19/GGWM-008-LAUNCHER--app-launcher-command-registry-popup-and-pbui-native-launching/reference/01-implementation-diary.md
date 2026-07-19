@@ -143,7 +143,7 @@ design's risk list asked for.
 
 **User prompt (verbatim):** (see Step 1, "do it")
 
-**Commit (code):** fd61931 — "GGWM-008: pkg/launcher — registry, .desktop parser, fuzzy scorer, frecency"
+**Commit (code):** 83ab0e8 — "GGWM-008: pkg/launcher — registry, .desktop parser, fuzzy scorer, frecency"
 
 ### What I did
 - `Command{ID, Label, Exec, Kind, Terminal, Keywords, Doc}`, kinds
@@ -204,3 +204,104 @@ design's risk list asked for.
 - Frecency score = count × recency-bucket weight; Match multiplies
   `(1 + log1p(frecencyScore))` so heavy use can reorder near-ties but
   cannot bury a much better textual match.
+
+## Step 3: L2 — the Mod4+d popup
+
+The popup is the menu's species with a keyboard: an override-redirect
+window that takes input focus directly while open, rendered by a new
+pure `draw.LauncherPanel` (query field + accent-chip rows + selection,
+golden-tested), filtering the registry on every keystroke. Launch
+routing went in with it: apps through one shared `execCommand` path,
+builtins through `placementLeaf` + `set-leaf-app`, scripts stubbed
+until L4.
+
+The E2E fixture (`scripts/launcher-smoke.sh`, six stages against a
+fixture XDG dir with a `touch`-marker .desktop entry) caught one real
+bug that would have bitten daily use: on a fresh boot nothing holds
+`w.focused`, so the first builtin launch did nothing.
+
+### Prompt Context
+
+**User prompt (verbatim):** (see Step 1, "do it")
+
+**Commit (code):** c0d0e02 — "GGWM-008: launcher popup — Mod4+d overlay over the registry, launch routing"
+
+### What I did
+- `pkg/draw/launcher.go`: `LauncherPanel`/`LauncherRow` with
+  `Render`, `RowRects`, `RowAt`, `MaxRows`; Field-surface query box
+  with block caret and prompt placeholder; `Compact` mode reserved for
+  the L3 tile. Goldens: `launcher-panel`, `launcher-panel-empty`.
+- `pkg/wmx11/launcher.go`: registry setup (`setupLauncher` registers
+  the four builtins, first .desktop scan off-loop), popup lifecycle
+  (`toggleLauncher`/`openLauncher`/`closeLauncher` + restoreInputFocus),
+  key handling via `keybind.LookupString` (Escape/Return/Up/Down/
+  BackSpace/space/printables; Mod4/Alt/Ctrl chords ignored), launch
+  routing (`launchCommand`/`launchBuiltin`/`execCommand`), and the
+  `{"q":"launcher"}` debug view.
+- Wiring: Mod4+d → toggle (split-right moved to Mod4+Shift+d — the
+  design assigns Mod4+d to the launcher, matching the user's i3
+  muscle memory); Escape handled in `cancelAccept` (it is a global
+  grab, the popup never sees it); outside clicks (root + top bar)
+  close the popup; theme swap repaints it; `spawnTerminal` now rides
+  `execCommand`.
+- Boot focus: `Run` calls `refocusCurrent` after the first relayout.
+
+### Why
+- Popup-first (before the tile) because its keyboard is the easy case:
+  input focus goes to the popup window itself; the frame-tile KeyPress
+  substrate is L3's job.
+- One `execCommand` path (design: the launcher composes command
+  lines, it does not spawn in new ways).
+
+### What worked
+- Stages 1-5 of the smoke passed on the first run: open-with-rows,
+  typed filtering (input focus works), marker launch on Enter, Mod4+d
+  toggle (with the standing first-keypress retry), Escape close.
+
+### What didn't work
+- Stage 6: `FAIL: builtin:trace never appeared in the tree`. The
+  popup closed and `launcherActivate` ran, but `launchBuiltin`
+  returned early — on a fresh boot `w.focused == ""` (nothing ever
+  called focus()). Two fixes: `launchBuiltin` now routes through
+  `placementLeaf()` (reuse the empty leaf, else split — the same rule
+  clients use, and better than the design's focused-leaf special
+  case), and `Run` lands boot focus via `refocusCurrent` so keyboard
+  nav works before the first click. Re-run: all six green.
+
+### What I learned
+- The boot state had no focused leaf for the entire project's life —
+  invisible until a keyboard-only flow (launch-into-tile) needed it.
+
+### What was tricky to build
+- Escape ordering: Escape is grabbed on the root (accept/menu cancel),
+  so the focused popup never receives it — the close must live in
+  `cancelAccept`, ordered before the menu branch. Symptom if missed:
+  Escape closes an accept session underneath while the popup stays.
+- Keyboard decode: `keybind.LookupString` returns keysym names
+  ("space", "BackSpace", dead keys as multi-char names); the printable
+  filter is `len==1 && 0x20..0x7e` plus an explicit "space" case —
+  non-ASCII input is out of scope and recorded here.
+
+### What warrants a second pair of eyes
+- `restoreInputFocus` duplicates focus() logic without the repaint
+  side effects — if the focus model changes again, this is the site
+  that drifts.
+- The popup ignores ButtonRelease/motion; a press-drag-release across
+  a row activates on press only (fine, but different from menus).
+
+### What should be done in the future
+- L3: the tile variant over the same panel (Compact mode) + the frame
+  KeyPress substrate; L4: script commands, command ptype, wm.command/
+  wm.launch/wm.launcher exports, i3.js `d` binding.
+
+### Code review instructions
+- `pkg/wmx11/launcher.go` top to bottom (300 lines), then
+  `draw.LauncherPanel`. Validate: `scripts/launcher-smoke.sh`, and
+  `go test ./pkg/draw/` for the goldens.
+
+### Technical details
+- Debug query: `{"q":"launcher"}` → `{open, query, selected,
+  rows: [command ids]}` — the E2E assertion surface.
+- Fixture trick: `Exec=touch $MARKER` in a temp XDG dir +
+  `HOME`/`XDG_DATA_DIRS`/`XDG_STATE_HOME` overrides isolate the
+  registry (no real ~/.local/share pollution, no frecency bleed).
