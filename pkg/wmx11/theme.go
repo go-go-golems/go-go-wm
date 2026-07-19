@@ -16,10 +16,21 @@ type ThemeInfo struct {
 	Available []string `json:"available"`
 }
 
-// setTheme swaps the live palette and repaints the world. WM loop only.
-// Back pixels are set at window-create time, so they are re-set here —
-// otherwise expose gaps (resizes, workspace switches) flash the old
-// theme between paints.
+// setTheme swaps the live palette and repaints the whole world. WM loop
+// only.
+//
+// The subtle part: frames and floats carry their content in a
+// background pixmap (an MIT-SHM surface, GGWM-006) and the bars in an
+// XSurfaceSet pixmap. Setting CwBackPixel on such a window *detaches*
+// that pixmap (back_pixel and back_pixmap are mutually exclusive in
+// X11), after which the cached repaint paths — which only ClearAll or
+// XPaint — reveal the solid back pixel instead of the painted content.
+// So the theme swap must fully rebuild those buffers, not poke their
+// back pixel: dropBuffers frees the surface (and safely resets the
+// pixel as a flash guard) so the next paintFrame recreates it and
+// re-establishes it as the background; dropping the cached bar images
+// makes blitCached re-run XSurfaceSet. Dividers keep the pixel poke —
+// their blit path re-runs XSurfaceSet on every paint anyway.
 func (w *WM) setTheme(name string) error {
 	if err := draw.SetTheme(name); err != nil {
 		return err
@@ -28,16 +39,24 @@ func (w *WM) setTheme(name string) error {
 	root.Change(xproto.CwBackPixel, uint32(pixel(draw.Paper)))
 	root.ClearAll()
 	for _, f := range w.frames {
-		f.win.Change(xproto.CwBackPixel, uint32(pixel(draw.Pane)))
+		f.dropBuffers()
 	}
 	for _, f := range w.floats {
-		f.win.Change(xproto.CwBackPixel, uint32(pixel(draw.Pane)))
-	}
-	if w.launcher != nil {
-		w.paintLauncher()
+		f.dropBuffers()
 	}
 	for _, d := range w.dividers {
 		d.win.Change(xproto.CwBackPixel, uint32(pixel(draw.Paper)))
+	}
+	// Drop the cached bar surfaces so blitCached rebuilds them via
+	// XSurfaceSet (re-establishing the background pixmap after the
+	// flash-guard pixel change below).
+	if w.topBarImg != nil {
+		w.topBarImg.Destroy()
+		w.topBarImg = nil
+	}
+	if w.bottomBarImg != nil {
+		w.bottomBarImg.Destroy()
+		w.bottomBarImg = nil
 	}
 	if w.topBar != nil {
 		w.topBar.Change(xproto.CwBackPixel, uint32(pixel(draw.Paper)))
@@ -45,9 +64,12 @@ func (w *WM) setTheme(name string) error {
 	if w.bottomBar != nil {
 		w.bottomBar.Change(xproto.CwBackPixel, uint32(pixel(draw.Paper)))
 	}
-	// relayout repaints every visible frame; paintBars redraws both bars.
-	// The fullscreen frame is skipped by relayout (it owns its geometry)
-	// so it repaints explicitly.
+	if w.launcher != nil {
+		w.paintLauncher()
+	}
+	// relayout repaints every visible frame (rebuilding its surface);
+	// the fullscreen frame is skipped by relayout (it owns its geometry)
+	// so it repaints explicitly; paintBars redraws both bars.
 	w.relayout()
 	if w.fullscreen != nil {
 		w.paintFrame(w.fullscreen)

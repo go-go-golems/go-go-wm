@@ -154,4 +154,24 @@ assert not [r for r in rows if r["rect"] == "1280x800+0+0"], "still fullscreen"
 ' || fail "exit did not restore tiled geometry"
 echo "ok: fullscreen covers the screen and restores"
 
+# 8. Theme switching repaints WM chrome. The bottom status bar is an
+# Ink-background band: dark in paper/light themes, LIGHT in dark theme.
+# Sample a bottom-bar pixel across a paper→dark switch and require it
+# to flip — proving the bar (an XSurfaceSet-pixmap window) actually
+# repaints rather than showing a detached back pixel (the GGWM-004/006
+# CwBackPixel-detaches-the-pixmap trap).
+barpx() { # → r+g+b brightness of a bottom-bar pixel
+  DISPLAY="$DPY" import -window root -crop 1x1+30+796 -depth 8 txt:- 2>/dev/null \
+    | grep -o '([0-9]*,[0-9]*,[0-9]*' | head -1 | tr -d '(' \
+    | awk -F, '{print $1+$2+$3}'
+}
+B_PAPER="$(barpx)"
+ipc '{"q":"set-theme","theme":"dark"}' >/dev/null
+sleep 1
+B_DARK="$(barpx)"
+[ "$B_PAPER" -lt 200 ] || fail "paper bottom bar not dark (got $B_PAPER) — did it repaint?"
+[ "$B_DARK" -gt 500 ] || fail "dark-theme bottom bar not light (got $B_DARK) — chrome did not repaint"
+ipc '{"q":"set-theme","theme":"paper"}' >/dev/null
+echo "ok: theme switch repaints chrome (bottom bar $B_PAPER -> $B_DARK)"
+
 echo "PASS: float smoke"
