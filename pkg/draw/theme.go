@@ -188,13 +188,26 @@ func Face(bold bool, size float64) font.Face {
 
 // --- primitives ------------------------------------------------------------
 
-// Fill paints r with c.
+// Fill paints r with c. Writes the first row's byte pattern once and
+// row-copies it — per-pixel SetRGBA was a quarter of the WM's CPU at
+// full-frame sizes (GGWM-005 profile).
 func Fill(img *image.RGBA, r image.Rectangle, c color.RGBA) {
 	r = r.Intersect(img.Bounds())
-	for y := r.Min.Y; y < r.Max.Y; y++ {
-		for x := r.Min.X; x < r.Max.X; x++ {
-			img.SetRGBA(x, y, c)
-		}
+	if r.Empty() {
+		return
+	}
+	w := r.Dx()
+	o0 := img.PixOffset(r.Min.X, r.Min.Y)
+	first := img.Pix[o0 : o0+w*4 : o0+w*4]
+	for i := 0; i < w*4; i += 4 {
+		first[i+0] = c.R
+		first[i+1] = c.G
+		first[i+2] = c.B
+		first[i+3] = c.A
+	}
+	for y := r.Min.Y + 1; y < r.Max.Y; y++ {
+		o := img.PixOffset(r.Min.X, y)
+		copy(img.Pix[o:o+w*4], first)
 	}
 }
 

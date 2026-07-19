@@ -16,7 +16,16 @@ func (w *WM) connectFrameEvents(fw *xwindow.Window) {
 	}).Connect(w.X, id)
 	xevent.ExposeFun(func(_ *xgbutil.XUtil, ev xevent.ExposeEvent) {
 		if f := w.byFrame[ev.Window]; f != nil && ev.Count == 0 {
-			w.paintFrame(f)
+			// The frame's content lives in its background pixmap (the
+			// cached ximg): a bare re-blit answers most exposures. A
+			// full re-render on every Expose was ~27% of the profile —
+			// each MoveResize during a drag exposed a frame that had
+			// just been painted (GGWM-005).
+			if f.ximg != nil && f.ximg.Bounds().Dx() == f.rect.W && f.ximg.Bounds().Dy() == f.rect.H {
+				f.ximg.XPaint(f.win.Id)
+			} else {
+				w.paintFrame(f)
+			}
 		}
 	}).Connect(w.X, id)
 	xevent.MotionNotifyFun(func(_ *xgbutil.XUtil, ev xevent.MotionNotifyEvent) {

@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"os/exec"
+	"time"
 
 	"github.com/jezek/xgb/xproto"
 	"github.com/jezek/xgbutil"
@@ -24,6 +25,11 @@ type dragState struct {
 	over    wmcore.NodeID
 	zone    wmcore.Zone
 	snapped bool
+
+	// Divider drags repaint whole panes; X delivers motion far faster
+	// than panes can paint, so motion is coalesced to ~60Hz and the
+	// release applies the final pointer position (GGWM-005).
+	lastPaint time.Time
 }
 
 func (w *WM) setupInput() {
@@ -277,6 +283,12 @@ func (w *WM) handleMotion(x, y int) {
 }
 
 func (w *WM) dividerMotion(d *dragState, x, y int) {
+	// Coalesce: skip repaints closer than a frame apart; handleRelease
+	// runs a final dividerMotion with the release coordinates.
+	if time.Since(d.lastPaint) < 16*time.Millisecond {
+		return
+	}
+	d.lastPaint = time.Now()
 	ws := w.desktop.CurrentWorkspace()
 	n := ws.Root.Find(d.split)
 	if n == nil {
@@ -291,7 +303,7 @@ func (w *WM) dividerMotion(d *dragState, x, y int) {
 	f, snapped := wmcore.Snap(f)
 	d.snapped = snapped
 	_, _ = wmcore.Apply(w.desktop, wmcore.Op{Op: wmcore.OpSetRatio, Node: d.split, Ratio: f})
-	w.relayout()
+	w.relayoutResized()
 	w.dividerDragFeedback(d.split, snapped)
 }
 
@@ -332,6 +344,10 @@ func (w *WM) handleRelease(x, y int) {
 		}
 	}
 	if d.kind == "divider" {
+		// Final position: the throttle above may have dropped the last
+		// few motion events.
+		d.lastPaint = time.Time{}
+		w.dividerMotion(d, x, y)
 		w.dividerDragEnd(d.split)
 		w.emitEvent("move_split_ratio", map[string]interface{}{"split": string(d.split), "snapped": d.snapped})
 	}

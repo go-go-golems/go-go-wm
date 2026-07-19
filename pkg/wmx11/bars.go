@@ -5,7 +5,6 @@ import (
 	"image"
 
 	"github.com/jezek/xgb/xproto"
-	"github.com/jezek/xgbutil/xgraphics"
 	"github.com/jezek/xgbutil/xwindow"
 
 	"github.com/go-go-golems/go-go-wm/pkg/draw"
@@ -96,7 +95,7 @@ func (w *WM) paintBars() {
 
 // blit paints an RGBA image onto a window.
 func (w *WM) blit(win *xwindow.Window, img *image.RGBA) {
-	ximg := xgraphics.NewConvert(w.X, img)
+	ximg := draw.ToXImage(w.X, img)
 	if err := ximg.XSurfaceSet(win.Id); err == nil {
 		ximg.XDraw()
 		ximg.XPaint(win.Id)

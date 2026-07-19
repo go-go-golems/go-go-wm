@@ -51,6 +51,7 @@ func (w *WM) syncBuiltins() {
 				delete(w.frames, leaf)
 				delete(w.byFrame, f.win.Id)
 				xevent.Detach(w.X, f.win.Id)
+				f.dropBuffers()
 				f.win.Destroy()
 			}
 			continue

@@ -14,7 +14,6 @@ import (
 	"github.com/jezek/xgbutil/ewmh"
 	"github.com/jezek/xgbutil/keybind"
 	"github.com/jezek/xgbutil/xevent"
-	"github.com/jezek/xgbutil/xgraphics"
 	"github.com/jezek/xgbutil/xwindow"
 
 	"github.com/go-go-golems/go-go-wm/pkg/apps"
@@ -233,7 +232,7 @@ func (a *shell) redraw() {
 	}
 	img, regions := a.app.Render(a.w, a.h, a.accepting)
 	a.regions = regions
-	ximg := xgraphics.NewConvert(a.X, img)
+	ximg := draw.ToXImage(a.X, img)
 	if err := ximg.XSurfaceSet(a.win.Id); err == nil {
 		ximg.XDraw()
 		ximg.XPaint(a.win.Id)

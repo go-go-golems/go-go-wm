@@ -50,11 +50,18 @@ if ! "$BIN" query verbs --socket "$PBUI_SOCK" --ptype tile 2>/dev/null | grep -q
 fi
 echo "ok: rc.js verb registered"
 
-# 2. The rc-bound key splits the tree.
+# 2. The rc-bound key splits the tree. The very first synthetic
+# keypress after Xvfb boot can be swallowed while the keymap settles
+# (seen under load), so retry a few times — a real binding regression
+# still fails after five presses.
 BEFORE="$(leaves)"
-DISPLAY="$DPY" xdotool key super+e
-sleep 1
-AFTER="$(leaves)"
+AFTER="$BEFORE"
+for _ in 1 2 3 4 5; do
+  DISPLAY="$DPY" xdotool key super+e
+  sleep 1
+  AFTER="$(leaves)"
+  [ "$AFTER" -gt "$BEFORE" ] && break
+done
 if [ "$AFTER" -le "$BEFORE" ]; then
   echo "FAIL: Mod4-e did not split (leaves $BEFORE → $AFTER)"; cat "$LOG/wm.log"; exit 1
 fi

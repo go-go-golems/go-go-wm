@@ -2,6 +2,9 @@ package cmds
 
 import (
 	"context"
+	"net/http"
+	_ "net/http/pprof"
+	"os"
 
 	glazed_cmds "github.com/go-go-golems/glazed/pkg/cmds"
 	"github.com/go-go-golems/glazed/pkg/cmds/fields"
@@ -69,6 +72,17 @@ func (c *WMCommand) Run(ctx context.Context, vals *values.Values) error {
 	s := &wmSettings{}
 	if err := vals.DecodeSectionInto(schema.DefaultSlug, s); err != nil {
 		return err
+	}
+
+	// GO_GO_WM_PPROF=localhost:6060 serves net/http/pprof for profiling
+	// paint/layout work (flamegraphs via `go tool pprof`).
+	if addr := os.Getenv("GO_GO_WM_PPROF"); addr != "" {
+		go func() {
+			log.Info().Str("addr", addr).Msg("pprof listening")
+			if err := http.ListenAndServe(addr, nil); err != nil {
+				log.Warn().Err(err).Msg("pprof server failed")
+			}
+		}()
 	}
 
 	sock := socketOrDefault(s.Socket)

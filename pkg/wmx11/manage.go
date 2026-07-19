@@ -3,6 +3,7 @@ package wmx11
 import (
 	"image"
 	"strings"
+	"time"
 
 	"github.com/jezek/xgb/xproto"
 	"github.com/jezek/xgbutil"
@@ -113,6 +114,20 @@ func (w *WM) manage(clientWin xproto.Window) {
 		w.handleUnmapNotify(ev)
 	}).Connect(w.X, clientWin)
 
+	// Click-to-focus: clients consume their own clicks, so without this
+	// only the title strip could focus a tile. A synchronous passive
+	// grab lets the WM see the press first; ReplayPointer then hands
+	// the click to the app untouched.
+	xproto.GrabButton(w.X.Conn(), true, clientWin,
+		uint16(xproto.EventMaskButtonPress), xproto.GrabModeSync, xproto.GrabModeAsync,
+		xproto.WindowNone, xproto.CursorNone, xproto.ButtonIndexAny, xproto.ModMaskAny)
+	xevent.ButtonPressFun(func(_ *xgbutil.XUtil, ev xevent.ButtonPressEvent) {
+		if w.focused != f.leaf {
+			w.focus(f.leaf)
+		}
+		xproto.AllowEvents(w.X.Conn(), xproto.AllowReplayPointer, ev.Time)
+	}).Connect(w.X, clientWin)
+
 	_, _ = wmcore.Apply(w.desktop, wmcore.Op{Op: wmcore.OpSetLeafApp, Node: leafID, App: "win"})
 	w.frames[leafID] = f
 	w.byClient[clientWin] = f
@@ -147,6 +162,7 @@ func (w *WM) placementLeaf() wmcore.NodeID {
 				delete(w.frames, l.ID)
 				delete(w.byFrame, f.win.Id)
 				xevent.Detach(w.X, f.win.Id)
+				f.dropBuffers()
 				f.win.Destroy()
 			}
 			return l.ID
@@ -178,6 +194,7 @@ func (w *WM) unmanage(clientWin xproto.Window) {
 	// X recycles window ids, and stale callbacks would fire for strangers.
 	xevent.Detach(w.X, clientWin)
 	xevent.Detach(w.X, f.win.Id)
+	f.dropBuffers()
 	f.win.Destroy()
 
 	// Close the leaf if its workspace still has siblings; a lone leaf just
@@ -258,8 +275,17 @@ func (w *WM) closeClient(f *frame) {
 }
 
 // relayout applies wmcore geometry to every frame in the current workspace
-// and hides frames on other workspaces.
-func (w *WM) relayout() {
+// and hides frames on other workspaces. It repaints every visible frame —
+// the "make the screen match the model" primitive (theme swaps and
+// workspace switches depend on that).
+func (w *WM) relayout() { w.relayoutPaint(true) }
+
+// relayoutResized repaints only frames whose rect changed — the divider
+// drag path, where repainting untouched panes at motion rate dominated
+// the CPU profile (GGWM-005). Exposure repaints cover everything else.
+func (w *WM) relayoutResized() { w.relayoutPaint(false) }
+
+func (w *WM) relayoutPaint(paintAll bool) {
 	ws := w.desktop.CurrentWorkspace()
 	if ws == nil {
 		return
@@ -277,7 +303,8 @@ func (w *WM) relayout() {
 			continue
 		}
 		r := item.Rect
-		if f.rect != r {
+		resized := f.rect != r
+		if resized {
 			f.rect = r
 			f.win.MoveResize(r.X, r.Y, r.W, r.H)
 			// Inner client area: inside the 2px border, below the strip.
@@ -296,13 +323,16 @@ func (w *WM) relayout() {
 					[]uint32{uint32(draw.BorderW), uint32(draw.TitleH), uint32(cw), uint32(ch)})
 			}
 		}
-		w.paintFrame(f)
+		if paintAll || resized {
+			w.paintFrame(f)
+		}
 	}
 	// Hide everything not on this workspace.
 	for leaf, f := range w.frames {
 		if !visible[leaf] {
 			f.win.Unmap()
 			f.rect = wmcore.Rect{}
+			f.dropBuffers() // off-screen frames don't hold megabytes
 		} else {
 			f.win.Map()
 		}
@@ -315,7 +345,14 @@ func (w *WM) paintFrame(f *frame) {
 	if f.rect.W < 4 || f.rect.H < 4 {
 		return
 	}
-	img := image.NewRGBA(image.Rect(0, 0, f.rect.W, f.rect.H))
+	defer func(t0 time.Time) {
+		log.Debug().Dur("ms", time.Since(t0)).Str("leaf", string(f.leaf)).
+			Int("w", f.rect.W).Int("h", f.rect.H).Msg("paintFrame")
+	}(time.Now())
+	if f.img == nil || f.img.Bounds().Dx() != f.rect.W || f.img.Bounds().Dy() != f.rect.H {
+		f.img = image.NewRGBA(image.Rect(0, 0, f.rect.W, f.rect.H))
+	}
+	img := f.img
 	draw.Fill(img, img.Bounds(), draw.Pane)
 	stripColor := draw.AppColor(leafColor(f.leaf))
 	if name := w.builtinAppOf(f); f.client == 0 && name != "" {
@@ -345,12 +382,22 @@ func (w *WM) paintFrame(f *frame) {
 	}
 	draw.Border(img, img.Bounds(), draw.BorderW, draw.Ink)
 
-	ximg := xgraphics.NewConvert(w.X, img)
-	if err := ximg.XSurfaceSet(f.win.Id); err == nil {
-		ximg.XDraw()
-		ximg.XPaint(f.win.Id)
+	// Upload through the cached X image: XSurfaceSet only when the
+	// pixmap is (re)created, XDraw+XPaint every time. Keeping the ximg
+	// alive also makes Expose a single XPaint (see connectFrameEvents).
+	if f.ximg == nil || f.ximg.Bounds() != img.Bounds() {
+		if f.ximg != nil {
+			f.ximg.Destroy()
+		}
+		f.ximg = xgraphics.New(w.X, img.Bounds())
+		if err := f.ximg.XSurfaceSet(f.win.Id); err != nil {
+			f.dropBuffers()
+			return
+		}
 	}
-	ximg.Destroy()
+	draw.CopyToXImage(f.ximg, img)
+	f.ximg.XDraw()
+	f.ximg.XPaint(f.win.Id)
 }
 
 func matchesTile(ptypes []string) bool {

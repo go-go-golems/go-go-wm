@@ -15,13 +15,16 @@ import (
 	"context"
 	"fmt"
 	"hash/fnv"
+	"image"
 	"os"
 	"path/filepath"
+	"time"
 
 	"github.com/jezek/xgb/xproto"
 	"github.com/jezek/xgbutil"
 	"github.com/jezek/xgbutil/xcursor"
 	"github.com/jezek/xgbutil/xevent"
+	"github.com/jezek/xgbutil/xgraphics"
 	"github.com/jezek/xgbutil/xwindow"
 
 	"github.com/go-go-golems/go-go-wm/pkg/apps"
@@ -78,6 +81,22 @@ type frame struct {
 	instance string        // WM_CLASS instance part ("slack")
 	rect     wmcore.Rect   // current frame rect (screen coords)
 	regions  []apps.Region // builtin tiles: clickable presentation regions
+
+	// Paint buffers, reused between paints and dropped on resize/unmap
+	// (per-paint allocation made GC ~30% of the profile, GGWM-005).
+	// ximg also keeps the frame's X pixmap: Expose becomes one XPaint.
+	img  *image.RGBA
+	ximg *xgraphics.Image
+}
+
+// dropBuffers releases the frame's paint buffers (and the ximg's server
+// pixmap). Call whenever the frame leaves the screen or is destroyed.
+func (f *frame) dropBuffers() {
+	if f.ximg != nil {
+		f.ximg.Destroy()
+		f.ximg = nil
+	}
+	f.img = nil
 }
 
 type acceptState struct {
@@ -281,6 +300,9 @@ func Apply(w *WM, op wmcore.Op) (wmcore.Result, error) {
 
 // afterOp reconciles X state with the desktop after a successful op.
 func (w *WM) afterOp(op wmcore.Op) {
+	defer func(t0 time.Time) {
+		log.Debug().Dur("ms", time.Since(t0)).Str("op", op.Op).Msg("afterOp")
+	}(time.Now())
 	switch op.Op {
 	case wmcore.OpCloseLeaf, wmcore.OpRemoveWorkspace:
 		w.reapOrphanFrames()
