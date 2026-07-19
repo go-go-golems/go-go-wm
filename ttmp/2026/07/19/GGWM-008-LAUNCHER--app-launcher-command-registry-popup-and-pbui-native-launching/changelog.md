@@ -25,3 +25,8 @@ Implemented all four phases: pkg/launcher registry (.desktop parser, fuzzy score
 
 A2 wm.command: daemon-served launcher entries via IPC registration + command.invoke event dispatch + client.disconnected pruning; launcher-smoke stages 13-14. Also scripts/playground.sh demo session. Commit 0af7fc1.
 
+
+## 2026-07-19
+
+Playground fix from dogfooding: dropped -no-host-grab (it disables Xephyr's Ctrl+Shift grab toggle entirely); cheat sheet + getting-started corrected. Commit b2bc199.
+

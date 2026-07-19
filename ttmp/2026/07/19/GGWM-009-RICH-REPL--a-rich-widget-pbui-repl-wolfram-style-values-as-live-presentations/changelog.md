@@ -20,3 +20,8 @@ Implemented R1-R3: pkg/repl (Value/Derive/NormalizeRich, bounded), uispec table/
 - /home/manuel/workspaces/2026-07-18/go-go-wm/go-go-wm/pkg/repl/derive.go — derivation + views
 - /home/manuel/workspaces/2026-07-18/go-go-wm/go-go-wm/scripts/replui-smoke.sh — 9-stage E2E incl. thesis stage
 
+
+## 2026-07-19
+
+Dogfooding fix: notebook prelude pre-binds wm/pbui/ui (user hit 'wm is not defined'); terminal REPL keeps explicit require. replui-smoke stage added (10 green). Commit b2bc199.
+
