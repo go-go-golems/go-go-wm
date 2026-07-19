@@ -18,6 +18,7 @@ cd "$(dirname "$0")/.."
 
 cleanup() {
   [ -n "${GITVERBS_PID:-}" ] && kill "$GITVERBS_PID" 2>/dev/null || true
+  [ -n "${NETVERBS_PID:-}" ] && kill "$NETVERBS_PID" 2>/dev/null || true
   [ -n "${JSCOLORS_PID:-}" ] && kill "$JSCOLORS_PID" 2>/dev/null || true
   [ -n "${WM_PID:-}" ] && kill "$WM_PID" 2>/dev/null || true
   [ -n "${BROKER_PID:-}" ] && kill "$BROKER_PID" 2>/dev/null || true
@@ -43,13 +44,22 @@ sleep 1
   || { echo "FAIL: git-verbs.js verbs missing"; exit 1; }
 echo "ok: git-verbs.js registered its verbs"
 
+"$BIN" run --socket "$PBUI_SOCK" examples/scripts/net-verbs.js >"$LOG/netverbs.log" 2>&1 &
+NETVERBS_PID=$!
+sleep 1
+"$BIN" query verbs --socket "$PBUI_SOCK" --ptype ip | grep -q "ip.octets" \
+  || { echo "FAIL: net-verbs.js ip verbs missing"; exit 1; }
+"$BIN" query verbs --socket "$PBUI_SOCK" --ptype url | grep -q "url.host" \
+  || { echo "FAIL: net-verbs.js url verbs missing"; exit 1; }
+echo "ok: net-verbs.js registered ip + url verbs"
+
 ( sleep 1; "$BIN" answer --socket "$PBUI_SOCK" --ptype color --value '#5a7a58' ) &
 "$BIN" run --once --socket "$PBUI_SOCK" examples/scripts/palette.js
 echo "ok: palette.js accept flow"
 
-kill "$GITVERBS_PID" 2>/dev/null || true
+kill "$GITVERBS_PID" "${NETVERBS_PID:-}" 2>/dev/null || true
 kill "$BROKER_PID" 2>/dev/null || true
-unset GITVERBS_PID BROKER_PID
+unset GITVERBS_PID NETVERBS_PID BROKER_PID
 
 # ---- stage 2: real WM in Xvfb -------------------------------------------
 rm -f "$PBUI_SOCK" "$WM_SOCK"
