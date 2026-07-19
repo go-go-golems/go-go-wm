@@ -6,6 +6,7 @@ package xapp
 
 import (
 	"context"
+	"encoding/json"
 	"image"
 	"time"
 
@@ -58,8 +59,25 @@ type Ctx struct {
 	Print  func(segs ...apps.Seg) // print a line to the WM listener (via event bus)
 }
 
+// RunOption configures Run.
+type RunOption func(*runConfig)
+
+type runConfig struct {
+	followThemes bool
+}
+
+// WithThemeFollowing makes the shell consume the broker event stream
+// and, on theme.changed, swap this process's palette and repaint —
+// both on the xapp loop (one palette writer per process). Opt-in
+// because a client has ONE event channel: processes that run their own
+// event fan (repl --ui, run daemons) must keep it and handle themes
+// there instead.
+func WithThemeFollowing() RunOption {
+	return func(c *runConfig) { c.followThemes = true }
+}
+
 // Run opens the window and blocks until the window is closed or ctx ends.
-func Run(ctx context.Context, display, brokerSocket string, app App) error {
+func Run(ctx context.Context, display, brokerSocket string, app App, opts ...RunOption) error {
 	X, err := connect(display)
 	if err != nil {
 		return err
@@ -81,12 +99,39 @@ func Run(ctx context.Context, display, brokerSocket string, app App) error {
 	_ = ewmh.WmNameSet(X, win.Id, app.Title())
 	win.Map()
 
+	var cfg runConfig
+	for _, o := range opts {
+		o(&cfg)
+	}
 	a := &shell{X: X, win: win, app: app, ops: make(chan func(), 64)}
 
 	// Broker (best effort — the app still renders without it).
 	cctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	cl, err := client.Connect(cctx, client.Options{Socket: brokerSocket, Name: app.Name()})
 	cancel()
+	if err == nil && cfg.followThemes {
+		if events, eerr := cl.Events(ctx); eerr == nil {
+			go func() {
+				for msg := range events {
+					if msg.Event != "theme.changed" {
+						continue
+					}
+					var d struct {
+						Theme string `json:"theme"`
+					}
+					if jerr := json.Unmarshal(msg.Data, &d); jerr != nil || d.Theme == "" {
+						continue
+					}
+					theme := d.Theme
+					a.post(func() {
+						if serr := draw.SetTheme(theme); serr == nil {
+							a.redraw()
+						}
+					})
+				}
+			}()
+		}
+	}
 	if err == nil {
 		a.broker = cl
 		defer func() { _ = cl.Close() }()

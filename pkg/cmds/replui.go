@@ -174,6 +174,9 @@ type richReplApp struct {
 	kernel *replKernel
 	root   context.Context
 	budget int // last render's row budget (for scroll clamping)
+
+	uiCtx   xapp.Ctx // captured in Started (for out-of-band redraws)
+	uiReady bool
 }
 
 func (a *richReplApp) Name() string  { return "repl" }
@@ -199,7 +202,23 @@ func (a *richReplApp) Render(w, h int, accepting []string) (*image.RGBA, []apps.
 	return uispec.Render(w, h, spec, accepting)
 }
 
-func (a *richReplApp) Started(ctx xapp.Ctx) {}
+func (a *richReplApp) Started(ctx xapp.Ctx) {
+	a.mu.Lock()
+	a.uiCtx, a.uiReady = ctx, true
+	a.mu.Unlock()
+}
+
+// themeRedraw repaints after a palette swap (posted to the xapp loop;
+// called from the event-fan drainer, which swapped the palette first —
+// same goroutine, so the ordering is deterministic).
+func (a *richReplApp) themeRedraw() {
+	a.mu.Lock()
+	ctx, ready := a.uiCtx, a.uiReady
+	a.mu.Unlock()
+	if ready {
+		ctx.Post(ctx.Redraw)
+	}
+}
 
 func (a *richReplApp) HandleAction(ctx xapp.Ctx, action string) {
 	action = strings.TrimPrefix(action, "cmd:")
@@ -393,5 +412,9 @@ func (c *ReplCommand) runReplUI(ctx context.Context, s *replSettings) error {
 	}
 
 	surface := &richReplApp{kernel: kernel, root: ctx}
+	// Registered AFTER followThemeChanges: same fan, same event — the
+	// drainer runs handlers in registration order, so the palette swap
+	// happens before this redraw is posted.
+	fan.SubscribeGo("theme.changed", func(*pbui.Msg) { surface.themeRedraw() })
 	return xapp.Run(ctx, s.Display, socketOrDefault(s.Socket), surface)
 }

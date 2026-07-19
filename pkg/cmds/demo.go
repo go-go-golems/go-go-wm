@@ -74,5 +74,5 @@ func (c *DemoCommand) Run(ctx context.Context, vals *values.Values) error {
 	default:
 		return fmt.Errorf("unknown demo app %q", s.App)
 	}
-	return xapp.Run(ctx, s.Display, socketOrDefault(s.Socket), app)
+	return xapp.Run(ctx, s.Display, socketOrDefault(s.Socket), app, xapp.WithThemeFollowing())
 }

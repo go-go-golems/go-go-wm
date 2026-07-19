@@ -46,7 +46,12 @@ func (w *WM) setTheme(name string) error {
 		w.bottomBar.Change(xproto.CwBackPixel, uint32(pixel(draw.Paper)))
 	}
 	// relayout repaints every visible frame; paintBars redraws both bars.
+	// The fullscreen frame is skipped by relayout (it owns its geometry)
+	// so it repaints explicitly.
 	w.relayout()
+	if w.fullscreen != nil {
+		w.paintFrame(w.fullscreen)
+	}
 	w.paintBars()
 	w.emitEvent("theme.changed", map[string]interface{}{"theme": name})
 	return nil

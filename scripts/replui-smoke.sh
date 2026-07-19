@@ -159,4 +159,21 @@ echo "ok: wm/pbui/ui are pre-bound"
   || fail "repl.use verb not registered for series"
 echo "ok: repl verbs registered desktop-wide"
 
+# 10. Theme switching repaints the notebook (palette swap via the
+# event fan + posted redraw). Sample an interior pixel: paper → dark.
+sample() { # x y → "r,g,b"
+  DISPLAY="$DPY" import -window root -crop 1x1+"$1"+"$2" -depth 8 txt:- 2>/dev/null \
+    | grep -o '([0-9]*,[0-9]*,[0-9]*' | head -1 | tr -d '('
+}
+brightness() { echo "$1" | awk -F, '{print $1+$2+$3}'; }
+PX=200; PY=400   # inside the repl tile's content area
+BEFORE="$(sample $PX $PY)"
+[ "$(brightness "$BEFORE")" -gt 450 ] || fail "pre-switch pixel not light: $BEFORE"
+ipc '{"q":"set-theme","theme":"dark"}' | grep -q '"ok":true' || fail "set-theme rejected"
+sleep 2
+AFTER="$(sample $PX $PY)"
+[ "$(brightness "$AFTER")" -lt 250 ] || fail "repl window did not go dark: $BEFORE -> $AFTER"
+ipc '{"q":"set-theme","theme":"paper"}' >/dev/null
+echo "ok: theme switch repaints the notebook ($BEFORE -> $AFTER)"
+
 echo "PASS: replui smoke"
