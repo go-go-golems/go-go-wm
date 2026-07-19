@@ -124,3 +124,83 @@ review instructions) is the standard.
   L2 popup + Mod4+d → L3 frame KeyPress substrate + tile v2 → L4
   command ptype/verbs/accept + wm.command/wm.launch + i3.js. Commit
   per phase; float-smoke/rc-smoke/examples-smoke as regression gates.
+
+## Step 2: L1 — the pure registry (pkg/launcher)
+
+The registry landed as four small files — `registry.go` (types,
+sources, Match/All/Bump), `desktop.go` (XDG scan + parser),
+`match.go` (subsequence scorer), `frecency.go` (bucketed store) — and
+a nine-test suite that passed on the first run. No X, no broker, no
+dependencies beyond the standard library.
+
+One design choice made concrete here: the registry knows nothing about
+`pkg/apps` or JS. Builtins and script commands arrive via
+`SetStatic(kind, cmds)` — the WM and wmmod own those vocabularies, and
+`SetStatic(KindScript, nil)` is exactly the stale-daemon cleanup the
+design's risk list asked for.
+
+### Prompt Context
+
+**User prompt (verbatim):** (see Step 1, "do it")
+
+**Commit (code):** fd61931 — "GGWM-008: pkg/launcher — registry, .desktop parser, fuzzy scorer, frecency"
+
+### What I did
+- `Command{ID, Label, Exec, Kind, Terminal, Keywords, Doc}`, kinds
+  app/builtin/script; `Registry` with `Refresh` (mtime-gated rescan),
+  `All` (frecency-ordered), `Match` (scored), `Get`, `Bump`,
+  `SetStatic`; options `WithDataDirs`/`WithStatePath`/`WithNow` for
+  tests.
+- .desktop parser: `[Desktop Entry]` group only, `Type=Application`
+  gate, NoDisplay/Hidden skip, field-code stripping (%f/%u/…, `%%`
+  unescape), Keywords+Categories → match terms, XDG first-dir-wins
+  precedence by desktop-file id.
+- Scorer: greedy subsequence, +3 boundary / +2 consecutive, leading
+  penalty, short-field preference; field weights label 1.0 / keyword
+  0.8 / id 0.6; final × (1 + log1p(frecency)).
+- Frecency: JSON at `$XDG_STATE_HOME/go-go-wm/launcher.json`, bucket
+  weights 4/2/1/0.5 (hour/day/week/older), writes debounced to 5s,
+  everything best-effort.
+- Tests: parsing fixtures (incl. action groups, Link type, %% escape),
+  precedence, mtime refresh, scorer ordering table, keyword matching,
+  frecency ordering + decay + persistence, static-source replacement.
+
+### Why
+- Purity is the testability story (L-D1); the injected clock makes
+  frecency deterministic; `SetStatic` keeps layer direction clean
+  (launcher imports nothing above the standard library).
+
+### What worked
+- Entire suite green on first `go test` run.
+
+### What didn't work
+- N/A this step (first clean run).
+
+### What I learned
+- `os.Chtimes` on the directory is needed in the mtime-refresh test —
+  same-second writes are invisible to coarse filesystem timestamps.
+
+### What was tricky to build
+- The scorer's greedy (not optimal-alignment) subsequence is a
+  deliberate simplification; the test table pins the orderings that
+  matter (boundary > middle, consecutive > scattered, early > late)
+  so a future rewrite has a contract.
+
+### What warrants a second pair of eyes
+- `stripFieldCodes` drops every two-char `%x` token in a known list;
+  an Exec using literal `%f` as an argument to its own flag would lose
+  it — acceptable per the recorded non-goal, but worth knowing.
+- `Refresh` treats "any dir mtime changed" as "rescan all dirs" —
+  simple and correct, but O(all entries) per change.
+
+### What should be done in the future
+- N/A (later phases wire it up).
+
+### Code review instructions
+- Read `pkg/launcher/registry.go` top comment, then `match.go`.
+  Validate: `go test ./pkg/launcher/ -v`.
+
+### Technical details
+- Frecency score = count × recency-bucket weight; Match multiplies
+  `(1 + log1p(frecencyScore))` so heavy use can reorder near-ties but
+  cannot bury a much better textual match.
