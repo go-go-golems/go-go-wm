@@ -100,4 +100,34 @@ windows with exact float signals and speaks WM_DELETE_WINDOW.
 
 Commit: T1/T2/T4 WM layer + testwin + float-smoke fixture.
 
+## Entry 3 — T3 scripting surface: float rules, push-down, i3.js floats (2026-07-19)
+
+**What was built.** `wmmod.Backend` gained `SetFloatRules` and `Float`
+(both `IPCBackend` and `ScriptBackend` implement them). `Rule` gained a
+three-valued `Float *bool`; `normalizeRule` accepts `float: true|false`
+and now allows workspace-less rules when a float field is present. The
+`wm.rule` export arms the event watcher only for workspace rules and
+pushes the compiled float-override list down after any float rule —
+the keybinding-style push-down from the design: the module owns the
+store, the WM owns the map-time decision. `wm.float()` toggles.
+i3.js ports the config's entire `for_window … floating enable` list
+(21 class rules + 7 title rules) and binds Mod4+Shift+space.
+
+**What didn't work.**
+- First run of the new JS tests: nil-pointer panic inside
+  `normalizeRule`. In this goja version `obj.Get("absent-key")` returns
+  a nil `goja.Value` (not undefined), and the old
+  `obj.Get("workspace").Export()` had never executed against a rule
+  without a workspace — every pre-GGWM-007 rule had one. Guard added.
+  Lesson: any `obj.Get(k)` on an optional key needs the nil check
+  *before* IsUndefined.
+
+**Verification.** wmmod unit tests (push-down list content, both rule
+validation errors, toggle alternation); live Xvfb check: WM booted with
+`--rc examples/scripts/i3.js` (32 rules load), a `testwin --class
+Galculator` with zero float signals floats via the pushed rule.
+rc-smoke and examples-smoke both PASS (no regression).
+
+Commit: T3 scripting surface.
+
 ## Entries continue below as work proceeds.

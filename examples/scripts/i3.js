@@ -29,14 +29,17 @@
 //   assign [class="Emacs"] 1               wm.rule({class: /Emacs/, workspace: "1"})
 //   assign [class="obsidian"] 2            wm.rule({class: /obsidian/, workspace: "2"})
 //   assign [class="jetbrains-idea"] 3      wm.rule({class: /jetbrains-idea/, workspace: "3"})
+//   for_window [...] floating enable       wm.rule({class/title: …, float: true})  (GGWM-007)
+//   bindsym $mod+Shift+space floating…     wm.float()
 //   client.background #1f1f1f              --theme dark (same anchor color)
 //   exec --no-startup-id …                 AUTOSTART below (opt-in via env)
 //
-//   NOT PORTED (no WM mechanism yet): floating/scratchpad/sticky,
+//   NOT PORTED (no WM mechanism yet): scratchpad/sticky,
 //   stacking/tabbed layouts, fullscreen toggle, i3 modes (resize/gaps/
 //   system — global grabs of bare letters would swallow app keys),
 //   multi-output workspace pinning, i3bar/polybar, border styles,
-//   urgency focus. Resize lives on the mouse (sticky dividers).
+//   urgency focus. Resize lives on the mouse (sticky dividers);
+//   floats also honor client resize requests (ConfigureRequest).
 
 var wm = require("wm");
 
@@ -98,6 +101,8 @@ bind("Shift-Right", function () { wm.move("right"); });
 bind("h", function () { var f = wm.focused(); if (f) wm.split(f, "row"); });
 bind("v", function () { var f = wm.focused(); if (f) wm.split(f, "col"); });
 bind("space", function () { wm.focus("next"); });
+// toggle tiling / floating (i3 $mod+Shift+space)
+bind("Shift-space", function () { wm.float(); });
 
 // --- workspaces -----------------------------------------------------------
 for (var n = 1; n <= 9; n++) {
@@ -137,6 +142,25 @@ wm.rule({ class: /Slack/, workspace: "8" });
 wm.rule({ class: /Emacs/, workspace: "1" });
 wm.rule({ class: /obsidian/, workspace: "2" });
 wm.rule({ class: /jetbrains-idea/, workspace: "3" });
+
+// --- floating rules (GGWM-007) --------------------------------------------
+// The i3 config's `for_window [...] floating enable` list. Border
+// styles, sticky, and `resize set` have no equivalent yet; the float
+// itself is the part that matters daily. Dialogs and fixed-size
+// windows float automatically (WM_TRANSIENT_FOR, _NET_WM_WINDOW_TYPE,
+// min==max hints) — these rules cover apps that set none of those.
+[
+  /Calamares/, /Clipgrab/, /Galculator/, /GParted/,
+  /Lightdm-gtk-greeter-settings/, /Lxappearance/, /Manjaro-hello/,
+  /Manjaro Settings Manager/, /Nitrogen/, /octopi/, /Pamac-manager/,
+  /Pavucontrol/, /qt5ct/, /Qtconfig-qt4/, /Simple-scan/,
+  /System-config-printer.py/, /Skype/, /Thus/, /Timeset-gui/,
+  /virtualbox/, /Xfburn/,
+].forEach(function (cls) { wm.rule({ class: cls, float: true }); });
+[
+  /alsamixer/, /edit-clipboard/, /File Transfer/, /i3_help/,
+  /MuseScore: Play Panel/, /About Pale Moon/, /^md-view:/,
+].forEach(function (title) { wm.rule({ title: title, float: true }); });
 
 // --- autostart ------------------------------------------------------------
 // The i3 exec lines target the real machine (nitrogen, compton, polybar,

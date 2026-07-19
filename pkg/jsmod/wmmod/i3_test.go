@@ -151,3 +151,50 @@ func TestRuleClassNormalization(t *testing.T) {
 		t.Fatalf("bad class regexp should be rejected, got %v", err)
 	}
 }
+
+func TestFloatRulesPushDown(t *testing.T) {
+	fake := newFake("")
+	rt := newRuntime(t, fake)
+	// Float-only rules need no broker fan (no event watcher); they push
+	// the compiled override list straight to the backend.
+	run(t, rt, `
+const wm = require("wm");
+wm.rule({class: /Galculator/, float: true});
+wm.rule({title: "File Transfer", float: true});
+wm.rule({class: /mpv/, float: false});
+wm.rules().length`)
+	fake.mu.Lock()
+	defer fake.mu.Unlock()
+	if len(fake.floatRules) != 3 {
+		t.Fatalf("pushed %d float rules, want 3: %+v", len(fake.floatRules), fake.floatRules)
+	}
+	if fake.floatRules[0].Class != "Galculator" || !fake.floatRules[0].Float {
+		t.Fatalf("rule 0 = %+v", fake.floatRules[0])
+	}
+	if fake.floatRules[2].Class != "mpv" || fake.floatRules[2].Float {
+		t.Fatalf("rule 2 = %+v", fake.floatRules[2])
+	}
+}
+
+func TestFloatRuleValidation(t *testing.T) {
+	rt := newRuntime(t, newFake(""))
+	err := runErr(t, rt, `require("wm").rule({class: /x/})`)
+	if err == nil || !strings.Contains(err.Error(), "workspace and/or a float") {
+		t.Fatalf("rule without workspace or float should be rejected, got %v", err)
+	}
+	err = runErr(t, rt, `require("wm").rule({class: /x/, float: "yes"})`)
+	if err == nil || !strings.Contains(err.Error(), "float must be") {
+		t.Fatalf("non-bool float should be rejected, got %v", err)
+	}
+}
+
+func TestFloatToggleExport(t *testing.T) {
+	fake := newFake("")
+	rt := newRuntime(t, fake)
+	got := run(t, rt, `
+const wm = require("wm");
+wm.float() + ":" + wm.float()`)
+	if got != "true:false" {
+		t.Fatalf("wm.float toggles = %v, want true:false", got)
+	}
+}

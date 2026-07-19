@@ -38,6 +38,13 @@ type Backend interface {
 	// Move swaps the focused leaf with its neighbor in dir; returns the
 	// focused leaf afterwards.
 	Move(ctx context.Context, dir string) (string, error)
+	// SetFloatRules replaces the WM-side float override list (GGWM-007).
+	// Pushed down whenever a wm.rule with a float field is defined —
+	// the float decision runs WM-side at map time, before any event.
+	SetFloatRules(ctx context.Context, rules []wmx11.FloatRule) error
+	// Float toggles the focused window between the tiled and floating
+	// worlds; returns the resulting floating state.
+	Float(ctx context.Context) (bool, error)
 }
 
 // ErrNoKeybindings is returned by backends that cannot grab keys.
@@ -148,4 +155,16 @@ func (b *IPCBackend) Move(ctx context.Context, dir string) (string, error) {
 		return "", err
 	}
 	return focused, nil
+}
+
+func (b *IPCBackend) SetFloatRules(ctx context.Context, rules []wmx11.FloatRule) error {
+	return b.query(ctx, map[string]interface{}{"q": "set-float-rules", "float_rules": rules}, nil)
+}
+
+func (b *IPCBackend) Float(ctx context.Context) (bool, error) {
+	var floating bool
+	if err := b.query(ctx, map[string]string{"q": "float"}, &floating); err != nil {
+		return false, err
+	}
+	return floating, nil
 }

@@ -27,9 +27,11 @@ type fakeBackend struct {
 	d       *wmcore.Desktop
 	ops     []wmcore.Op
 	wins    []wmx11.WindowInfo
-	theme   string
-	focused string
-	moves   []string
+	theme      string
+	focused    string
+	moves      []string
+	floatRules []wmx11.FloatRule
+	floating   bool
 }
 
 func newFake(firstApp string) *fakeBackend {
@@ -108,6 +110,20 @@ func (f *fakeBackend) Move(_ context.Context, dir string) (string, error) {
 	defer f.mu.Unlock()
 	f.moves = append(f.moves, dir)
 	return f.focused, nil
+}
+
+func (f *fakeBackend) SetFloatRules(_ context.Context, rules []wmx11.FloatRule) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.floatRules = append([]wmx11.FloatRule(nil), rules...)
+	return nil
+}
+
+func (f *fakeBackend) Float(context.Context) (bool, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.floating = !f.floating
+	return f.floating, nil
 }
 
 func newRuntime(t *testing.T, b wmmod.Backend) *engine.Runtime {

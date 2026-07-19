@@ -302,6 +302,13 @@ func (m *Module) Loader() require.ModuleLoader {
 				return m.backend.Move(ctx, dir)
 			})
 		})
+		// float(): toggle the focused window between the tiled and
+		// floating worlds (GGWM-007); returns the new floating state.
+		set("float", func(call goja.FunctionCall) goja.Value {
+			return m.call(vm, "float", func(ctx context.Context) (interface{}, error) {
+				return m.backend.Float(ctx)
+			})
+		})
 		// exec(cmdline): spawn a process, i3-style. Fire-and-forget.
 		set("exec", m.jsExec(vm))
 

@@ -18,6 +18,7 @@ import (
 	"github.com/go-go-golems/go-go-wm/pkg/jsmod"
 	"github.com/go-go-golems/go-go-wm/pkg/pbui"
 	"github.com/go-go-golems/go-go-wm/pkg/wmcore"
+	"github.com/go-go-golems/go-go-wm/pkg/wmx11"
 )
 
 // LayoutStep is one node of a normalized layout plan.
@@ -33,12 +34,16 @@ type LayoutStep struct {
 // Rule is a normalized placement rule. Title and Class are regexp
 // sources (case-insensitive); at least one is present, and every
 // present pattern must match (i3's assign [class=…] semantics — Class
-// matches WM_CLASS class or instance).
+// matches WM_CLASS class or instance). A rule carries a workspace
+// assignment, a float override (i3's `for_window … floating enable`),
+// or both; float overrides are pushed down to the WM, which evaluates
+// them at map time — before placement, not after an event.
 type Rule struct {
 	Title     string `json:"title,omitempty"`
 	Class     string `json:"class,omitempty"`
-	Workspace string `json:"workspace"`
+	Workspace string `json:"workspace,omitempty"`
 	Dir       string `json:"dir,omitempty"`
+	Float     *bool  `json:"float,omitempty"`
 
 	re      *regexp.Regexp
 	classRe *regexp.Regexp
@@ -142,7 +147,7 @@ func normalizeRule(vm *goja.Runtime, arg goja.Value) (*Rule, error) {
 	r := &Rule{}
 	for _, k := range obj.Keys() {
 		switch k {
-		case "title", "class", "workspace", "dir":
+		case "title", "class", "workspace", "dir", "float":
 		default:
 			return nil, fmt.Errorf("rule: unknown key %q", k)
 		}
@@ -163,9 +168,18 @@ func normalizeRule(vm *goja.Runtime, arg goja.Value) (*Rule, error) {
 			return nil, fmt.Errorf("rule.class: %w", err)
 		}
 	}
-	r.Workspace, _ = obj.Get("workspace").Export().(string)
-	if r.Workspace == "" {
-		return nil, fmt.Errorf("rule.workspace must be a non-empty name")
+	if fv := obj.Get("float"); fv != nil && !goja.IsUndefined(fv) && !goja.IsNull(fv) {
+		b, ok := fv.Export().(bool)
+		if !ok {
+			return nil, fmt.Errorf("rule.float must be true or false")
+		}
+		r.Float = &b
+	}
+	if wv := obj.Get("workspace"); wv != nil && !goja.IsUndefined(wv) && !goja.IsNull(wv) {
+		r.Workspace, _ = wv.Export().(string)
+	}
+	if r.Workspace == "" && r.Float == nil {
+		return nil, fmt.Errorf("rule needs a workspace and/or a float field")
 	}
 	if d := obj.Get("dir"); d != nil && !goja.IsUndefined(d) && !goja.IsNull(d) {
 		if s := d.String(); s != "" {
@@ -276,6 +290,9 @@ func (m *Module) armRules() error {
 		rules := append([]*Rule(nil), m.ruleState.rules...)
 		m.ruleState.mu.Unlock()
 		for _, r := range rules {
+			if r.Workspace == "" {
+				continue // float-only rule; the WM handles it at map time
+			}
 			if r.re != nil && !r.re.MatchString(data.Title) {
 				continue
 			}
@@ -299,6 +316,23 @@ func (m *Module) armRules() error {
 		}
 	})
 	return m.fan.EnsurePump(context.Background())
+}
+
+// pushFloatRules compiles the current float overrides and replaces the
+// WM-side list — the keybinding-style push-down (GGWM-007): the module
+// owns the rule store, the WM owns the map-time decision.
+func (m *Module) pushFloatRules() error {
+	m.ruleState.mu.Lock()
+	var frs []wmx11.FloatRule
+	for _, r := range m.ruleState.rules {
+		if r.Float != nil {
+			frs = append(frs, wmx11.FloatRule{Title: r.Title, Class: r.Class, Float: *r.Float})
+		}
+	}
+	m.ruleState.mu.Unlock()
+	ctx, cancel := context.WithTimeout(context.Background(), queryTimeout)
+	defer cancel()
+	return m.backend.SetFloatRules(ctx, frs)
 }
 
 // installRuleExports adds layout/layouts/rule/rules to the module exports.
@@ -328,18 +362,27 @@ func (m *Module) installRuleExports(vm *goja.Runtime, set func(string, interface
 		}
 		return vm.ToValue(plain)
 	})
-	// wm.rule({title, workspace, dir?}): normalize, store, arm the watcher.
+	// wm.rule({title?, class?, workspace?, dir?, float?}): normalize,
+	// store, arm the watcher (workspace rules) and/or push the float
+	// override list down to the WM (float rules).
 	set("rule", func(call goja.FunctionCall) goja.Value {
 		r, err := normalizeRule(vm, call.Argument(0))
 		if err != nil {
 			panic(vm.ToValue("wm.rule: " + err.Error()))
 		}
-		if err := m.armRules(); err != nil {
-			panic(vm.ToValue("wm.rule: " + err.Error()))
+		if r.Workspace != "" {
+			if err := m.armRules(); err != nil {
+				panic(vm.ToValue("wm.rule: " + err.Error()))
+			}
 		}
 		m.ruleState.mu.Lock()
 		m.ruleState.rules = append(m.ruleState.rules, r)
 		m.ruleState.mu.Unlock()
+		if r.Float != nil {
+			if err := m.pushFloatRules(); err != nil {
+				panic(vm.ToValue("wm.rule: " + err.Error()))
+			}
+		}
 		return goja.Undefined()
 	})
 	// wm.rules(): normalized rules.
