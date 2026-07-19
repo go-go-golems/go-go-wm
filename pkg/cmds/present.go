@@ -8,6 +8,9 @@ import (
 	"github.com/go-go-golems/glazed/pkg/cmds/fields"
 	"github.com/go-go-golems/glazed/pkg/cmds/schema"
 	"github.com/go-go-golems/glazed/pkg/cmds/values"
+	"github.com/jezek/xgb/xproto"
+	"github.com/jezek/xgbutil"
+
 	"github.com/go-go-golems/go-go-wm/pkg/pbui"
 	"github.com/go-go-golems/go-go-wm/pkg/pbui/client"
 	"github.com/go-go-golems/go-go-wm/pkg/pbui/present"
@@ -76,21 +79,30 @@ type MenuCommand struct {
 }
 
 type menuSettings struct {
-	Socket string `glazed:"socket"`
-	URI    string `glazed:"uri"`
-	X      int    `glazed:"x"`
-	Y      int    `glazed:"y"`
+	Socket  string `glazed:"socket"`
+	URI     string `glazed:"uri"`
+	X       int    `glazed:"x"`
+	Y       int    `glazed:"y"`
+	Display string `glazed:"display"`
 }
 
 func NewMenuCommand() (*MenuCommand, error) {
 	return &MenuCommand{glazed_cmds.NewCommandDescription("menu",
 		glazed_cmds.WithShort("Pop the type-directed action menu for a pbui:// object"),
+		glazed_cmds.WithLong(`Asks the WM to pop the verb menu for a pbui:// object at the pointer
+(the default), or at an explicit --x/--y. Wired into kitty's
+open_actions so clicking a scraped pbui:// link opens the menu where
+the cursor is.`),
 		glazed_cmds.WithFlags(
 			socketFlag(),
 			fields.New("uri", fields.TypeString, fields.WithRequired(true),
 				fields.WithHelp("pbui:// URI of the object")),
-			fields.New("x", fields.TypeInteger, fields.WithDefault(0), fields.WithHelp("screen x hint")),
-			fields.New("y", fields.TypeInteger, fields.WithDefault(0), fields.WithHelp("screen y hint")),
+			fields.New("x", fields.TypeInteger, fields.WithDefault(-1),
+				fields.WithHelp("screen x (default: pointer position)")),
+			fields.New("y", fields.TypeInteger, fields.WithDefault(-1),
+				fields.WithHelp("screen y (default: pointer position)")),
+			fields.New("display", fields.TypeString, fields.WithDefault(""),
+				fields.WithHelp("X display for the pointer query (default: $DISPLAY)")),
 		),
 	)}, nil
 }
@@ -104,12 +116,22 @@ func (c *MenuCommand) Run(ctx context.Context, vals *values.Values) error {
 	if err != nil {
 		return err
 	}
+	// Unset position (-1) → pop the menu at the pointer, which is what a
+	// clicked link wants. Explicit --x/--y still work.
+	x, y := s.X, s.Y
+	if x < 0 || y < 0 {
+		if px, py, ok := pointerPosition(s.Display); ok {
+			x, y = px, py
+		} else {
+			x, y = 0, 0
+		}
+	}
 	cl, err := client.Connect(ctx, client.Options{Socket: socketOrDefault(s.Socket), Name: "cli-menu"})
 	if err != nil {
 		return err
 	}
 	defer func() { _ = cl.Close() }()
-	verbs, err := cl.RequestMenu(ctx, obj, s.X, s.Y)
+	verbs, err := cl.RequestMenu(ctx, obj, x, y)
 	if err != nil {
 		return err
 	}
@@ -118,4 +140,26 @@ func (c *MenuCommand) Run(ctx context.Context, vals *values.Values) error {
 		fmt.Printf("%s\t%s\n", v.ID, v.Label)
 	}
 	return nil
+}
+
+// pointerPosition returns the root pointer coordinates on display (or
+// $DISPLAY when empty). ok is false if X is unreachable — the caller
+// then falls back to a corner.
+func pointerPosition(display string) (int, int, bool) {
+	var X *xgbutil.XUtil
+	var err error
+	if display != "" {
+		X, err = xgbutil.NewConnDisplay(display)
+	} else {
+		X, err = xgbutil.NewConn()
+	}
+	if err != nil {
+		return 0, 0, false
+	}
+	defer X.Conn().Close()
+	reply, err := xproto.QueryPointer(X.Conn(), X.RootWin()).Reply()
+	if err != nil {
+		return 0, 0, false
+	}
+	return int(reply.RootX), int(reply.RootY), true
 }
