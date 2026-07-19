@@ -155,14 +155,14 @@ of the right type light up; one click anywhere answers.
 
 ```mermaid
 sequenceDiagram
-    participant S as script (accept("color"))
+    participant S as accepting script
     participant B as broker
     participant W as WM / any app
-    S->>B: accept.start {ptypes:["color"]}
-    B->>W: accept.mode {ptypes, prompt}
+    S->>B: accept.start (ptypes color)
+    B->>W: accept.mode (ptypes, prompt)
     Note over W: every color presentation highlights
-    W->>B: accept.answer {object}
-    B->>S: accept.result {object}
+    W->>B: accept.answer (object)
+    B->>S: accept.result (object)
     B->>W: accept.clear
 ```
 
@@ -351,10 +351,10 @@ VM (Part VI), which is why the two compose without locks.
 
 ```mermaid
 flowchart LR
-    MR[MapRequest] --> M[manage: pick leaf,\ncreate frame, reparent,\nread WM_CLASS]
-    M --> E[emit window.managed\nleaf,title,class,instance,workspace]
-    M --> R[relayout: wmcore.Layout →\nMoveResize + paintFrame]
-    D[DestroyNotify /\nUnmapNotify] --> U[unmanage: close-leaf\nor empty the lone leaf]
+    MR[MapRequest] --> M[manage: pick leaf, create frame, reparent, read WM_CLASS]
+    M --> E[emit window.managed with leaf, title, class, instance, workspace]
+    M --> R[relayout: wmcore.Layout then MoveResize + paintFrame]
+    D[DestroyNotify or UnmapNotify] --> U[unmanage: close-leaf, or empty the lone leaf]
     U --> R
 ```
 
@@ -435,16 +435,16 @@ The concurrency contract, stated once and enforced everywhere:
 
 ```mermaid
 flowchart TD
-    subgraph WM process
-        WL[WM loop] --- SB[ScriptBackend\nposts + waits]
-        SB --- RC[rc.js runtime\nA1: wm --rc]
+    subgraph WMP[WM process]
+        WL[WM loop] --- SB[ScriptBackend posts and waits]
+        SB --- RC[rc.js runtime — A1, wm --rc]
     end
-    subgraph script process
-        RUN[run/repl runtime\nA2/A3] --- IB[IPCBackend]
+    subgraph SP[script process]
+        RUN[run or repl runtime — A2 and A3] --- IB[IPCBackend]
     end
     IB -- NDJSON socket --> WL
-    RC -.same module code.- RUN
-    B[(broker)] --- WM process
+    RC -. same module code .- RUN
+    B[(broker)] --- WMP
     B --- RUN
 ```
 
