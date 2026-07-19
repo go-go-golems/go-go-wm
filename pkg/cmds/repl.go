@@ -34,6 +34,8 @@ type replSettings struct {
 	WMSocket  string `glazed:"wm-socket"`
 	NoBroker  bool   `glazed:"no-broker"`
 	AllowExec bool   `glazed:"allow-exec"`
+	UI        bool   `glazed:"ui"`
+	Display   string `glazed:"display"`
 }
 
 func NewReplCommand() (*ReplCommand, error) {
@@ -56,6 +58,10 @@ script for "go-go-wm run" or into rc.js — the API is identical.
 				fields.WithHelp("skip the broker connection (wm module only)")),
 			fields.New("allow-exec", fields.TypeBool, fields.WithDefault(false),
 				fields.WithHelp("enable wm.exec and the exec module (run subprocesses)")),
+			fields.New("ui", fields.TypeBool, fields.WithDefault(false),
+				fields.WithHelp("open the rich notebook surface (an X window) instead of the terminal loop")),
+			fields.New("display", fields.TypeString, fields.WithDefault(""),
+				fields.WithHelp("X display for --ui (default: $DISPLAY)")),
 		),
 	)}, nil
 }
@@ -64,6 +70,9 @@ func (c *ReplCommand) Run(ctx context.Context, vals *values.Values) error {
 	s := &replSettings{}
 	if err := vals.DecodeSectionInto(schema.DefaultSlug, s); err != nil {
 		return err
+	}
+	if s.UI {
+		return c.runReplUI(ctx, s) // the rich notebook surface (GGWM-009)
 	}
 
 	var cl *client.Client

@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"image"
 	"image/color"
+	"os"
 	"os/exec"
 	"strings"
 
@@ -57,6 +58,17 @@ func builtinCommands() []launcher.Command {
 			Label: apps.BuiltinTitle(name),
 			Kind:  launcher.KindBuiltin,
 			Doc:   "open the " + apps.BuiltinTitle(name) + " tile",
+		})
+	}
+	// The rich REPL (GGWM-009): a standalone surface the WM tiles like
+	// any client — launchable from Mod4+d and every empty tile.
+	if exe, err := os.Executable(); err == nil {
+		out = append(out, launcher.Command{
+			ID:    "app:go-go-wm-repl",
+			Label: "repl (notebook)",
+			Kind:  launcher.KindApp,
+			Exec:  exe + " repl --ui",
+			Doc:   "rich JavaScript REPL — results are live presentations",
 		})
 	}
 	return out

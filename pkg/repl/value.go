@@ -86,3 +86,9 @@ func NormalizeRich(raw interface{}) (Value, error) {
 	}
 	return v, nil
 }
+
+// jsonUnmarshal is split out for session.go (avoids a second import
+// site accumulating).
+func jsonUnmarshal(raw json.RawMessage, out interface{}) error {
+	return json.Unmarshal(raw, out)
+}
