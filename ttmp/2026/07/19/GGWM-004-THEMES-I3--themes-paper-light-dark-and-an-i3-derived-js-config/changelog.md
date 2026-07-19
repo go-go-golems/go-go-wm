@@ -24,3 +24,8 @@ Fixed the unclosable-tile bug: client DestroyNotify/UnmapNotify were dispatched 
 
 - /home/manuel/workspaces/2026-07-18/go-go-wm/go-go-wm/pkg/wmx11/manage.go — client lifecycle handlers + closeClient builtin branch
 
+
+## 2026-07-19
+
+Dogfooding fix: setTheme poked CwBackPixel on frames/floats/bars, which detaches the background pixmap (shm/XSurfaceSet) in X11 — chrome went blank/stale on switch (esp. visible in light theme). Now dropBuffers frames/floats and drop cached bar images so the pixmaps rebuild. float-smoke chrome-repaint stage; verified light+dark screenshots. Commit 95dd3dc.
+
