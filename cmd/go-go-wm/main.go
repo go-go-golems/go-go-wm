@@ -27,8 +27,16 @@ var rootCmd = &cobra.Command{
 
 func addBare(parent *cobra.Command, c glazed_cmds.Command, err error) {
 	cobra.CheckErr(err)
+	// No AppName: it would turn on glazed's env-prefix binding, mapping
+	// every flag to GO_GO_WM_<FLAG> — and `--socket` (the broker socket,
+	// which resolves from PBUI_SOCKET in code) would collide with
+	// GO_GO_WM_SOCKET (the WM control socket), so a broker CLI tool run
+	// inside the session would silently connect to the control socket
+	// and fail with a protocol error. Every env-configurable value here
+	// (PBUI_SOCKET, GO_GO_WM_SOCKET, DISPLAY) is resolved explicitly in
+	// the command code, so the auto-binding is pure liability.
 	cc, err := cli.BuildCobraCommand(c,
-		cli.WithParserConfig(cli.CobraParserConfig{AppName: "go-go-wm"}),
+		cli.WithParserConfig(cli.CobraParserConfig{}),
 	)
 	cobra.CheckErr(err)
 	parent.AddCommand(cc)
