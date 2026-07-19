@@ -399,3 +399,104 @@ with `onKey` now work with zero uimod changes.
 - Debug: `{"q":"launcher-tile"}` → `{leaf, query, selected, rows}`
   for the focused launcher tile ({} when none focused) — stage 7-9's
   assertion surface.
+
+## Step 5: L4 — the command ptype, script commands, and the JS surface
+
+Launching became a typed activity: every launcher row is now a
+`command` presentation (right-click → verb menu; a pending
+`accept("command")` turns Enter/click into an answer), scripts can
+serve registry entries whose callbacks run on their own runtime, and
+the wm module gained `launch`/`launcher`/`command`.
+
+### Prompt Context
+
+**User prompt (verbatim):** (see Step 1, "do it")
+
+**Commit (code):** 1b44015 — "GGWM-008: command ptype, script commands, wm.command/launch/launcher, accept mode"
+
+### What I did
+- `commandObject` + `maybeAnswerCommand` (the accept check every
+  surface calls before launching); popup right-click → RequestMenu;
+  tile regions carry the command Object so `apps.Resolve` gives
+  answer/menu behavior for free (the Step 1 prediction held).
+- WM verbs `command.launch` and `command.edit` (opens `Command.Src` —
+  a new registry field — in `${EDITOR:-vi}` inside the terminal);
+  `runVerb` routes `command.*` to `runCommandVerb`.
+- Script commands: `ScriptBackend.RegisterCommand(id, label, doc,
+  fire)` (WM-side map + `SetStatic(KindScript, …)` update;
+  re-registration replaces); `dispatchScriptCommand` fires the stored
+  post — the L3 stub closed.
+- `launchTarget`: registry id → kind router, else raw exec fallback;
+  IPC `launch` + `commands` queries.
+- wmmod: Backend += `Launch`/`OpenLauncher`/`RegisterCommand`
+  (+`ErrNoScriptCommands` for IPC backends); exports `wm.launch`,
+  `wm.launcher`, `wm.command` (jsBind-pattern fire wrapping); i3.js
+  binds Mod4+d → `wm.launcher()` (its i3 line was a rofi-style
+  launcher script).
+- Tests: launch kind routing + open counting; command registration
+  payload and *firing the stored callback back into the runtime*
+  (asserted via a JS-side counter); validation errors.
+- E2E stages 10–12: launch by id re-runs the marker app and raw
+  command lines exec; `query verbs --ptype command` lists
+  command.launch; `accept --ptype command` + popup Enter answers with
+  `app:marker` and — asserted — does *not* launch it.
+
+### Why
+- `maybeAnswerCommand` centralizes accept-mode so the popup and the
+  tile cannot drift; the no-launch assertion in stage 12 pins the
+  semantic ("answer instead of run") the design called the point of
+  the ptype.
+
+### What worked
+- The tile's accept behavior needed zero new code — regions with
+  Objects already answer through `apps.Resolve`.
+- The fire-into-runtime test worked immediately with
+  `PostWithLifetimeContext` (same seam as wm.bind).
+
+### What didn't work
+- Stage 12 first run: `unknown flag: --output` — `go-go-wm accept`
+  has no `--output json`; the smoke asserted on its default output
+  instead. (Test-script bug, not code.)
+
+### What I learned
+- `accept` CLI prints the chosen object's wire form on stdout by
+  default — good enough for E2E greps; no JSON flag exists.
+
+### What was tricky to build
+- Deviations from the design, recorded: `command.launch-here` was
+  dropped — with launchBuiltin/launchCommand routing through
+  `placementLeaf`, plain `command.launch` already lands builtins in
+  the empty tile, so the second verb would be indistinguishable.
+  A2 (broker-daemon) script commands are not implemented: wm.command
+  is in-process-only like wm.bind (the design's verb-style broker
+  dispatch is real work and no current user needs it).
+- Escape-ordering again: `launcher.open({accept: true})` from the
+  design became implicit — the popup answers whenever an accept for
+  "command" is pending, no separate mode flag.
+
+### What warrants a second pair of eyes
+- `command.edit` builds a quoted shell string by concatenation; a
+  .desktop path containing a single quote would break the quoting
+  (paths under XDG dirs realistically never do, but it is string-
+  built shell).
+- `RegisterCommand` keeps a def slice + map in the WM; unregistration
+  only happens via replacement — an rc.js reload that drops a command
+  leaves a stale entry until restart (recorded, matches verb
+  semantics).
+
+### What should be done in the future
+- Docs (help topics: wm-module launcher section, js-api-reference,
+  getting-started key change Mod4+d, user-guide) + ticket bookkeeping
+  + push — the wrap step.
+- A2 broker-routed wm.command, if a standalone daemon ever needs it.
+
+### Code review instructions
+- `maybeAnswerCommand` call sites (launcherActivate, launcherTileKey),
+  `RegisterCommand`/`dispatchScriptCommand`, `jsCommand` in
+  wmmod/module.go. Validate: `scripts/launcher-smoke.sh` (12 stages),
+  `go test ./pkg/jsmod/wmmod/ -run 'Launch|Command'`.
+
+### Technical details
+- Wire additions: `{"q":"launch","target":…}` → kind string;
+  `{"q":"commands"}` → registry listing. Events: `command.launched
+  {id, label, kind, leaf?}`.
