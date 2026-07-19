@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"github.com/jezek/xgb/xproto"
+	"github.com/jezek/xgbutil/xevent"
 	"github.com/jezek/xgbutil/xwindow"
 
 	"github.com/go-go-golems/go-go-wm/pkg/apps"
@@ -49,6 +50,7 @@ func (w *WM) syncBuiltins() {
 			if f.client == 0 {
 				delete(w.frames, leaf)
 				delete(w.byFrame, f.win.Id)
+				xevent.Detach(w.X, f.win.Id)
 				f.win.Destroy()
 			}
 			continue

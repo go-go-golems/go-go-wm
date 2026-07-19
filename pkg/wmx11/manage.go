@@ -96,9 +96,22 @@ func (w *WM) manage(clientWin xproto.Window) {
 		xproto.ConfigWindowBorderWidth, []uint32{0})
 	xproto.ReparentWindow(w.X.Conn(), clientWin, fw.Id, 0, draw.TitleH)
 
-	// Track client lifetime and title changes.
+	// Track client lifetime and title changes. The callbacks must be
+	// connected to the CLIENT window: after reparenting, the client's
+	// StructureNotify events (DestroyNotify, UnmapNotify) carry the
+	// client as their event window, and xgbutil dispatches callbacks by
+	// that window. The root-connected handlers in setupInput never see
+	// them — which left zombie frames whenever a client exited on its
+	// own (Ctrl-D in an xterm), with BadWindow spam from focusing and
+	// configuring the dead client id.
 	cw := xwindow.New(w.X, clientWin)
 	_ = cw.Listen(xproto.EventMaskStructureNotify, xproto.EventMaskPropertyChange)
+	xevent.DestroyNotifyFun(func(_ *xgbutil.XUtil, ev xevent.DestroyNotifyEvent) {
+		w.handleDestroyNotify(ev)
+	}).Connect(w.X, clientWin)
+	xevent.UnmapNotifyFun(func(_ *xgbutil.XUtil, ev xevent.UnmapNotifyEvent) {
+		w.handleUnmapNotify(ev)
+	}).Connect(w.X, clientWin)
 
 	_, _ = wmcore.Apply(w.desktop, wmcore.Op{Op: wmcore.OpSetLeafApp, Node: leafID, App: "win"})
 	w.frames[leafID] = f
@@ -133,6 +146,7 @@ func (w *WM) placementLeaf() wmcore.NodeID {
 			if f := w.frames[l.ID]; f != nil && f.client == 0 {
 				delete(w.frames, l.ID)
 				delete(w.byFrame, f.win.Id)
+				xevent.Detach(w.X, f.win.Id)
 				f.win.Destroy()
 			}
 			return l.ID
@@ -160,6 +174,10 @@ func (w *WM) unmanage(clientWin xproto.Window) {
 	delete(w.byClient, clientWin)
 	delete(w.byFrame, f.win.Id)
 	delete(w.frames, f.leaf)
+	// Drop the per-window callbacks registered in manage/connectFrameEvents;
+	// X recycles window ids, and stale callbacks would fire for strangers.
+	xevent.Detach(w.X, clientWin)
+	xevent.Detach(w.X, f.win.Id)
 	f.win.Destroy()
 
 	// Close the leaf if its workspace still has siblings; a lone leaf just
@@ -200,8 +218,23 @@ func (w *WM) reapOrphanFrames() {
 	}
 }
 
-// closeClient sends WM_DELETE_WINDOW if supported, else kills.
+// closeClient sends WM_DELETE_WINDOW if supported, else kills. Builtin
+// tiles have no client to ask: their ✕ closes the leaf itself (a lone
+// leaf becomes an empty launcher, mirroring unmanage) — the resulting
+// afterOp/syncBuiltins pass destroys the frame.
 func (w *WM) closeClient(f *frame) {
+	if f.client == 0 {
+		ws := w.desktop.FindLeafWorkspace(f.leaf)
+		if ws == nil {
+			return // orphan frame; syncBuiltins reaps it
+		}
+		if ws.Root.Kind == wmcore.Leaf {
+			_, _ = w.Apply(wmcore.Op{Op: wmcore.OpSetLeafApp, Node: f.leaf, App: ""})
+		} else {
+			_, _ = w.Apply(wmcore.Op{Op: wmcore.OpCloseLeaf, Node: f.leaf})
+		}
+		return
+	}
 	protos, _ := icccm.WmProtocolsGet(w.X, f.client)
 	for _, p := range protos {
 		if p == "WM_DELETE_WINDOW" {

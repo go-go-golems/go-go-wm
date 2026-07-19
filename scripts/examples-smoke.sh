@@ -97,19 +97,30 @@ rm -f "$PBUI_SOCK" "$WM_SOCK"
 WM_PID=$!
 for _ in $(seq 40); do [ -S "$WM_SOCK" ] && break; sleep 0.25; done
 [ -S "$WM_SOCK" ] || { echo "FAIL: i3.js WM never came up"; cat "$LOG/wm-i3.log"; exit 1; }
-sleep 2
 
 python3 - "$WM_SOCK" <<'PYEOF'
-import json, socket, sys
+import json, socket, sys, time
 def q(req):
     s = socket.socket(socket.AF_UNIX); s.connect(sys.argv[1])
     s.sendall((json.dumps(req) + "\n").encode())
     r = json.loads(s.makefile().readline())
     assert r["ok"], r
     return r["data"]
-d = q({"q": "tree"})
-names = [w["name"] for w in d["workspaces"]]
+# rc.js pre-creates workspaces 1..9 at boot; poll rather than racing it.
+deadline = time.time() + 20
+names = []
+while time.time() < deadline:
+    d = q({"q": "tree"})
+    names = [w["name"] for w in d["workspaces"]]
+    if names == [str(n) for n in range(1, 10)]:
+        break
+    time.sleep(0.5)
 assert names == [str(n) for n in range(1, 10)], names
+while time.time() < deadline:
+    d = q({"q": "tree"})
+    if d["current"] == d["workspaces"][0]["id"]:
+        break
+    time.sleep(0.5)
 assert d["current"] == d["workspaces"][0]["id"], (d["current"], names)
 print("ok: i3.js pre-created workspaces 1..9, home is 1")
 info = q({"q": "theme"})

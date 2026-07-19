@@ -162,6 +162,70 @@ the WM loop), then `pkg/wmcore/neighbor.go` with its test table, then
 race postmortem). Run `go test ./pkg/draw/ ./pkg/wmcore/
 ./pkg/jsmod/wmmod/` and `GO_GO_WM_BIN=<bin> scripts/examples-smoke.sh`.
 
+## Entry 4 — 2026-07-19 afternoon: the unclosable-tile bug (user report)
+
+### Symptom
+
+"Closing tiles / clicking ✕ doesn't seem to work" — while Mod4-Shift-q
+(wm.close via close-leaf) worked. Second user datapoint: after Ctrl-D
+in an xterm the tile stayed, and only *then* could it be killed; the
+session log showed repeating BadWindow spam on MajorOpcode 42
+(SetInputFocus) and 12 (ConfigureWindow) against stale client ids.
+
+### Investigation
+
+- Instrumented `handleFramePress`/`closeClient`: the ✕ click IS
+  delivered, hits the close branch, and WM_PROTOCOLS reads
+  ["WM_DELETE_WINDOW"] — so the click path was innocent.
+- A standalone probe (`/tmp/claude-1000/wmdel`) sending the identical
+  ClientMessage closed the xterm — the wire format was innocent too.
+- The probe run exposed the real bug: the xterm *process exited* but
+  the WM's windows query still listed it. **DestroyNotify was never
+  handled**: `xevent.DestroyNotifyFun(...).Connect(w.X, root)` — but a
+  reparented client's StructureNotify events carry the *client* as the
+  event window, and xgbutil dispatches callbacks by that window. The
+  root-connected handlers only ever matched events on root children
+  (our frames), so client death — via ✕/WM_DELETE or Ctrl-D — left a
+  zombie frame the WM kept focusing and configuring (the BadWindow
+  spam). The ✕ *did* close the client every time; the frame just
+  never went away, which reads as "close doesn't work".
+- Separately: ✕ on a *builtin* tile was a true no-op — `closeClient`
+  asked window 0 for WM_PROTOCOLS and then Kill(0).
+
+### Fixes (all in wmx11)
+
+1. `manage()` connects DestroyNotify/UnmapNotify handlers on the
+   client window itself.
+2. `unmanage()`/`placementLeaf()`/`syncBuiltins()` call
+   `xevent.Detach` for windows they destroy (X recycles ids; stale
+   callbacks would fire for strangers).
+3. `closeClient` on a client-less frame closes the leaf via ops:
+   close-leaf normally, set-leaf-app "" for a lone leaf (mirrors
+   unmanage) — afterOp/syncBuiltins reaps the frame.
+
+### Verification (close-test3.sh, Xvfb :82)
+
+Five scenarios, all asserted over the control socket: external
+WM_DELETE probe → client gone AND unmanaged; ✕ click on a real client
+→ gone; client self-exit (Ctrl-D analogue, pkill) → no zombie, ws
+back to a lone empty leaf; ✕ on a builtin in a split → leaf closed;
+✕ on a lone builtin → becomes launcher. Full `go test ./...` green.
+
+### What was tricky
+
+- The first repro was polluted: the bash harness had SIGHUPed the
+  victim xterm between steps, so the probe hit a genuinely-dead window
+  (BadWindow) and looked like a serialization bug. Repro processes now
+  start with `setsid`.
+- examples-smoke stage 3 started flaking (5/9 workspaces): the fixture
+  raced rc.js's boot-time workspace creation with a fixed sleep.
+  Fixture now polls to a deadline. Rule: never assert a fixed delay
+  after an asynchronous boot — poll the condition.
+- pkill self-match, twice more: the *creation* of a script whose text
+  contains the kill pattern must not share a compound command with its
+  invocation; and `export DISPLAY` belongs inside the script so the
+  outer command never names it.
+
 ## Related
 
 - design-doc/01 — decisions T-D1..T-D4 and the phase plan.
