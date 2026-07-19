@@ -5,6 +5,16 @@ topics:
       description: Backend services
     - slug: websocket
       description: WebSocket lifecycle & events
+    - slug: wm
+      description: Window manager architecture and implementation
+    - slug: pbui
+      description: Presentation-based UI (CLIM/Genera dynamic windows pattern)
+    - slug: x11
+      description: X11 protocol, ICCCM/EWMH, xgb/xgbutil
+    - slug: broker
+      description: PBUI broker daemon and accept/verb wire protocol
+    - slug: kitty
+      description: Kitty terminal integration (kittens, OSC 8, remote control)
 docTypes:
     - slug: design-doc
       description: Structured rationale and architecture notes
