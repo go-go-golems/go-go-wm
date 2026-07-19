@@ -256,10 +256,12 @@ func (w *WM) relayout() {
 			if ch < 1 {
 				ch = 1
 			}
-			xproto.ConfigureWindow(w.X.Conn(), f.client,
-				xproto.ConfigWindowX|xproto.ConfigWindowY|
-					xproto.ConfigWindowWidth|xproto.ConfigWindowHeight,
-				[]uint32{uint32(draw.BorderW), uint32(draw.TitleH), uint32(cw), uint32(ch)})
+			if f.client != 0 {
+				xproto.ConfigureWindow(w.X.Conn(), f.client,
+					xproto.ConfigWindowX|xproto.ConfigWindowY|
+						xproto.ConfigWindowWidth|xproto.ConfigWindowHeight,
+					[]uint32{uint32(draw.BorderW), uint32(draw.TitleH), uint32(cw), uint32(ch)})
+			}
 		}
 		w.paintFrame(f)
 	}
@@ -336,13 +338,20 @@ func copyImage(dst *image.RGBA, src *image.RGBA, x, y int) {
 	}
 }
 
-// focus gives input focus to a leaf's client.
+// focus gives input focus to a leaf's client. Builtin tiles have no
+// client (0); focusing window 0 would SetInputFocus(None), after which
+// the server discards keyboard processing and even root-grabbed
+// keybindings die — focus the frame window instead.
 func (w *WM) focus(leaf wmcore.NodeID) {
 	prev := w.focused
 	w.focused = leaf
 	if f := w.frames[leaf]; f != nil {
-		xwindow.New(w.X, f.client).Focus()
-		_ = ewmh.ActiveWindowSet(w.X, f.client)
+		if f.client != 0 {
+			xwindow.New(w.X, f.client).Focus()
+			_ = ewmh.ActiveWindowSet(w.X, f.client)
+		} else {
+			f.win.Focus()
+		}
 	}
 	if pf := w.frames[prev]; pf != nil && prev != leaf {
 		w.paintFrame(pf)

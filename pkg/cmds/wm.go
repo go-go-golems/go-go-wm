@@ -25,6 +25,7 @@ type wmSettings struct {
 	NoBroker       bool   `glazed:"no-broker"`
 	RC             string `glazed:"rc"`
 	Theme          string `glazed:"theme"`
+	NoDefaultBinds bool   `glazed:"no-default-binds"`
 }
 
 func NewWMCommand() (*WMCommand, error) {
@@ -58,6 +59,8 @@ Development happens in a nested server:
 				fields.WithHelp("rc.js startup script run in an in-process goja runtime (wm.bind works here)")),
 			fields.New("theme", fields.TypeString, fields.WithDefault(""),
 				fields.WithHelp("initial theme: paper (default), light, dark — switchable live via wm.theme()")),
+			fields.New("no-default-binds", fields.TypeBool, fields.WithDefault(false),
+				fields.WithHelp("skip built-in keybindings so an rc.js config owns the keyboard (Escape stays)")),
 		),
 	)}, nil
 }
@@ -85,6 +88,8 @@ func (c *WMCommand) Run(ctx context.Context, vals *values.Values) error {
 		Spawn:        s.Spawn,
 		NoBroker:     s.NoBroker,
 		Theme:        s.Theme,
+
+		NoDefaultBinds: s.NoDefaultBinds,
 	}
 	if s.RC != "" {
 		rcPath := s.RC

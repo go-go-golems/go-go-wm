@@ -71,8 +71,9 @@ func startRC(ctx context.Context, w *wmx11.WM, rcPath, brokerSocket, display str
 			},
 		)
 		// WM-side setTheme already swapped this process's palette (shared
-		// draw package); the subscription repaints standalone app windows.
-		followThemeChanges(ctx, fan, cl, uiMod)
+		// draw package); the subscription only repaints standalone app
+		// windows — swapPalette=false, or the drainer races the WM loop.
+		followThemeChanges(ctx, fan, cl, uiMod, false)
 		factory, err := builder.Build()
 		if err != nil {
 			log.Error().Err(err).Msg("rc: factory")

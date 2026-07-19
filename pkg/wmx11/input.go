@@ -40,17 +40,23 @@ func (w *WM) setupInput() {
 		}
 	}
 
-	bind("Mod4-Return", w.spawnTerminal)
-	bind("Mod4-d", func() { w.splitFocused(wmcore.Row) })
-	bind("Mod4-s", func() { w.splitFocused(wmcore.Col) })
-	bind("Mod4-w", w.closeFocused)
-	bind("Mod4-space", w.focusNext)
-	bind("Mod4-n", func() { _, _ = w.Apply(wmcore.Op{Op: wmcore.OpAddWorkspace}) })
-	for i := 1; i <= 9; i++ {
-		idx := i - 1
-		bind(fmt.Sprintf("Mod4-%d", i), func() { w.switchWorkspaceIndex(idx) })
+	// An rc.js that owns the whole keyboard (an i3-style config) sets
+	// NoDefaultBinds: a wm.bind on a combo the WM already grabbed would
+	// fire both handlers. Escape stays — it is modal (accept/menu
+	// cancellation), not a layout binding.
+	if !w.cfg.NoDefaultBinds {
+		bind("Mod4-Return", w.spawnTerminal)
+		bind("Mod4-d", func() { w.splitFocused(wmcore.Row) })
+		bind("Mod4-s", func() { w.splitFocused(wmcore.Col) })
+		bind("Mod4-w", w.closeFocused)
+		bind("Mod4-space", w.focusNext)
+		bind("Mod4-n", func() { _, _ = w.Apply(wmcore.Op{Op: wmcore.OpAddWorkspace}) })
+		for i := 1; i <= 9; i++ {
+			idx := i - 1
+			bind(fmt.Sprintf("Mod4-%d", i), func() { w.switchWorkspaceIndex(idx) })
+		}
+		bind("Mod4-Shift-q", func() { w.Shutdown() })
 	}
-	bind("Mod4-Shift-q", func() { w.Shutdown() })
 	bind("Escape", w.cancelAccept) // grabbed only while accepting? kept global: harmless
 
 	// X event wiring.

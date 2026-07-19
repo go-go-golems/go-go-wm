@@ -103,7 +103,7 @@ func (c *ReplCommand) Run(ctx context.Context, vals *values.Values) error {
 	if s.AllowExec {
 		builder.UseModuleMiddleware(engine.MiddlewareOnly("exec"))
 	}
-	followThemeChanges(ctx, fan, cl, uiMod)
+	followThemeChanges(ctx, fan, cl, uiMod, true)
 	factory, err := builder.Build()
 	if err != nil {
 		return err

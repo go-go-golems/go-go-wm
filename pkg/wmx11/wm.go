@@ -43,6 +43,11 @@ type Config struct {
 	NoBroker     bool   // do not connect to the broker (pure-WM mode)
 	Theme        string // initial theme name; empty → draw's default ("paper")
 
+	// NoDefaultBinds skips the built-in keybindings (Mod4-Return, splits,
+	// Mod4-1..9, Mod4-Shift-q, …) so an rc.js config can own the keyboard
+	// without double-fired combos. Escape (accept/menu cancel) is kept.
+	NoDefaultBinds bool
+
 	// OnReady runs once, after the WM owns the display, sockets, and
 	// broker connection, immediately before the event loop starts
 	// consuming. Posted closures queue until the loop runs, so OnReady
@@ -284,6 +289,19 @@ func (w *WM) afterOp(op wmcore.Op) {
 	w.relayout()
 	w.updateEWMH()
 	w.paintBars()
+	// A workspace switch that leaves focus on a hidden leaf strands
+	// keyboard navigation (directional focus is workspace-local); land
+	// on the first framed leaf of the new workspace, like i3.
+	if op.Op == wmcore.OpSwitchWorkspace {
+		if ws := w.desktop.CurrentWorkspace(); ws != nil && ws.Root.FindLeaf(w.focused) == nil {
+			for _, l := range ws.Root.Leaves() {
+				if _, ok := w.frames[l.ID]; ok {
+					w.focus(l.ID)
+					break
+				}
+			}
+		}
+	}
 }
 
 func (w *WM) emitEvent(event string, data map[string]interface{}) {

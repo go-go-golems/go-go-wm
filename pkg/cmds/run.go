@@ -185,7 +185,7 @@ func buildScriptRuntime(ctx context.Context, cl *client.Client, brokerSocket, wm
 	if allowExec {
 		builder.UseModuleMiddleware(engine.MiddlewareOnly("exec"))
 	}
-	followThemeChanges(ctx, fan, cl, uiMod)
+	followThemeChanges(ctx, fan, cl, uiMod, true)
 	factory, err := builder.Build()
 	if err != nil {
 		return nil, err
@@ -211,7 +211,13 @@ func applyInitialTheme(ctx context.Context, wmSocket string) {
 
 // followThemeChanges keeps this process's palette (and its live ui.app
 // surfaces) in sync with WM theme switches via the broker event stream.
-func followThemeChanges(ctx context.Context, fan *jsmod.EventFan, cl *client.Client, uiMod *uimod.Module) {
+//
+// swapPalette must be false in the rc.js runtime: there the WM shares
+// this process's draw package and already swapped the palette on its
+// own loop — a second SetTheme from the fan drainer would race it and
+// tear the palette (mixed old/new slots, found the hard way in the
+// GGWM-004 live tests). Out-of-process runtimes (run/repl) pass true.
+func followThemeChanges(ctx context.Context, fan *jsmod.EventFan, cl *client.Client, uiMod *uimod.Module, swapPalette bool) {
 	if cl == nil {
 		return
 	}
@@ -222,9 +228,12 @@ func followThemeChanges(ctx context.Context, fan *jsmod.EventFan, cl *client.Cli
 		if err := json.Unmarshal(msg.Data, &d); err != nil || d.Theme == "" {
 			return
 		}
-		if err := draw.SetTheme(d.Theme); err == nil {
-			uiMod.Retheme()
+		if swapPalette {
+			if err := draw.SetTheme(d.Theme); err != nil {
+				return
+			}
 		}
+		uiMod.Retheme()
 	})
 	_ = fan.EnsurePump(ctx)
 }

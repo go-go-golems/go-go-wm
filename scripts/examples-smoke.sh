@@ -87,4 +87,37 @@ sleep 2
 kill "$JSCOLORS_PID" 2>/dev/null || true
 echo "ok: js-colors.js ui.app is a desktop citizen"
 
+# ---- stage 3: i3.js as the whole config (GGWM-004) -----------------------
+kill "$WM_PID" 2>/dev/null || true
+wait "$WM_PID" 2>/dev/null || true
+rm -f "$PBUI_SOCK" "$WM_SOCK"
+"$BIN" wm --display "$DPY" --embedded-broker \
+  --socket "$PBUI_SOCK" --ipc-socket "$WM_SOCK" \
+  --theme dark --no-default-binds --rc examples/scripts/i3.js >"$LOG/wm-i3.log" 2>&1 &
+WM_PID=$!
+for _ in $(seq 40); do [ -S "$WM_SOCK" ] && break; sleep 0.25; done
+[ -S "$WM_SOCK" ] || { echo "FAIL: i3.js WM never came up"; cat "$LOG/wm-i3.log"; exit 1; }
+sleep 2
+
+python3 - "$WM_SOCK" <<'PYEOF'
+import json, socket, sys
+def q(req):
+    s = socket.socket(socket.AF_UNIX); s.connect(sys.argv[1])
+    s.sendall((json.dumps(req) + "\n").encode())
+    r = json.loads(s.makefile().readline())
+    assert r["ok"], r
+    return r["data"]
+d = q({"q": "tree"})
+names = [w["name"] for w in d["workspaces"]]
+assert names == [str(n) for n in range(1, 10)], names
+assert d["current"] == d["workspaces"][0]["id"], (d["current"], names)
+print("ok: i3.js pre-created workspaces 1..9, home is 1")
+info = q({"q": "theme"})
+assert info["theme"] == "dark", info
+q({"q": "set-theme", "theme": "light"})
+assert q({"q": "theme"})["theme"] == "light"
+q({"q": "set-theme", "theme": "dark"})
+print("ok: i3.js booted dark; set-theme round-trips")
+PYEOF
+
 echo "examples-smoke: PASS"
