@@ -370,3 +370,74 @@ hygiene — then push.
 - Events added to the vocabulary: `window.float-closed {client,
   title, class}`, `window.float-toggled {client, floating, leaf?}`;
   `window.managed` gains `floating`/`leader`/`client` for floats.
+
+## Step 5: Fullscreen toggle (follow-up)
+
+Fullscreen landed as the second shell-state window feature, reusing
+the float layer's philosophy: never a tree property, one window at a
+time, exit is just a relayout.
+
+### Prompt Context
+
+**User prompt (verbatim):** "add fullscreen toggle, A2 wm.command.\n\nHow mucheffort is the builtin repl?"
+
+**Assistant interpretation:** Implement the fullscreen toggle and the
+A2 broker-routed wm.command (this diary covers fullscreen; the A2 half
+is in the GGWM-008 diary), and estimate the builtin:repl effort.
+
+**Inferred user intent:** Close the two highest-value small deferrals
+before deciding on the bigger embedded-REPL work.
+
+**Commit (code):** 0af7fc1 — "GGWM-007/008: fullscreen toggle + A2 daemon wm.command"
+
+### What I did
+- `pkg/wmx11/fullscreen.go`: `toggleFullscreen` (focused tile or
+  float), `enterFullscreen` (frame → whole screen, bars included;
+  clients configured full-bleed at 0,0 so they cover their own chrome;
+  builtins keep chrome at screen size), `exitFullscreen` (floats
+  restore a saved rect; tiles just relayout — the tree never stopped
+  owning their geometry), `clearFullscreenFor` on both unmanage paths.
+- Guards: `relayoutPaint` skips the fullscreen frame's geometry;
+  workspace switches (`switch-workspace` and `add-workspace`) exit
+  fullscreen in `afterOp`.
+- Surface: Mod4-f default bind, i3.js `$mod+f` (its actual i3 line),
+  IPC `{"q":"fullscreen"}`, `Backend.Fullscreen` (all three backends),
+  `wm.fullscreen()`, `window.fullscreen` event.
+- E2E: float-smoke stage 7 (rect becomes 1280x800+0+0 and restores).
+
+### Why
+- Full-bleed via client geometry (client at 0,0 covering the frame)
+  needed zero paint changes — the strip is simply covered.
+
+### What worked
+- Stage 7 green on the first run; all suites stayed green.
+
+### What didn't work
+- N/A this step.
+
+### What I learned
+- The exit path costs nothing for tiles because rects are derived
+  state; only floats needed a saved rect.
+
+### What was tricky to build
+- Stacking: fullscreen must sit above bars (which floats never do);
+  entering raises the frame above everything and re-raises the menu
+  only. Exiting needs no restack — the frame shrinks back inside the
+  work area, so the bars are simply uncovered.
+
+### What warrants a second pair of eyes
+- A fullscreen client's own ConfigureRequests are not re-asserted
+  while fullscreen (relayout skips the frame); a client that resizes
+  itself mid-fullscreen would shrink until toggled. Rare; recorded.
+- `_NET_WM_STATE_FULLSCREEN` ClientMessages (mpv's F key) are not
+  handled — WM-initiated toggle only. The obvious next increment.
+
+### What should be done in the future
+- Client-requested fullscreen via _NET_WM_STATE ClientMessage.
+
+### Code review instructions
+- `pkg/wmx11/fullscreen.go` (90 lines), the `relayoutPaint` skip, the
+  `afterOp` exit. Validate: `scripts/float-smoke.sh` stage 7.
+
+### Technical details
+- Event: `window.fullscreen {on, title, leaf?|client?}`.

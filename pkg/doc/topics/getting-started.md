@@ -22,7 +22,13 @@ broker, the terminal tools, and a JavaScript runtime for scripting it.
 
 ## First session (nested, safe)
 
-Run it inside a nested X server so your real desktop is untouched:
+The fastest tour is the playground script — Xephyr, the WM, demo apps,
+the rich REPL, a floating dialog, and a script daemon, plus a printed
+cheat sheet of every key and command to try:
+
+    scripts/playground.sh              # or --i3 for the i3.js config
+
+Or by hand, inside a nested X server so your real desktop is untouched:
 
     Xephyr :5 -screen 1600x900 &
     go-go-wm wm --display :5 --embedded-broker &
@@ -42,6 +48,7 @@ Headless (for tests and automation), substitute
 - Mod4-d — the launcher popup (type to filter, Enter launches)
 - Mod4-Shift-d / Mod4-s — split right / below
 - Mod4-w — close tile · Mod4-space — focus next
+- Mod4-f — fullscreen toggle
 - Mod4-1..9 — switch workspace · Mod4-n — new workspace
 - Escape — cancel an accept or menu · Mod4-Shift-q — quit
 

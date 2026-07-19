@@ -20,3 +20,8 @@ Implemented all four phases: float layer (detection precedence, lifecycle, two-r
 - /home/manuel/workspaces/2026-07-18/go-go-wm/go-go-wm/pkg/wmx11/float.go — the float layer
 - /home/manuel/workspaces/2026-07-18/go-go-wm/go-go-wm/scripts/float-smoke.sh — E2E fixture
 
+
+## 2026-07-19
+
+Fullscreen toggle (Mod4-f / wm.fullscreen / IPC): shell state like floats, full-bleed clients, workspace-switch exit; float-smoke stage 7. Commit 0af7fc1.
+

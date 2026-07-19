@@ -20,3 +20,8 @@ Implemented all four phases: pkg/launcher registry (.desktop parser, fuzzy score
 - /home/manuel/workspaces/2026-07-18/go-go-wm/go-go-wm/pkg/wmx11/launcher.go — popup, tile, substrate, launch routing
 - /home/manuel/workspaces/2026-07-18/go-go-wm/go-go-wm/scripts/launcher-smoke.sh — 12-stage E2E fixture
 
+
+## 2026-07-19
+
+A2 wm.command: daemon-served launcher entries via IPC registration + command.invoke event dispatch + client.disconnected pruning; launcher-smoke stages 13-14. Also scripts/playground.sh demo session. Commit 0af7fc1.
+

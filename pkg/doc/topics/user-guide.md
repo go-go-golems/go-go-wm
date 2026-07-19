@@ -55,6 +55,7 @@ scripting in `glaze help js-api-reference`.
 | drag ⠿ grip onto a tile | center = swap, edge = dock beside |
 | drag a divider | resize (sticky at ¼ ⅓ ½ ⅔ ¾) |
 | drag a float's title strip | move the float (strip stays on screen) |
+| Mod4-f | fullscreen toggle (covers bars; toggling back restores) |
 | type into an empty tile | filter the launcher; Enter launches here |
 | Mod4-d | launcher popup (Esc closes, ↑↓ select) |
 | left-click a chip | primary action / answer a pending accept |
@@ -93,8 +94,9 @@ Any JavaScript file runs against the live desktop:
                                       #   presentations (Out[3] answers accepts)
 
 One-shot scripts automate ("build my project workspace"); daemons
-extend (register verbs, route windows on events, put whole JS-rendered
-apps on screen with `ui.app`). Develop in the REPL, deploy the same
+extend (register verbs, serve launcher commands with `wm.command`,
+route windows on events, put whole JS-rendered apps on screen with
+`ui.app`). Develop in the REPL, deploy the same
 code in a script or your rc file.
 
 ## The CLI tools
@@ -121,4 +123,4 @@ text console (Ctrl+Alt+F3) and
 where the session script execs `go-go-wm wm --embedded-broker --rc
 ~/.config/go-go-wm/rc.js ...`. Ctrl+Alt+F2/F3 switches between your
 sessions. Not yet supported: multi-output workspace pinning,
-scratchpad/sticky windows, fullscreen toggle.
+scratchpad/sticky windows.

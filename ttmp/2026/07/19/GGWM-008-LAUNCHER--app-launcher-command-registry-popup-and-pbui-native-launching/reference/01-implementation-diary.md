@@ -543,3 +543,86 @@ Help topics, ticket hygiene, push.
 
 ### Technical details
 - N/A
+
+## Step 7: A2 wm.command — daemon-served launcher entries
+
+The recorded deferral closed: `wm.command` now works from standalone
+daemons (`go-go-wm run`), with the design doc's "routes over the
+broker like verbs" realized as event-bus dispatch — because verbs'
+`OnVerbRun` is a single client-level handler owned by pbuimod, and a
+second registrant would have clobbered it.
+
+### Prompt Context
+
+**User prompt (verbatim):** (see GGWM-007 diary Step 5 — "add fullscreen toggle, A2 wm.command…")
+
+**Commit (code):** 0af7fc1 — "GGWM-007/008: fullscreen toggle + A2 daemon wm.command"
+
+### What I did
+- Registration: `{"q":"register-command","command":{id,label,doc},
+  "owner":<client name>}` → WM `remoteCmds` (merged with local defs via
+  `syncScriptCommands`). `pbui/client` gained `Name()`; `jsmod.EventFan`
+  gained `Client()`.
+- Dispatch: `dispatchScriptCommand` emits `command.invoke {id, owner}`
+  for remote entries; the owning module (subscribed once via
+  `fan.SubscribeGo`) matches id+owner and fires its stored callback —
+  a single post to the JS loop, per the fan contract.
+- Lifecycle: the WM's event watcher prunes `remoteCmds` on the
+  broker's `client.disconnected {name}` — the same death semantics as
+  verbs.
+- wmmod: `jsCommand` falls back to the A2 path on
+  `ErrNoScriptCommands`; `Backend.RegisterRemoteCommand` (IPC + script
+  backends); clear error when no broker is connected.
+- E2E: launcher-smoke stages 13-14 — a run daemon registers
+  `script:e2e`, `{"q":"launch"}` round-trips through command.invoke
+  (asserted by a workspace side effect), and killing the daemon prunes
+  the entry.
+- Plus (same session): `scripts/playground.sh` — the user-requested
+  Xephyr demo session that populates a desktop (terminal, rich REPL,
+  two demo apps, a floating dialog, an A2 daemon serving a command and
+  a verb) and prints a full cheat sheet; `PLAYGROUND_HEADLESS=1` runs
+  it under Xvfb for testing (verified: five windows managed, dialog
+  floating, `script:demo-layout` and the repl entry in the registry).
+
+### Why
+- Events over verbs for dispatch: `OnVerbRun` is single-handler
+  per client and pbuimod owns it; events broadcast, and owner+id
+  matching keeps dispatch exact. Design intent preserved (dies with
+  the client), mechanism corrected.
+
+### What worked
+- Both new stages green on the first run, including disconnect
+  pruning.
+
+### What didn't work
+- N/A this step (the earlier probes had already mapped the seams).
+
+### What I learned
+- The broker's `client.disconnected` event plus the WM's existing
+  watchEvents subscription made lifecycle cleanup a ten-line change —
+  the event bus keeps paying for itself.
+
+### What was tricky to build
+- Ownership identity: nothing carried the client's name before; it
+  had to be threaded (client.Name()) rather than guessed from the
+  script filename, or two daemons with one name would cross-fire.
+  (They still can if genuinely named identically — recorded; matches
+  verb-ownership semantics.)
+
+### What warrants a second pair of eyes
+- `command.invoke` is a broadcast: a malicious/buggy broker client
+  could emit it and trigger daemon callbacks. Same trust model as the
+  rest of the bus (local socket, one user), but worth stating.
+
+### What should be done in the future
+- N/A — the deferral list for this ticket is now empty except
+  non-ASCII input and the field/launcher-panel unification cleanup.
+
+### Code review instructions
+- `registerRemoteCommand`/`dispatchScriptCommand`/`dropRemoteCommands`
+  in pkg/wmx11/launcher.go; `registerRemoteCommand` in
+  wmmod/module.go. Validate: `scripts/launcher-smoke.sh` (14 stages).
+
+### Technical details
+- Events: `command.invoke {id, owner}`; pruning listens for
+  `client.disconnected {name}`.

@@ -68,6 +68,8 @@ Navigation and themes:
 - `wm.float()` — toggle the focused window tiled↔floating; returns the
   new state. Dialogs/utility/splash/fixed-size windows float on their
   own (WM_TRANSIENT_FOR, window type, min==max hints).
+- `wm.fullscreen()` — toggle the focused window over the whole screen
+  (bars included; clients go full-bleed); workspace switches exit it.
 
 Processes, keys, events:
 
@@ -77,8 +79,11 @@ Processes, keys, events:
   `"builtin:trace"`, `"script:x"`) or raw command line; returns the
   routed kind. `wm.launcher()` — open the Mod4+d popup.
 - `wm.command({id, label, doc?, run})` — serve a launcher entry from
-  this runtime (rc.js only, like `wm.bind`); the `command` ptype gets
-  verbs and answers `accept("command")` from any launcher surface.
+  this runtime. Works everywhere: rc.js hosts the callback in-process;
+  standalone daemons register over the broker (launches dispatch as
+  `command.invoke` events, and the entry dies with the daemon's broker
+  client, like verbs). The `command` ptype gets verbs and answers
+  `accept("command")` from any launcher surface.
 - `wm.bind(combo, fn)` — X keybinding (`"Mod4-Shift-e"`, xgbutil
   grammar). In-process runtimes only; elsewhere throws with guidance.
 - `wm.on(event, fn)` — event subscription (see the event list below).
@@ -194,7 +199,8 @@ Every op is emitted under its op name: `split-leaf`, `close-leaf`,
 `{leaf?, title, class, instance, workspace, floating?, leader?}`,
 `close_tile`, `split_tile`, `window.float-closed {client, title,
 class}`, `window.float-toggled {client, floating, leaf?}`,
-`command.launched {id, label, kind, leaf?}`,
+`command.launched {id, label, kind, leaf?}`, `command.invoke {id,
+owner}` (the A2 dispatch), `window.fullscreen {on, title, leaf?|client?}`,
 `theme.changed {theme}`, `accept.started` /
 `accept.answered` / `accept.cleared`, `listener.print`,
 `verb.invoked`, `op.rejected`, `script.error`, `repl.cell-done`. Handlers receive

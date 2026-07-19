@@ -111,8 +111,11 @@ commands — behind the Mod4+d popup and every empty tile.
   runs as a raw command line. Returns the routed kind.
 - `wm.launcher()` — open the popup.
 - `wm.command({id, label, doc?, run})` — register a launcher entry
-  whose `run` fires on this runtime. rc.js only (like `wm.bind`);
-  re-registering an id replaces it.
+  whose `run` fires on this runtime. In rc.js the callback is hosted
+  in-process; in standalone daemons (`go-go-wm run`) it registers over
+  the broker: the WM dispatches launches as `command.invoke` events
+  and drops the entry when the daemon's broker client disconnects.
+  Re-registering an id replaces it.
 
 Launcher entries are `command` presentations: right-click for verbs
 (`command.launch`, `command.edit`), and a pending `accept("command")`
@@ -128,6 +131,10 @@ tiling tree — `wm.tree()` never shows them; `wm.windows()` does.
 
 - `wm.float()` — toggle the focused window between tiled and floating;
   returns the new floating state. Builtin tiles cannot float.
+- `wm.fullscreen()` — toggle the focused window (tile or float) over
+  the whole screen, bars included. One window at a time; workspace
+  switches exit it; the tree keeps owning tiled geometry, so exiting
+  is just a relayout.
 - Floats belong to the workspace they appeared on, drag by their title
   strip, honor client resize requests, and stack above tiles (below
   the WM's bars and menus).
