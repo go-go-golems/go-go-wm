@@ -7,6 +7,7 @@ import (
 	"os"
 
 	"github.com/go-go-golems/go-go-wm/pkg/draw"
+	"github.com/go-go-golems/go-go-wm/pkg/launcher"
 	"github.com/go-go-golems/go-go-wm/pkg/wmcore"
 )
 
@@ -28,6 +29,10 @@ type ipcRequest struct {
 	Target     string      `json:"target,omitempty"`
 	Dir        string      `json:"dir,omitempty"`
 	FloatRules []FloatRule `json:"float_rules,omitempty"` // {"q":"set-float-rules"}
+
+	// {"q":"register-command"} — an A2 daemon's launcher entry.
+	Command *launcher.Command `json:"command,omitempty"`
+	Owner   string            `json:"owner,omitempty"`
 }
 
 type ipcResponse struct {
@@ -164,6 +169,13 @@ func (w *WM) dispatchIPC(req ipcRequest) ipcResponse {
 				return
 			}
 			done <- ipcResponse{OK: true, Data: floating}
+		case "fullscreen":
+			on, err := w.toggleFullscreen()
+			if err != nil {
+				done <- ipcResponse{OK: false, Error: err.Error()}
+				return
+			}
+			done <- ipcResponse{OK: true, Data: on}
 		case "launcher-open":
 			w.openLauncher()
 			done <- ipcResponse{OK: true, Data: w.launcherInfo()}
@@ -184,6 +196,16 @@ func (w *WM) dispatchIPC(req ipcRequest) ipcResponse {
 		case "commands":
 			w.registry.Refresh()
 			done <- ipcResponse{OK: true, Data: w.registry.All()}
+		case "register-command":
+			if req.Command == nil {
+				done <- ipcResponse{OK: false, Error: "missing command"}
+				return
+			}
+			if err := w.registerRemoteCommand(*req.Command, req.Owner); err != nil {
+				done <- ipcResponse{OK: false, Error: err.Error()}
+				return
+			}
+			done <- ipcResponse{OK: true}
 		default:
 			done <- ipcResponse{OK: false, Error: "unknown query " + req.Q}
 		}

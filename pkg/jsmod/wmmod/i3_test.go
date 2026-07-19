@@ -257,3 +257,23 @@ func TestCommandValidation(t *testing.T) {
 		t.Fatalf("missing run must be rejected, got %v", err)
 	}
 }
+
+func TestFullscreenExport(t *testing.T) {
+	rt := newRuntime(t, newFake(""))
+	got := run(t, rt, `
+const wm = require("wm");
+wm.fullscreen() + ":" + wm.fullscreen()`)
+	if got != "true:false" {
+		t.Fatalf("wm.fullscreen toggles = %v", got)
+	}
+}
+
+func TestCommandA2WithoutBrokerErrors(t *testing.T) {
+	fake := newFake("")
+	fake.a2 = true            // IPC-style backend: no in-process command hosting
+	rt := newRuntime(t, fake) // fan is nil → the A2 path must error clearly
+	err := runErr(t, rt, `require("wm").command({id: "x", label: "x", run() {}})`)
+	if err == nil || !strings.Contains(err.Error(), "broker connection") {
+		t.Fatalf("A2 without a broker must point at the broker, got %v", err)
+	}
+}

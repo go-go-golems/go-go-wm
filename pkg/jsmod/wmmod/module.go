@@ -2,15 +2,19 @@ package wmmod
 
 import (
 	"context"
+	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
+	"sync"
 	"time"
 
 	"github.com/dop251/goja"
 	"github.com/dop251/goja_nodejs/require"
 
 	"github.com/go-go-golems/go-go-wm/pkg/jsmod"
+	"github.com/go-go-golems/go-go-wm/pkg/pbui"
 	"github.com/go-go-golems/go-go-wm/pkg/wmcore"
 )
 
@@ -31,6 +35,12 @@ type Module struct {
 
 	execAllowed bool
 	execDisplay string
+
+	// A2 wm.command state: this daemon's registered fire callbacks,
+	// dispatched by command.invoke events (see jsCommand).
+	cmdMu       sync.Mutex
+	remoteFires map[string]func()
+	cmdSubOnce  sync.Once
 }
 
 // Option configures the module.
@@ -309,6 +319,13 @@ func (m *Module) Loader() require.ModuleLoader {
 				return m.backend.Float(ctx)
 			})
 		})
+		// fullscreen(): toggle the focused window fullscreen (i3
+		// $mod+f); returns the new state.
+		set("fullscreen", func(call goja.FunctionCall) goja.Value {
+			return m.call(vm, "fullscreen", func(ctx context.Context) (interface{}, error) {
+				return m.backend.Fullscreen(ctx)
+			})
+		})
 		// exec(cmdline): spawn a process, i3-style. Fire-and-forget.
 		set("exec", m.jsExec(vm))
 
@@ -422,19 +439,65 @@ func (m *Module) jsCommand(vm *goja.Runtime) func(goja.FunctionCall) goja.Value 
 		if !sok {
 			panic(vm.ToValue("wm.command: no runtime services"))
 		}
-		err := m.backend.RegisterCommand(id, label, doc, func() {
+		fire := func() {
 			_ = services.PostWithLifetimeContext("wm.command:"+id,
 				func(_ context.Context, vm *goja.Runtime) {
 					if _, err := fn(goja.Undefined()); err != nil {
 						jsmod.EmitScriptError(nil, "wm.command:"+id, err, nil)
 					}
 				})
-		})
+		}
+		err := m.backend.RegisterCommand(id, label, doc, fire)
+		if errors.Is(err, ErrNoScriptCommands) {
+			// A2: a standalone daemon. The WM gets the registry entry
+			// over IPC and dispatches launches as command.invoke events;
+			// this process fires its own callback. The entry dies with
+			// this broker client (the WM watches client.disconnected).
+			err = m.registerRemoteCommand(vm, id, label, doc, fire)
+		}
 		if err != nil {
 			panic(vm.ToValue("wm.command: " + err.Error()))
 		}
 		return goja.Undefined()
 	}
+}
+
+// registerRemoteCommand is the A2 half of wm.command.
+func (m *Module) registerRemoteCommand(vm *goja.Runtime, id, label, doc string, fire func()) error {
+	if m.fan == nil || m.fan.Client() == nil {
+		return fmt.Errorf("wm.command needs a broker connection (command.invoke dispatch)")
+	}
+	owner := m.fan.Client().Name()
+	if owner == "" {
+		return fmt.Errorf("wm.command: broker client has no name")
+	}
+	m.cmdMu.Lock()
+	if m.remoteFires == nil {
+		m.remoteFires = map[string]func(){}
+	}
+	m.remoteFires["script:"+id] = fire
+	m.cmdMu.Unlock()
+	m.cmdSubOnce.Do(func() {
+		m.fan.SubscribeGo("command.invoke", func(msg *pbui.Msg) {
+			var data struct {
+				ID    string `json:"id"`
+				Owner string `json:"owner"`
+			}
+			if err := json.Unmarshal(msg.Data, &data); err != nil || data.Owner != owner {
+				return
+			}
+			m.cmdMu.Lock()
+			f := m.remoteFires[data.ID]
+			m.cmdMu.Unlock()
+			if f != nil {
+				f() // a single post to the JS loop, per the fan contract
+			}
+		})
+		_ = m.fan.EnsurePump(context.Background())
+	})
+	ctx, cancel := context.WithTimeout(context.Background(), queryTimeout)
+	defer cancel()
+	return m.backend.RegisterRemoteCommand(ctx, id, label, doc, owner)
 }
 
 // jsExec: wm.exec(cmdline) — the i3 `exec` gesture. The child runs in

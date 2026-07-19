@@ -214,6 +214,7 @@ func (w *WM) unmanage(clientWin xproto.Window) {
 		w.unmanageFloat(f)
 		return
 	}
+	w.clearFullscreenFor(f)
 	delete(w.byClient, clientWin)
 	delete(w.byFrame, f.win.Id)
 	delete(w.frames, f.leaf)
@@ -326,8 +327,8 @@ func (w *WM) relayoutPaint(paintAll bool) {
 		}
 		visible[id] = true
 		f := w.frames[id]
-		if f == nil {
-			continue
+		if f == nil || f == w.fullscreen {
+			continue // fullscreen owns its geometry until it exits
 		}
 		r := item.Rect
 		resized := f.rect != r

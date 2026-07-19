@@ -58,6 +58,7 @@ func (w *WM) setupInput() {
 		bind("Mod4-Shift-d", func() { w.splitFocused(wmcore.Row) })
 		bind("Mod4-s", func() { w.splitFocused(wmcore.Col) })
 		bind("Mod4-w", w.closeFocused)
+		bind("Mod4-f", func() { _, _ = w.toggleFullscreen() })
 		bind("Mod4-space", w.focusNext)
 		bind("Mod4-n", func() { _, _ = w.Apply(wmcore.Op{Op: wmcore.OpAddWorkspace}) })
 		for i := 1; i <= 9; i++ {

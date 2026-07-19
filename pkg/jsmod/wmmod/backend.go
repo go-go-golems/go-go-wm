@@ -45,6 +45,9 @@ type Backend interface {
 	// Float toggles the focused window between the tiled and floating
 	// worlds; returns the resulting floating state.
 	Float(ctx context.Context) (bool, error)
+	// Fullscreen toggles the focused window fullscreen; returns the
+	// resulting state.
+	Fullscreen(ctx context.Context) (bool, error)
 	// Launch runs a launcher target (GGWM-008): a registry id
 	// ("app:firefox", "builtin:trace", "script:x") launches by kind;
 	// anything else is a raw command line. Returns the routed kind.
@@ -54,6 +57,10 @@ type Backend interface {
 	// RegisterCommand adds a script command to the launcher registry
 	// (in-process runtimes only; fire must be a single JS-loop post).
 	RegisterCommand(id, label, doc string, fire func()) error
+	// RegisterRemoteCommand pushes a daemon-owned launcher entry to the
+	// WM (the A2 path): the WM dispatches launches as command.invoke
+	// events, and the entry dies with the owner's broker client.
+	RegisterRemoteCommand(ctx context.Context, id, label, doc, owner string) error
 }
 
 // ErrNoKeybindings is returned by backends that cannot grab keys.
@@ -183,6 +190,14 @@ func (b *IPCBackend) Float(ctx context.Context) (bool, error) {
 	return floating, nil
 }
 
+func (b *IPCBackend) Fullscreen(ctx context.Context) (bool, error) {
+	var on bool
+	if err := b.query(ctx, map[string]string{"q": "fullscreen"}, &on); err != nil {
+		return false, err
+	}
+	return on, nil
+}
+
 func (b *IPCBackend) Launch(ctx context.Context, target string) (string, error) {
 	var kind string
 	if err := b.query(ctx, map[string]string{"q": "launch", "target": target}, &kind); err != nil {
@@ -197,4 +212,11 @@ func (b *IPCBackend) OpenLauncher(ctx context.Context) error {
 
 func (b *IPCBackend) RegisterCommand(string, string, string, func()) error {
 	return ErrNoScriptCommands
+}
+
+func (b *IPCBackend) RegisterRemoteCommand(ctx context.Context, id, label, doc, owner string) error {
+	return b.query(ctx, map[string]interface{}{
+		"q": "register-command", "owner": owner,
+		"command": map[string]interface{}{"id": id, "label": label, "doc": doc},
+	}, nil)
 }

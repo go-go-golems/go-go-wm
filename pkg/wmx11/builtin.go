@@ -359,6 +359,15 @@ func (w *WM) watchEvents() {
 				if typ == "listener.print" {
 					w.world.Print(parsePrintSegs(data)...)
 				}
+				// A2 daemon commands die with their broker client.
+				if typ == "client.disconnected" {
+					var d struct {
+						Name string `json:"name"`
+					}
+					if err := json.Unmarshal(data, &d); err == nil && d.Name != "" {
+						w.dropRemoteCommands(d.Name)
+					}
+				}
 				w.repaintBuiltins()
 			})
 		}

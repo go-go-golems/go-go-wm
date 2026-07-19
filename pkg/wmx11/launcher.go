@@ -365,15 +365,74 @@ func (w *WM) execCommand(cmdline string) {
 	go func() { _ = c.Wait() }()
 }
 
-// dispatchScriptCommand fires a script-registered command's callback —
-// a single post into the owning JS runtime, never JS execution here.
+// dispatchScriptCommand fires a script-registered command: in-process
+// registrations post straight into the rc runtime; remote (A2 daemon)
+// registrations dispatch over the event bus — the owning process
+// subscribed to command.invoke and fires its own callback.
 func (w *WM) dispatchScriptCommand(cmd launcher.Command) {
-	fire := w.scriptCommands[cmd.ID]
-	if fire == nil {
-		log.Warn().Str("id", cmd.ID).Msg("script command has no registered runtime")
+	if fire := w.scriptCommands[cmd.ID]; fire != nil {
+		fire()
 		return
 	}
-	fire()
+	if rc, ok := w.remoteCmds[cmd.ID]; ok {
+		w.emitEvent("command.invoke", map[string]interface{}{
+			"id": cmd.ID, "owner": rc.owner,
+		})
+		return
+	}
+	log.Warn().Str("id", cmd.ID).Msg("script command has no registered runtime")
+}
+
+// remoteCmd is one A2-daemon-registered launcher entry.
+type remoteCmd struct {
+	def   launcher.Command
+	owner string // broker client name; entries die with the client
+}
+
+// registerRemoteCommand adds/replaces a daemon-owned command (IPC
+// register-command). WM loop only.
+func (w *WM) registerRemoteCommand(def launcher.Command, owner string) error {
+	if def.ID == "" || def.Label == "" || owner == "" {
+		return fmt.Errorf("remote command needs an id, a label, and an owner")
+	}
+	if !strings.HasPrefix(def.ID, "script:") {
+		def.ID = "script:" + def.ID
+	}
+	def.Kind = launcher.KindScript
+	def.Exec = "" // remote commands never exec; they dispatch by event
+	if w.remoteCmds == nil {
+		w.remoteCmds = map[string]remoteCmd{}
+	}
+	w.remoteCmds[def.ID] = remoteCmd{def: def, owner: owner}
+	w.syncScriptCommands()
+	return nil
+}
+
+// dropRemoteCommands removes every command a disconnected client owned
+// (the broker announces client.disconnected; verbs die the same way).
+func (w *WM) dropRemoteCommands(owner string) {
+	changed := false
+	for id, rc := range w.remoteCmds {
+		if rc.owner == owner {
+			delete(w.remoteCmds, id)
+			changed = true
+		}
+	}
+	if changed {
+		w.syncScriptCommands()
+	}
+}
+
+// syncScriptCommands pushes the merged local + remote script command
+// list into the registry.
+func (w *WM) syncScriptCommands() {
+	defs := append([]launcher.Command(nil), w.scriptCmdDefs...)
+	for _, rc := range w.remoteCmds {
+		defs = append(defs, rc.def)
+	}
+	if w.registry != nil {
+		w.registry.SetStatic(launcher.KindScript, defs)
+	}
 }
 
 // RegisterCommand adds a script command to the registry (wm.command in
@@ -406,9 +465,7 @@ func (b *ScriptBackend) RegisterCommand(id, label, doc string, fire func()) erro
 			ID: full, Label: label, Doc: doc, Kind: launcher.KindScript,
 		})
 		w.scriptCmdDefs = defs
-		if w.registry != nil {
-			w.registry.SetStatic(launcher.KindScript, defs)
-		}
+		w.syncScriptCommands()
 	})
 	select {
 	case <-done:

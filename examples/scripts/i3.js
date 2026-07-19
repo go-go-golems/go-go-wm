@@ -32,11 +32,12 @@
 //   assign [class="jetbrains-idea"] 3      wm.rule({class: /jetbrains-idea/, workspace: "3"})
 //   for_window [...] floating enable       wm.rule({class/title: …, float: true})  (GGWM-007)
 //   bindsym $mod+Shift+space floating…     wm.float()
+//   bindsym $mod+f fullscreen toggle       wm.fullscreen()
 //   client.background #1f1f1f              --theme dark (same anchor color)
 //   exec --no-startup-id …                 AUTOSTART below (opt-in via env)
 //
 //   NOT PORTED (no WM mechanism yet): scratchpad/sticky,
-//   stacking/tabbed layouts, fullscreen toggle, i3 modes (resize/gaps/
+//   stacking/tabbed layouts, i3 modes (resize/gaps/
 //   system — global grabs of bare letters would swallow app keys),
 //   multi-output workspace pinning, i3bar/polybar, border styles,
 //   urgency focus. Resize lives on the mouse (sticky dividers);
@@ -106,6 +107,8 @@ bind("v", function () { var f = wm.focused(); if (f) wm.split(f, "col"); });
 bind("space", function () { wm.focus("next"); });
 // toggle tiling / floating (i3 $mod+Shift+space)
 bind("Shift-space", function () { wm.float(); });
+// toggle fullscreen (i3 $mod+f)
+bind("f", function () { wm.fullscreen(); });
 
 // --- workspaces -----------------------------------------------------------
 for (var n = 1; n <= 9; n++) {

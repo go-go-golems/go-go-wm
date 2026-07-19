@@ -37,6 +37,9 @@ type fakeBackend struct {
 	launcherOpens int
 	commands      map[string]func()
 	commandLabels []string
+	fullscreen    bool
+	a2            bool
+	remoteRegs    []string
 }
 
 func newFake(firstApp string) *fakeBackend {
@@ -131,6 +134,13 @@ func (f *fakeBackend) Float(context.Context) (bool, error) {
 	return f.floating, nil
 }
 
+func (f *fakeBackend) Fullscreen(context.Context) (bool, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.fullscreen = !f.fullscreen
+	return f.fullscreen, nil
+}
+
 func (f *fakeBackend) Launch(_ context.Context, target string) (string, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
@@ -151,11 +161,21 @@ func (f *fakeBackend) OpenLauncher(context.Context) error {
 func (f *fakeBackend) RegisterCommand(id, label, doc string, fire func()) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
+	if f.a2 {
+		return wmmod.ErrNoScriptCommands
+	}
 	if f.commands == nil {
 		f.commands = map[string]func(){}
 	}
 	f.commands[id] = fire
 	f.commandLabels = append(f.commandLabels, id+"|"+label+"|"+doc)
+	return nil
+}
+
+func (f *fakeBackend) RegisterRemoteCommand(_ context.Context, id, label, doc, owner string) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.remoteRegs = append(f.remoteRegs, id+"|"+label+"|"+owner)
 	return nil
 }
 

@@ -238,4 +238,40 @@ wait "$ACCEPT_PID" 2>/dev/null || true
 [ ! -f "$MARKER" ] || fail "accept mode still launched the command"
 echo "ok: accept(command) answered by the popup, no launch"
 
+# 13. A2 wm.command: a standalone daemon serves a launcher entry; the
+# WM dispatches launches as command.invoke events; the entry dies with
+# the daemon.
+cat > "$LOG/cmd-daemon.js" <<'EOF'
+const wm = require("wm");
+wm.command({ id: "e2e", label: "e2e marker command",
+             doc: "creates the cmdran workspace",
+             run() { wm.workspace("cmdran").switch(); } });
+EOF
+GO_GO_WM_SOCKET="$WM_SOCK" "$BIN" run "$LOG/cmd-daemon.js" \
+  --socket "$PBUI_SOCK" --wm-socket "$WM_SOCK" >"$LOG/cmd-daemon.log" 2>&1 &
+DAEMON_PID=$!
+CMDOK=0
+for _ in $(seq 40); do
+  ipc '{"q":"commands"}' | grep -q '"id":"script:e2e"' && CMDOK=1 && break
+  sleep 0.25
+done
+[ "$CMDOK" = 1 ] || { tail -5 "$LOG/cmd-daemon.log"; fail "daemon command never registered"; }
+ipc '{"q":"launch","target":"script:e2e"}' | grep -q '"data":"script"' || fail "script launch rejected"
+WSOK=0
+for _ in $(seq 40); do
+  ipc '{"q":"tree"}' | grep -q '"name":"cmdran"' && WSOK=1 && break
+  sleep 0.25
+done
+[ "$WSOK" = 1 ] || { tail -5 "$LOG/cmd-daemon.log"; fail "command.invoke never reached the daemon"; }
+echo "ok: A2 daemon command registers and dispatches"
+
+kill "$DAEMON_PID" 2>/dev/null || true
+GONE=0
+for _ in $(seq 40); do
+  ipc '{"q":"commands"}' | grep -q '"id":"script:e2e"' || { GONE=1; break; }
+  sleep 0.25
+done
+[ "$GONE" = 1 ] || fail "daemon command survived its owner's death"
+echo "ok: daemon commands die with their client"
+
 echo "PASS: launcher smoke"

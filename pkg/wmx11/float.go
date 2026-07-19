@@ -256,6 +256,7 @@ func (w *WM) manageFloat(clientWin xproto.Window, title, class, instance string,
 // tiles (detach, drop buffers, destroy), plus focus handoff back to the
 // tiled world.
 func (w *WM) unmanageFloat(f *frame) {
+	w.clearFullscreenFor(f)
 	delete(w.floats, f.client)
 	delete(w.byClient, f.client)
 	delete(w.byFrame, f.win.Id)

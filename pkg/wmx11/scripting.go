@@ -9,6 +9,7 @@ import (
 	"github.com/jezek/xgbutil/xevent"
 
 	"github.com/go-go-golems/go-go-wm/pkg/draw"
+	"github.com/go-go-golems/go-go-wm/pkg/launcher"
 	"github.com/go-go-golems/go-go-wm/pkg/wmcore"
 )
 
@@ -152,6 +153,25 @@ func (b *ScriptBackend) Float(ctx context.Context) (bool, error) {
 		return false, lerr
 	}
 	return floating, err
+}
+
+func (b *ScriptBackend) Fullscreen(ctx context.Context) (bool, error) {
+	var on bool
+	var err error
+	if lerr := b.onLoop(ctx, func() { on, err = b.WM.toggleFullscreen() }); lerr != nil {
+		return false, lerr
+	}
+	return on, err
+}
+
+func (b *ScriptBackend) RegisterRemoteCommand(ctx context.Context, id, label, doc, owner string) error {
+	var err error
+	if lerr := b.onLoop(ctx, func() {
+		err = b.WM.registerRemoteCommand(launcher.Command{ID: id, Label: label, Doc: doc}, owner)
+	}); lerr != nil {
+		return lerr
+	}
+	return err
 }
 
 func (b *ScriptBackend) Launch(ctx context.Context, target string) (string, error) {

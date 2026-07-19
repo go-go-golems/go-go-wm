@@ -166,3 +166,8 @@ func (f *EventFan) dispatch(vm *goja.Runtime, msg *pbui.Msg) {
 		}
 	}
 }
+
+// Client exposes the underlying broker client (nil in broker-less
+// runs) — for modules that need identity or registration beyond event
+// delivery (the A2 wm.command path).
+func (f *EventFan) Client() *client.Client { return f.cl }

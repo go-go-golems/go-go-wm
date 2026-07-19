@@ -150,6 +150,9 @@ type WM struct {
 	focusedFloat xproto.Window            // 0 = the tiled world holds focus
 	floatRules   []compiledFloatRule      // scripting-layer float overrides
 
+	fullscreen  *frame      // the one fullscreen window, nil = none
+	fsSavedRect wmcore.Rect // float's pre-fullscreen rect (tiles restore from the tree)
+
 	screen wmcore.Rect // full root geometry
 	area   wmcore.Rect // screen minus bars
 
@@ -169,6 +172,7 @@ type WM struct {
 	launcherTiles  map[wmcore.NodeID]*launcherTile // empty-tile query states (L3)
 	scriptCommands map[string]func()               // "script:<id>" → JS-loop post (L4)
 	scriptCmdDefs  []launcher.Command              // their registry entries
+	remoteCmds     map[string]remoteCmd            // A2 daemon commands, by id
 
 	drag *dragState
 
@@ -401,7 +405,11 @@ func (w *WM) afterOp(op wmcore.Op) {
 	// A workspace switch that leaves focus on a hidden leaf (or a hidden
 	// float) strands keyboard navigation; land on the first framed leaf
 	// of the new workspace, like i3. AddWorkspace switches Current too.
+	// Fullscreen is workspace-local in the simplest way: switching away
+	// exits it (predictable; per-workspace fullscreen is not state worth
+	// keeping).
 	if op.Op == wmcore.OpSwitchWorkspace || op.Op == wmcore.OpAddWorkspace {
+		w.exitFullscreen()
 		w.refocusCurrent()
 	}
 }

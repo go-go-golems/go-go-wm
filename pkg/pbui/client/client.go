@@ -33,6 +33,7 @@ type Client struct {
 	readErr  atomic.Value // error
 	closed   chan struct{}
 	closeOne sync.Once
+	name     string // announced in hello; verb/command ownership key
 }
 
 // Options configures Connect.
@@ -58,6 +59,7 @@ func Connect(ctx context.Context, opts Options) (*Client, error) {
 		codec:   pbui.NewNDJSONCodec(nc),
 		pending: map[uint64]chan *pbui.Msg{},
 		events:  make(chan *pbui.Msg, 256),
+		name:    opts.Name,
 		closed:  make(chan struct{}),
 	}
 	go c.readLoop()
@@ -302,3 +304,7 @@ func (c *Client) Events(ctx context.Context) (<-chan *pbui.Msg, error) {
 	}
 	return c.events, nil
 }
+
+// Name returns the client name announced in the hello handshake — the
+// broker's ownership key for verbs and (GGWM-008 A2) script commands.
+func (c *Client) Name() string { return c.name }

@@ -133,4 +133,25 @@ D2="$(echo "$R2" | grep -o '"data":[a-z]*')"
 [ "$D1" != "$D2" ] || fail "toggles did not alternate ($D1 then $D2)"
 echo "ok: float toggle alternates ($D1 → $D2)"
 
+# 7. Fullscreen toggle (GGWM-007 follow-up): the focused window covers
+# the whole screen (bars included), and toggling back restores the
+# tiled rect.
+ipc '{"q":"focus","target":"next"}' >/dev/null
+ipc '{"q":"fullscreen"}' | grep -q '"data":true' || fail "fullscreen toggle rejected"
+sleep 0.5
+windows | python3 -c '
+import json, sys
+rows = json.loads(sys.stdin.read())["data"]
+fs = [r for r in rows if r["rect"] == "1280x800+0+0"]
+assert fs, "no window at full screen size: %r" % [r["rect"] for r in rows]
+' || fail "fullscreen window does not cover the screen"
+ipc '{"q":"fullscreen"}' | grep -q '"data":false' || fail "fullscreen exit rejected"
+sleep 0.5
+windows | python3 -c '
+import json, sys
+rows = json.loads(sys.stdin.read())["data"]
+assert not [r for r in rows if r["rect"] == "1280x800+0+0"], "still fullscreen"
+' || fail "exit did not restore tiled geometry"
+echo "ok: fullscreen covers the screen and restores"
+
 echo "PASS: float smoke"
