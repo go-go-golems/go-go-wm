@@ -71,15 +71,40 @@ func (f *frecency) bump(id string, now time.Time) {
 
 // Flush writes any pending state immediately and cancels the trailing
 // timer. Safe to call at shutdown so a burst that never reached the 5s
-// deadline is not lost.
+// deadline is not lost. If a save is already in flight, Flush waits for it
+// to finish and then persists again, so entries added after that save's
+// snapshot are not lost (Codex review RC-16).
 func (f *frecency) Flush() {
 	f.mu.Lock()
 	if f.timer != nil {
 		f.timer.Stop()
 		f.timer = nil
 	}
+	disk := f.path != ""
 	f.mu.Unlock()
+	if !disk {
+		return
+	}
+	// Wait for any in-flight save to complete, then do a final save that
+	// captures any entries added after the in-flight snapshot.
+	f.waitSaveDone()
 	f.save()
+}
+
+// waitSaveDone blocks until no save is in flight. save() sets saving=true
+// before unlocking for disk I/O and clears it after; Flush uses this to
+// avoid returning before the active write has settled.
+func (f *frecency) waitSaveDone() {
+	f.mu.Lock()
+	for f.saving {
+		// Spin briefly under the lock is acceptable: save's disk write is
+		// fast and Flush runs once at shutdown. Avoid a condvar to keep the
+		// store tiny.
+		f.mu.Unlock()
+		time.Sleep(time.Millisecond)
+		f.mu.Lock()
+	}
+	f.mu.Unlock()
 }
 
 func (f *frecency) save() {

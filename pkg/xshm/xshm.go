@@ -33,7 +33,11 @@ var (
 
 // Available reports whether this connection can use shared pixmaps:
 // the MIT-SHM extension initializes, the server advertises
-// SharedPixmaps, and GO_GO_WM_NO_SHM is unset. Cached per connection.
+// SharedPixmaps, the root depth is 24-bit (the only pixel layout the
+// BGRA writer produces — a 16-bit or other nonmatching visual would
+// interpret the shared memory with the wrong format and corrupt frames,
+// Codex review RC-15), and GO_GO_WM_NO_SHM is unset. Cached per
+// connection; returns false so callers fall back to PutImage.
 func Available(X *xgbutil.XUtil) bool {
 	if os.Getenv("GO_GO_WM_NO_SHM") != "" {
 		return false
@@ -47,7 +51,7 @@ func Available(X *xgbutil.XUtil) bool {
 	ok := false
 	if err := shm.Init(c); err == nil {
 		if rep, err := shm.QueryVersion(c).Reply(); err == nil {
-			ok = rep.SharedPixmaps
+			ok = rep.SharedPixmaps && X.Screen().RootDepth == 24
 		}
 	}
 	availCache[c] = ok

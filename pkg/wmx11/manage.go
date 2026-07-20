@@ -518,7 +518,11 @@ func (w *WM) focus(leaf wmcore.NodeID) {
 		// (Codex review RC-7).
 		if w.fullscreen.floating {
 			w.focusedFloat = w.fullscreen.client
-			w.focused = ""
+			// Preserve w.focused (the tiled leaf beneath): focusFloat keeps
+			// it for focus restoration, so clearing it here would leave
+			// unmanageFloat unable to restore focus after the fullscreen
+			// dialog closes (Codex review RC-13). Only X input moves to
+			// the fullscreen float; the tile register stays intact.
 			if w.fullscreen.client != 0 {
 				xwindow.New(w.X, w.fullscreen.client).Focus()
 				_ = ewmh.ActiveWindowSet(w.X, w.fullscreen.client)
@@ -585,6 +589,15 @@ func (w *WM) handleUnmapNotify(ev xevent.UnmapNotifyEvent) {
 func (w *WM) handleConfigureRequest(ev xevent.ConfigureRequestEvent) {
 	if f := w.byClient[ev.Window]; f != nil {
 		if f.floating {
+			// Fullscreen owns the geometry of the fullscreen frame: a
+			// ConfigureRequest (e.g. a dialog resizing itself after its
+			// contents change) would shrink the frame below the screen
+			// while w.fullscreen stays set, leaving the WM in a
+			// fullscreen-locked but visibly-not-fullscreen state (Codex
+			// review RC-12). Ignore the request while fullscreen owns f.
+			if w.fullscreen == f {
+				return
+			}
 			// Floats own their geometry: honor the request (clamped).
 			w.configureFloat(f, ev)
 			return
