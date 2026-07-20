@@ -488,7 +488,19 @@ func renderTable(img *image.RGBA, seg Seg, x0, y0, maxW int, accepting []string)
 func hexTone(s string) color.RGBA {
 	var r, g, b int
 	_, _ = fmt.Sscanf(s[1:], "%02x%02x%02x", &r, &g, &b)
-	return color.RGBA{R: uint8(r), G: uint8(g), B: uint8(b), A: 255}
+	// %02x bounds each to 0..255, but make the invariant explicit so
+	// the int->uint8 cast cannot overflow on malformed input.
+	return color.RGBA{R: clampByte(r), G: clampByte(g), B: clampByte(b), A: 255}
+}
+
+func clampByte(v int) uint8 {
+	if v < 0 {
+		return 0
+	}
+	if v > 255 {
+		return 255
+	}
+	return uint8(v)
 }
 
 func minInt(a, b int) int {

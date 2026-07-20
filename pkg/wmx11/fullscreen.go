@@ -5,6 +5,7 @@ import (
 
 	"github.com/jezek/xgb/xproto"
 
+	"github.com/go-go-golems/go-go-wm/pkg/draw"
 	"github.com/go-go-golems/go-go-wm/pkg/wmcore"
 )
 
@@ -44,7 +45,7 @@ func (w *WM) enterFullscreen(f *frame) {
 		xproto.ConfigureWindow(w.X.Conn(), f.client,
 			xproto.ConfigWindowX|xproto.ConfigWindowY|
 				xproto.ConfigWindowWidth|xproto.ConfigWindowHeight,
-			[]uint32{0, 0, uint32(full.W), uint32(full.H)})
+			[]uint32{0, 0, draw.X32(full.W), draw.X32(full.H)})
 	}
 	f.win.Stack(xproto.StackModeAbove) // above bars and everything else
 	if w.menu != nil && w.menu.win != nil {

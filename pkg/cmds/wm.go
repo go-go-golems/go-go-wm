@@ -3,8 +3,9 @@ package cmds
 import (
 	"context"
 	"net/http"
-	_ "net/http/pprof"
+	"net/http/pprof"
 	"os"
+	"time"
 
 	glazed_cmds "github.com/go-go-golems/glazed/pkg/cmds"
 	"github.com/go-go-golems/glazed/pkg/cmds/fields"
@@ -75,11 +76,26 @@ func (c *WMCommand) Run(ctx context.Context, vals *values.Values) error {
 	}
 
 	// GO_GO_WM_PPROF=localhost:6060 serves net/http/pprof for profiling
-	// paint/layout work (flamegraphs via `go tool pprof`).
+	// paint/layout work (flamegraphs via `go tool pprof`). Handlers are
+	// registered on a dedicated mux (not DefaultServeMux) and the server
+	// has a read-header timeout to limit Slowloris-style exposure.
 	if addr := os.Getenv("GO_GO_WM_PPROF"); addr != "" {
 		go func() {
+			mux := http.NewServeMux()
+			mux.HandleFunc("/debug/pprof/", pprof.Index)
+			mux.HandleFunc("/debug/pprof/cmdline", pprof.Cmdline)
+			mux.HandleFunc("/debug/pprof/profile", pprof.Profile)
+			mux.HandleFunc("/debug/pprof/symbol", pprof.Symbol)
+			mux.HandleFunc("/debug/pprof/trace", pprof.Trace)
+			srv := &http.Server{
+				Addr:              addr,
+				Handler:           mux,
+				ReadHeaderTimeout: 5 * time.Second,
+				// WriteTimeout stays 0: /debug/pprof/profile and /trace run
+				// for the requested capture duration.
+			}
 			log.Info().Str("addr", addr).Msg("pprof listening")
-			if err := http.ListenAndServe(addr, nil); err != nil {
+			if err := srv.ListenAndServe(); err != nil {
 				log.Warn().Err(err).Msg("pprof server failed")
 			}
 		}()

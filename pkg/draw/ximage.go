@@ -9,6 +9,32 @@ import (
 	"github.com/jezek/xgbutil/xgraphics"
 )
 
+// X16 clamps an int into the X11 uint16 range (0..65535). Screen and
+// window dimensions are always small and positive, but the int->uint16
+// cast is a gosec G115 overflow site; this documents the invariant and
+// guards against negative or oversized values.
+func X16(v int) uint16 {
+	if v < 0 {
+		return 0
+	}
+	if v > 0xFFFF {
+		return 0xFFFF
+	}
+	return uint16(v)
+}
+
+// X32 clamps an int into the X11 uint32 range. Used for SysV shared-memory
+// ids and window geometry values that flow into X protocol requests.
+func X32(v int) uint32 {
+	if v < 0 {
+		return 0
+	}
+	if v > 0xFFFFFFFF {
+		return 0xFFFFFFFF
+	}
+	return uint32(v)
+}
+
 // ToXImage converts a rendered image.RGBA into an xgraphics.Image
 // (BGRA, ready for XSurfaceSet/XDraw/XPaint).
 //

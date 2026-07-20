@@ -130,21 +130,21 @@ func parseHex(s string) color.RGBA {
 	if len(s) != 7 || s[0] != '#' {
 		return draw.Faint
 	}
-	hex := func(c byte) int {
+	hex := func(c byte) uint8 {
 		switch {
 		case c >= '0' && c <= '9':
-			return int(c - '0')
+			return c - '0'
 		case c >= 'a' && c <= 'f':
-			return int(c-'a') + 10
+			return c - 'a' + 10
 		case c >= 'A' && c <= 'F':
-			return int(c-'A') + 10
+			return c - 'A' + 10
 		}
 		return 0
 	}
 	return color.RGBA{
-		R: uint8(hex(s[1])<<4 | hex(s[2])),
-		G: uint8(hex(s[3])<<4 | hex(s[4])),
-		B: uint8(hex(s[5])<<4 | hex(s[6])),
+		R: hex(s[1])<<4 | hex(s[2]),
+		G: hex(s[3])<<4 | hex(s[4]),
+		B: hex(s[5])<<4 | hex(s[6]),
 		A: 0xff,
 	}
 }

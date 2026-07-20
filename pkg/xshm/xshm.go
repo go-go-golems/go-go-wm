@@ -85,7 +85,7 @@ func New(X *xgbutil.XUtil, drawable xproto.Drawable, w, h int) (*Surface, error)
 
 	seg, err := shm.NewSegId(X.Conn())
 	if err == nil {
-		err = shm.AttachChecked(X.Conn(), seg, uint32(shmid), false).Check()
+		err = shm.AttachChecked(X.Conn(), seg, draw.X32(shmid), false).Check()
 	}
 	// Both sides attached (or we are bailing): either way, mark the
 	// segment for deletion now so the kernel reclaims it whenever the
@@ -100,7 +100,7 @@ func New(X *xgbutil.XUtil, drawable xproto.Drawable, w, h int) (*Surface, error)
 	if err == nil {
 		depth := X.Screen().RootDepth
 		err = shm.CreatePixmapChecked(X.Conn(), pid, drawable,
-			uint16(w), uint16(h), depth, seg, 0).Check()
+			draw.X16(w), draw.X16(h), depth, seg, 0).Check()
 	}
 	if err != nil {
 		shm.Detach(X.Conn(), seg)

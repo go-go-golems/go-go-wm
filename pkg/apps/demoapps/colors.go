@@ -26,7 +26,7 @@ type Colors struct {
 func NewColors() *Colors {
 	return &Colors{
 		Swatches: []string{"#b0563f", "#d3b56a", "#9cb4c2", "#a9bda2", "#b3abc4", "#cfa08f"},
-		rng:      rand.New(rand.NewSource(20260718)),
+		rng:      rand.New(rand.NewSource(20260718)), //#nosec G404 -- deterministic demo seed, not a security primitive
 	}
 }
 
