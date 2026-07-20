@@ -121,3 +121,66 @@ flaky GitHub API.
 - Branch: `task/go-go-wm` (PR head), base `main`.
 - Local Go: `go1.26.1 linux/amd64` (matches `go.mod`, which is why govulncheck fails).
 - golangci-lint local: v2.4.0; CI pins v2.11.2 via `.golangci-lint-version`. Both flag the same 2 issues.
+
+## Step 2: Wrote the intern analysis/design/implementation guide and uploaded to reMarkable
+
+With all evidence captured, the second step was to step back and separate the
+issues into distinct topics, then write a single intern-grade document that
+both explains the system and gives an actionable fix for every issue. The
+document was stored in the ticket's design doc and uploaded to reMarkable as a
+bundled PDF (design doc + diary) with a table of contents.
+
+### Prompt Context
+
+**User prompt (verbatim):** (see Step 1)
+
+**Assistant interpretation:** Produce the detailed analysis/design/implementation guide for a new intern, store it in the ticket, and upload to reMarkable.
+
+**Inferred user intent:** A reproducible, onboarding-grade document an intern can read to understand the whole system and fix every PR issue, with the issues cleanly categorized rather than a flat list.
+
+### What I did
+- Read the architecture from `GGWM-001`'s design doc and the source (`wmcore/tree.go`, `pbui/wire.go`, `pbui/broker/broker.go`, `apps/xapp/xapp.go`, `jsmod/eventfan.go`, `repl/value.go`, `cmd/go-go-wm/main.go`) to write a system primer.
+- Wrote `design-doc/01-pr-1-review-analysis-and-intern-implementation-guide.md` (10 parts): system primer, issue inventory, four topic analyses (A: Codex bugs, B: lint, C: gosec, D: vulns), phased plan, testing strategy, risks/open questions, references.
+- Each topic analysis has root cause, evidence (file:line + rule ID), pseudocode fix, and validation steps.
+- Related 5 key source files to the design doc, added 5 phased tasks, updated the changelog.
+- `docmgr doctor --ticket GGWM-010-PR1-REVIEW --stale-after 30` → all checks passed.
+- Committed the doc + bookkeeping (commit `0bac078`).
+- Uploaded the design doc + diary as a bundled PDF to reMarkable at `/ai/2026/07/19/GGWM-010-PR1-REVIEW` (dry-run first, then real upload). Verified with `remarquee cloud ls`.
+
+### Why
+The user explicitly asked for an intern-ready guide with prose, bullets, pseudocode, diagrams, and API/file references, stored in the ticket and uploaded to reMarkable. Separating the issues into topics (correctness/concurrency, lint, security, vulnerabilities) makes the work tractable and prioritized instead of a flat 25-item list.
+
+### What worked
+- The docmgr doctor passed cleanly after adding the `ci`/`concurrency`/`lint`/`security` vocabulary slugs.
+- reMarkable bundle upload (dry-run then real) worked first try; verified the PDF is present on the cloud.
+- The topic separation mapped perfectly: every failing check and review comment fell into exactly one of the four topics with no ambiguity.
+
+### What didn't work
+- The GitHub API kept returning HTTP 503 during the whole session, so the exact Dependency Review offending-package list could not be fetched remotely. This is documented as an open question in the guide (Part 6.2 / 9.3): the intern must read the failed CI job logs to get the specific package.
+
+### What I learned
+- The four failing CI checks and five review comments decompose into a clean priority order: (1) toolchain bump clears 9 stdlib vulns + dependency review, (2) two trivial lint fixes, (3) gosec findings are mostly false-positive integer casts but a few (pprof, path traversal) deserve real fixes, (4) the Codex P1s are the real engineering work.
+- The govulncheck failures are entirely a Go toolchain version problem — `go.mod` pins `1.26.1` but fixes ship in `1.26.2`–`1.26.5`. The `toolchain` directive is the cleanest fix.
+
+### What was tricky to build
+- Writing a system primer that is accurate without reading all 20k lines: I anchored every architectural claim to a specific file (e.g. the wire protocol to `pbui/wire.go:24`, the layout tree to `wmcore/tree.go:38`, the event fan diagram to `jsmod/eventfan.go`). This keeps the intern grounded in real code.
+- Balancing depth vs. scannability in the topic analyses: each issue gets root-cause prose + a code/evidence block + pseudocode fix + validation, so an intern can both understand *why* and see *how*.
+
+### What warrants a second pair of eyes
+- The RC-4 fix changes what `Value.Raw` carries (the exported value instead of the descriptor). This is a behavior change for any verb that reads `pbui.Object.Value`. The guide flags this as a risk (Part 9.1) but it must be audited against `pkg/jsmod/pbuimod/verbs.go` before merging.
+- The RC-1 fix assumes `replapi` can parse-check without executing; if it cannot, the guide offers a fallback (error-position heuristic) but that is weaker. Confirm `replapi`'s capabilities.
+
+### What should be done in the future
+- Implement the phased plan (Part 7): toolchain → lint → gosec → Codex bugs → verify CI.
+- Add the four regression tests listed in Part 8.2 (eventfan race, REPL double-exec, REPL ordering, rich-value payload).
+- Resolve the open question on the Dependency Review's specific offending package once GitHub Actions is reachable.
+
+### Code review instructions
+- Read `design-doc/01-pr-1-review-analysis-and-intern-implementation-guide.md` top to bottom.
+- Cross-check each topic's evidence against the captured scripts (`scripts/00..03`).
+- Validate the reMarkable upload: `remarquee cloud ls /ai/2026/07/19/GGWM-010-PR1-REVIEW --long --non-interactive`.
+
+### Technical details
+- Design doc path: `ttmp/2026/07/19/GGWM-010-PR1-REVIEW--.../design-doc/01-pr-1-review-analysis-and-intern-implementation-guide.md` (48 KB, 10 parts).
+- reMarkable remote: `/ai/2026/07/19/GGWM-010-PR1-REVIEW/GGWM-010 PR #1 Review — Analysis & Intern Guide.pdf`.
+- Commit (doc + bookkeeping): `0bac078`.
