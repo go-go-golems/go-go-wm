@@ -50,3 +50,13 @@ Addressed 5 new Codex review comments (RC-6..RC-10, all P2) on commit ad7570b3: 
 - /home/manuel/workspaces/2026-07-18/go-go-wm/go-go-wm/pkg/wmx11/manage.go — RC-7 floating fullscreen focus via focusedFloat
 - /home/manuel/workspaces/2026-07-18/go-go-wm/go-go-wm/pkg/wmx11/wm.go — RC-6 exitFullscreen in ApplyBatch + RC-9 Flush in Shutdown
 
+
+## 2026-07-20
+
+Third Codex batch (RC-11..RC-16) addressed. Systemic: immutable palette via atomic.Pointer (RC-14, 18 files), shared broker state in xgojaprovider (RC-11 P1). Plus RC-12/13 fullscreen fixes, RC-15 xshm depth check, RC-16 frecency flush wait. All -race/lint/gosec clean.
+
+### Related Files
+
+- /home/manuel/workspaces/2026-07-18/go-go-wm/go-go-wm/pkg/draw/theme.go — RC-14 immutable Palette via atomic.Pointer + Current()
+- /home/manuel/workspaces/2026-07-18/go-go-wm/go-go-wm/pkg/xgojaprovider/provider.go — RC-11 shared runtimeState across pbui+wm factories
+

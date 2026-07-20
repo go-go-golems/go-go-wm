@@ -412,3 +412,32 @@ emerged from this batch plus the earlier fullscreen comments (RC-5/6/7/12/13):
 ### Technical details
 - Commit under review: `6635c69`.
 - New comments: RC-11 (`xgojaprovider/provider.go:108`), RC-12 (`manage.go:589`), RC-13 (`manage.go:521`), RC-14 (`run.go:236`), RC-15 (`xshm/xshm.go:103`), RC-16 (`launcher/frecency.go:92`).
+
+### Fixes applied
+- **RC-11 (P1, `pkg/xgojaprovider/provider.go`, commit `542ca35`):** `Register` now hoists one shared `runtimeState` so the `pbui` and `wm` module factories reuse ONE broker connection + event fan. Both factories call `state.init(mctx)` (idempotent, guarded by `cfgSet`) instead of each creating its own state. This is the plain bug, not a pattern issue.
+- **RC-14 (P2, `pkg/draw/theme.go` + 18 files, commit `542ca35`):** the systemic refactor. Replaced the 14 mutable package-level palette vars + `AppColors` slice with an immutable `Palette` snapshot behind `atomic.Pointer[Palette]`. `SetTheme` publishes a whole Palette atomically; renderers call `draw.Current()` once per paint pass. This closes the race structurally (a paint pass that captured `Current()` at its start never sees a torn palette). Migrated all 136 read sites (`draw.X` -> `draw.Current().X`), the draw package internals (`pal := Current()` per render fn), and the draw tests.
+- **RC-12 (P2, `pkg/wmx11/manage.go`, commit `7d023fa`):** `handleConfigureRequest` ignores a float's ConfigureRequest while it is the fullscreen frame — fullscreen owns geometry.
+- **RC-13 (P2, `pkg/wmx11/manage.go`, commit `7d023fa`):** `focus()` no longer clears `w.focused` when pinning a fullscreen float — preserves the tiled leaf for `unmanageFloat` restoration.
+- **RC-15 (P2, `pkg/xshm/xshm.go`, commit `7d023fa`):** `Available()` now requires `X.Screen().RootDepth == 24` (the only pixel layout the BGRA writer produces).
+- **RC-16 (P2, `pkg/launcher/frecency.go`, commit `7d023fa`):** `Flush()` waits for an in-flight save (`waitSaveDone`) then persists again, so entries added after the in-flight snapshot's marshalling are not lost.
+
+### What worked
+- The immutable-palette refactor compiled and tested clean on the first full run after the mechanical migration (the python migration script needed one fix to preserve the file header before the first `func`).
+- All 6 fixes pass `-race`, lint 0 issues, gosec 0 issues.
+- The systemic framing paid off: RC-14 became a clean atomic-swap instead of a scattered locking exercise, and the RC-12/13 fullscreen pair reinforced that the focus/fullscreen state still wants encapsulation (noted as future work).
+
+### What didn't work
+- First python migration script dropped the package header (lost everything before the first `^func`); fixed by preserving `lines[:func_idx[0]]`. Required a `git checkout` to restore the 3 draw files.
+- The `waitSaveDone` busy-wait-spin-under-lock is a pragmatic choice (Flush runs once at shutdown, save's disk write is fast); a `sync.Cond` would be cleaner but adds machinery.
+
+### What warrants a second pair of eyes
+- The immutable-palette refactor touched 18 files' read sites — verify no renderer caches a stale `Palette` across a swap (each render fn captures `Current()` fresh, which is correct).
+- RC-13: confirm `unmanageFloat` actually restores focus to the preserved `w.focused` leaf after a fullscreen float closes (manual X11 test).
+
+### What should be done in the future
+- Encapsulate fullscreen + focus state (Patterns A & B) into helper types so new call sites cannot re-derive the "fullscreen owns focus/geometry" invariant — this batch's RC-5/6/7/12/13 are all symptoms of that scatter.
+- Re-request Codex review after pushing.
+
+### Code review instructions
+- Review commits `542ca35` (RC-11 + RC-14 systemic) and `7d023fa` (RC-12/13/15/16).
+- Validate: `env GOTOOLCHAIN=go1.26.5 go test ./... -race`, `golangci-lint run ./...`, `gosec -exclude=G101,G304,G301,G306,G204 ./...`.
