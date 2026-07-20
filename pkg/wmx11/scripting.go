@@ -199,7 +199,7 @@ func (w *WM) windowsSnapshot() []WindowInfo {
 			Class:    f.class,
 			Instance: f.instance,
 			Rect:     f.rect.String(),
-			Focused:  w.frameFocused(f),
+			Focused:  w.fstate.Focused(f),
 		}
 		if ws := w.desktop.FindLeafWorkspace(leaf); ws != nil {
 			info.Workspace = ws.ID

@@ -396,7 +396,7 @@ func (w *WM) paintFrame(f *frame) {
 	strip := draw.TitleStrip{
 		Title:   f.title,
 		Color:   stripColor,
-		Focused: w.frameFocused(f),
+		Focused: w.fstate.Focused(f),
 		Width:   f.rect.W,
 		Float:   f.floating,
 	}
@@ -506,16 +506,14 @@ func copyImage(dst *image.RGBA, src *image.RGBA, x, y int) {
 func (w *WM) focus(leaf wmcore.NodeID) {
 	// Decide where focus actually goes given the fullscreen state (RC-5/7/13).
 	// The decision is the single source of truth for the tiled-vs-floating
-	// distinction (Phase 3 of GGWM-011): focus() no longer re-derives it
-	// inline, it consults computeFocusDecision, which leans on
-	// fullscreenState.FocusTarget. Display-free and unit-tested.
+	// distinction; focus() routes the state change through focusState
+	// (Option B B4) so the exactly-one invariant is structural.
 	dec := w.computeFocusDecision(leaf)
 	if dec.kind == focusFullscreenFloat {
 		// A floating fullscreen frame has an empty leaf (floats are not
-		// tree leaves). Keep it tracked through focusedFloat, and PRESERVE
-		// w.focused (the tiled leaf beneath) so unmanageFloat can restore
-		// focus after the fullscreen dialog closes (RC-7/13).
-		w.focusedFloat = dec.client
+		// tree leaves). Pin to the float's client and PRESERVE the tiled
+		// leaf beneath (RC-7/13) via focusState.FocusFullscreen.
+		w.fstate.FocusFullscreen(w.fs.FocusTarget())
 		if dec.client != 0 {
 			xwindow.New(w.X, dec.client).Focus()
 			_ = ewmh.ActiveWindowSet(w.X, dec.client)
@@ -530,14 +528,12 @@ func (w *WM) focus(leaf wmcore.NodeID) {
 		leaf = dec.leaf
 	}
 	prev := w.focused
-	w.focused = leaf
 	// A navigation or tile click means "back to the tiled world": the
 	// float band keeps its windows but loses the keyboard.
+	w.fstate.FocusTile(leaf)
 	if pf := w.floats[w.focusedFloat]; pf != nil {
-		w.focusedFloat = 0
 		w.paintFrame(pf)
 	}
-	w.focusedFloat = 0
 	if f := w.frames[leaf]; f != nil {
 		if f.client != 0 {
 			xwindow.New(w.X, f.client).Focus()

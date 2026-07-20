@@ -266,8 +266,9 @@ func (w *WM) unmanageFloat(f *frame) {
 	f.win.Destroy()
 
 	if w.focusedFloat == f.client {
-		w.focusedFloat = 0
-		// Back to the tile the user was on before the float took focus.
+		// Route through focusState (Option B B6): Restore returns focus to
+		// the preserved tile, replacing the implicit w.focused convention.
+		w.fstate.Restore()
 		if w.frames[w.focused] != nil {
 			w.focus(w.focused)
 		}
@@ -284,7 +285,10 @@ func (w *WM) unmanageFloat(f *frame) {
 // returns focus to it.
 func (w *WM) focusFloat(f *frame) {
 	prevFloat := w.focusedFloat
-	w.focusedFloat = f.client
+	// Route through focusState (Option B B5): FocusFloat preserves the
+	// current tile in preservedTile for restoration (RC-13's contract, now
+	// explicit) and keeps the shadow fields in sync.
+	w.fstate.FocusFloat(f)
 	xwindow.New(w.X, f.client).Focus()
 	_ = ewmh.ActiveWindowSet(w.X, f.client)
 	f.win.Stack(xproto.StackModeAbove)
@@ -299,15 +303,9 @@ func (w *WM) focusFloat(f *frame) {
 	w.paintFrame(f)
 }
 
-// frameFocused is the single visual-focus predicate: a float is focused
-// when it holds focusedFloat; a tile only counts while no float does.
-func (w *WM) frameFocused(f *frame) bool {
-	if f.floating {
-		return w.focusedFloat == f.client
-	}
-	return w.focused == f.leaf && w.focusedFloat == 0
-}
-
+// frameFocused is replaced by focusState.Focused (Option B B7). The
+// predicate now lives in focus_state.go so the exactly-one invariant
+// has a single owner.
 // raiseChrome restacks the WM's own windows above the float band: bars
 // always, the menu and drop overlay when present. Menus are transient to
 // the whole desktop and must never hide under a dialog.
