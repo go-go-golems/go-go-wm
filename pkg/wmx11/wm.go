@@ -388,8 +388,11 @@ func (w *WM) ApplyBatch(ops []wmcore.Op) ([]wmcore.Result, error) {
 		// old fullscreen frame is unmapped by relayout, so leaving
 		// w.fullscreen set strands focus on it — refocusCurrent would
 		// pin focus back to the old leaf, leaving the new workspace
-		// without usable keyboard input) (Codex review RC-6).
-		w.exitFullscreen()
+		// without usable keyboard input) (Codex review RC-6). The
+		// decision is display-free and unit-tested.
+		if w.shouldExitFullscreenOnSwitch(anySwitch) {
+			w.exitFullscreen()
+		}
 		w.refocusCurrent()
 	}
 	return results, err

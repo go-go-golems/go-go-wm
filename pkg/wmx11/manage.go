@@ -504,35 +504,33 @@ func copyImage(dst *image.RGBA, src *image.RGBA, x, y int) {
 // the server discards keyboard processing and even root-grabbed
 // keybindings die — focus the frame window instead.
 func (w *WM) focus(leaf wmcore.NodeID) {
-	// While a frame is fullscreen, it is stacked above all others, so
-	// navigating focus to a hidden tiled client would leak keystrokes
-	// (Codex review RC-5): the user keeps seeing the fullscreen window
-	// while keyboard input goes to the client underneath. Pin focus to
-	// the fullscreen frame until it exits (i3 semantics).
-	if w.fullscreen != nil {
+	// Decide where focus actually goes given the fullscreen state (RC-5/7/13).
+	// The decision is display-free and unit-tested in focus_state_test.go.
+	dec := w.computeFocusDecision(leaf)
+	switch dec.kind {
+	case focusNone, focusFloat:
+		// computeFocusDecision never returns these (no fullscreen →
+		// focusTile; fullscreen → a fullscreen* kind). No-op: fall
+		// through to the tiled path below with the requested leaf.
+	case focusFullscreenFloat:
 		// A floating fullscreen frame has an empty leaf (floats are not
-		// tree leaves). Pinning via leaf would set it to "" and then the
-		// focusedFloat-clearing below would lose the float entirely, so
-		// after leaving fullscreen, close/float/fullscreen verbs would no
-		// longer target it. Keep it tracked through focusedFloat instead
-		// (Codex review RC-7).
-		if w.fullscreen.floating {
-			w.focusedFloat = w.fullscreen.client
-			// Preserve w.focused (the tiled leaf beneath): focusFloat keeps
-			// it for focus restoration, so clearing it here would leave
-			// unmanageFloat unable to restore focus after the fullscreen
-			// dialog closes (Codex review RC-13). Only X input moves to
-			// the fullscreen float; the tile register stays intact.
-			if w.fullscreen.client != 0 {
-				xwindow.New(w.X, w.fullscreen.client).Focus()
-				_ = ewmh.ActiveWindowSet(w.X, w.fullscreen.client)
-			}
-			if pf := w.frames[w.focused]; pf != nil && pf.leaf != "" {
-				w.paintFrame(pf)
-			}
-			return
+		// tree leaves). Keep it tracked through focusedFloat, and PRESERVE
+		// w.focused (the tiled leaf beneath) so unmanageFloat can restore
+		// focus after the fullscreen dialog closes (RC-7/13).
+		w.focusedFloat = dec.client
+		if dec.client != 0 {
+			xwindow.New(w.X, dec.client).Focus()
+			_ = ewmh.ActiveWindowSet(w.X, dec.client)
 		}
-		leaf = w.fullscreen.leaf
+		if pf := w.frames[w.focused]; pf != nil && pf.leaf != "" {
+			w.paintFrame(pf)
+		}
+		return
+	case focusFullscreenTile:
+		// Tiled fullscreen: pin to the fullscreen frame's leaf (RC-5).
+		leaf = dec.leaf
+	case focusTile:
+		// Common path: focus the requested tiled leaf.
 	}
 	prev := w.focused
 	w.focused = leaf
@@ -589,13 +587,10 @@ func (w *WM) handleUnmapNotify(ev xevent.UnmapNotifyEvent) {
 func (w *WM) handleConfigureRequest(ev xevent.ConfigureRequestEvent) {
 	if f := w.byClient[ev.Window]; f != nil {
 		if f.floating {
-			// Fullscreen owns the geometry of the fullscreen frame: a
-			// ConfigureRequest (e.g. a dialog resizing itself after its
-			// contents change) would shrink the frame below the screen
-			// while w.fullscreen stays set, leaving the WM in a
-			// fullscreen-locked but visibly-not-fullscreen state (Codex
-			// review RC-12). Ignore the request while fullscreen owns f.
-			if w.fullscreen == f {
+			// Fullscreen owns the geometry of the fullscreen frame, so a
+			// ConfigureRequest while fullscreen is ignored (RC-12). The
+			// decision is display-free and unit-tested.
+			if !w.shouldHonorFloatConfigure(f) {
 				return
 			}
 			// Floats own their geometry: honor the request (clamped).
