@@ -2,6 +2,8 @@ module github.com/go-go-golems/go-go-wm
 
 go 1.26.1
 
+toolchain go1.26.5
+
 require (
 	github.com/dop251/goja v0.0.0-20251103141225-af2ceb9156d7
 	github.com/dop251/goja_nodejs v0.0.0-20250409162600-f7acab6894b0
