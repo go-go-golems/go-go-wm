@@ -38,15 +38,15 @@ const (
 	seriesPtsCap = 200 // points fed to plotters
 )
 
-// NormalizeRich validates a __pbui__() payload (an exported JS map)
-// into a Value. Shape: {ptype, summary, doc?, input?, views:
-// [{name, rows}]} where rows is ui.row(...) data (uispec.Normalize
-// rules, so errors carry row/seg coordinates).
-func NormalizeRich(raw interface{}) (Value, error) {
-	m, ok := raw.(map[string]interface{})
-	if !ok {
-		return Value{}, fmt.Errorf("__pbui__ must return an object, got %T", raw)
-	}
+// NormalizeRich validates a __pbui__() payload (an exported JS map used
+// as display metadata: ptype, summary, views, ...) and wraps the evaluated
+// value as the rich object's payload. The descriptor carries display data
+// only; the EXPORTED VALUE becomes Value.Raw, because Raw is what flows
+// into pbui.Object.Value for accepts and verbs. Storing the descriptor in
+// Raw (as before) sent {ptype, summary, views, ...} to downstream consumers
+// instead of the matrix's actual data (Codex review RC-4).
+func NormalizeRich(value interface{}, descriptor map[string]interface{}) (Value, error) {
+	m := descriptor
 	for k := range m {
 		switch k {
 		case "ptype", "summary", "doc", "input", "views":
@@ -81,8 +81,14 @@ func NormalizeRich(raw interface{}) (Value, error) {
 		}
 		v.Views = append(v.Views, View{Name: name, Spec: spec})
 	}
-	if raw, err := json.Marshal(m); err == nil {
-		v.Raw = raw
+	// The payload is the evaluated VALUE, not the display descriptor.
+	// If the value cannot be marshaled (functions, undefined), leave Raw
+	// empty so downstream consumers get an empty payload rather than the
+	// wrong object.
+	if value != nil {
+		if raw, err := json.Marshal(value); err == nil {
+			v.Raw = raw
+		}
 	}
 	return v, nil
 }

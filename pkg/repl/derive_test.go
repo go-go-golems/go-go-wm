@@ -1,6 +1,7 @@
 package repl
 
 import (
+	"encoding/json"
 	"strings"
 	"testing"
 
@@ -133,16 +134,26 @@ func TestNormalizeRich(t *testing.T) {
 			}},
 		},
 	}
-	v, err := NormalizeRich(good)
+	// The value (the matrix data) becomes Raw, not the descriptor.
+	matrix := [][]int{{1, 2}, {3, 4}}
+	v, err := NormalizeRich(matrix, good)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if v.Ptype != "matrix" || len(v.Views) != 1 || v.Views[0].Name != "grid" {
 		t.Fatalf("rich: %+v", v)
 	}
+	// RC-4: Raw must be the exported VALUE, not the descriptor.
+	var got [][]int
+	if err := json.Unmarshal(v.Raw, &got); err != nil {
+		t.Fatalf("Raw is not the matrix value: %v", err)
+	}
+	if len(got) != 2 || got[0][0] != 1 || got[1][1] != 4 {
+		t.Fatalf("Raw payload wrong: %+v", got)
+	}
 	// Missing summary rejected.
 	bad := map[string]interface{}{"ptype": "x", "views": good["views"]}
-	if _, err := NormalizeRich(bad); err == nil || !strings.Contains(err.Error(), "summary") {
+	if _, err := NormalizeRich(matrix, bad); err == nil || !strings.Contains(err.Error(), "summary") {
 		t.Fatalf("missing summary: %v", err)
 	}
 	// Bad view rows carry coordinates.
@@ -152,12 +163,12 @@ func TestNormalizeRich(t *testing.T) {
 			[]interface{}{map[string]interface{}{"kind": "nope"}},
 		}}},
 	}
-	if _, err := NormalizeRich(bad2); err == nil || !strings.Contains(err.Error(), `view "v"`) {
+	if _, err := NormalizeRich(matrix, bad2); err == nil || !strings.Contains(err.Error(), `view "v"`) {
 		t.Fatalf("bad rows: %v", err)
 	}
 	// Unknown top-level key rejected.
 	bad3 := map[string]interface{}{"summary": "s", "views": good["views"], "extra": 1}
-	if _, err := NormalizeRich(bad3); err == nil || !strings.Contains(err.Error(), "extra") {
+	if _, err := NormalizeRich(matrix, bad3); err == nil || !strings.Contains(err.Error(), "extra") {
 		t.Fatalf("unknown key: %v", err)
 	}
 }

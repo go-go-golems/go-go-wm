@@ -90,7 +90,13 @@ func (k *replKernel) eval(ctx context.Context, n int, input string) ([]string, s
 
 	resp, err := k.app.Evaluate(ctx, k.sid, wrapped)
 	captured := true
-	if err == nil && resp.Cell != nil && strings.Contains(resp.Cell.Execution.Error, "SyntaxError") {
+	// Fall back to evaluating the raw input ONLY when the wrapper itself
+	// failed to parse (Status == "parse-error"). A runtime SyntaxError
+	// thrown by the wrapped body (e.g. JSON.parse("{")) has Status
+	// "runtime-error" and must NOT trigger a retry, because the body
+	// already executed — re-evaluating the raw input would run side
+	// effects a second time (Codex review RC-1).
+	if err == nil && resp.Cell != nil && resp.Cell.Execution.Status == "parse-error" {
 		captured = false
 		resp, err = k.app.Evaluate(ctx, k.sid, input)
 	}
@@ -158,7 +164,10 @@ func (k *replKernel) eval(ctx context.Context, n int, input string) ([]string, s
 		console = append(console, "__pbui__ failed: "+richErr.Error()+" (derived view shown)")
 	}
 	if richRaw != nil {
-		if v, nerr := repl.NormalizeRich(richRaw); nerr == nil {
+		desc, ok := richRaw.(map[string]interface{})
+		if !ok {
+			console = append(console, "__pbui__ must return an object (derived view shown)")
+		} else if v, nerr := repl.NormalizeRich(exported, desc); nerr == nil {
 			return console, "", exec.Result, &v
 		} else {
 			console = append(console, "__pbui__ invalid: "+nerr.Error()+" (derived view shown)")
@@ -176,8 +185,21 @@ type richReplApp struct {
 	root   context.Context
 	budget int // last render's row budget (for scroll clamping)
 
-	uiCtx   xapp.Ctx // captured in Started (for out-of-band redraws)
-	uiReady bool
+	uiCtx     xapp.Ctx // captured in Started (for out-of-band redraws)
+	uiReady   bool
+	evalQueue chan evalJob // serializes cell evaluate-and-capture (RC-2)
+}
+
+// evalJob is one queued cell evaluation. Cells are processed in submission
+// order by a single worker so the global __pbui_console buffer is always
+// drained by the cell that filled it — without this, two concurrent eval
+// calls interleave their Evaluate + WithRuntime capture and a later cell
+// can observe an earlier cell's history or steal its console output
+// (Codex review RC-2).
+type evalJob struct {
+	n   int
+	src string
+	ctx xapp.Ctx
 }
 
 func (a *richReplApp) Name() string  { return "repl" }
@@ -326,8 +348,22 @@ func (a *richReplApp) HandleKey(ctx xapp.Ctx, key string) {
 	if submitN == 0 {
 		return
 	}
-	go func(n int, src string) {
-		console, errText, result, val := a.kernel.eval(a.root, n, src)
+	// Queue, don't spawn: a single worker drains cells in submission
+	// order so evaluate-and-capture never interleaves across cells (RC-2).
+	a.evalQueue <- evalJob{n: submitN, src: input, ctx: ctx}
+}
+
+// evalWorker is the single goroutine that runs queued cell evaluations in
+// submission order. Because eval performs an Evaluate round-trip followed
+// by a separate WithRuntime capture pass, two concurrent evals would
+// interleave and the global __pbui_console buffer could be drained by the
+// wrong cell (Codex review RC-2). Serializing through this worker keeps
+// output attribution correct. The complete result is posted back to the
+// xapp loop (never touches session state off-loop).
+func (a *richReplApp) evalWorker() {
+	for job := range a.evalQueue {
+		console, errText, result, val := a.kernel.eval(a.root, job.n, job.src)
+		n, src, ctx := job.n, job.src, job.ctx
 		ctx.Post(func() {
 			a.mu.Lock()
 			a.sess.Complete(n, console, errText, result, val)
@@ -340,7 +376,7 @@ func (a *richReplApp) HandleKey(ctx xapp.Ctx, key string) {
 			ctx.Emit("repl.cell-done", data)
 			ctx.Redraw()
 		})
-	}(submitN, input)
+	}
 }
 
 func jsonUnmarshalRaw(raw []byte, out interface{}) error {
@@ -412,7 +448,17 @@ func (c *ReplCommand) runReplUI(ctx context.Context, s *replSettings) error {
 		return fmt.Errorf("repl prelude: %w", err)
 	}
 
-	surface := &richReplApp{kernel: kernel, root: ctx}
+	surface := &richReplApp{
+		kernel:    kernel,
+		root:      ctx,
+		evalQueue: make(chan evalJob, 64),
+	}
+	// Single eval worker: processes cells strictly in submission order so
+	// the evaluate + WithRuntime capture pair never interleaves across
+	// cells (RC-2). The queue is buffered so submit never blocks the UI;
+	// a full queue (64 pending cells) drops on the floor, which is far
+	// beyond what a human types.
+	go surface.evalWorker()
 	// Registered AFTER followThemeChanges: same fan, same event — the
 	// drainer runs handlers in registration order, so the palette swap
 	// happens before this redraw is posted.

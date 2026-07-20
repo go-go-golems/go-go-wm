@@ -115,10 +115,7 @@ func (f *EventFan) EnsurePump(ctx context.Context) error {
 				if len(batch) == 0 {
 					continue
 				}
-				f.mu.Lock()
-				services, hasJS := f.services, f.hasServices && f.jsHandlerCount() > 0
-				goSubs := f.goSubs
-				f.mu.Unlock()
+				services, hasJS, goSubs := f.snapshot()
 				for _, msg := range batch {
 					for _, fn := range goSubs[msg.Event] {
 						fn(msg)
@@ -139,6 +136,33 @@ func (f *EventFan) EnsurePump(ctx context.Context) error {
 		}()
 	})
 	return startErr
+}
+
+// snapshot returns a consistent view of the fan-out state for one drain
+// batch: the runtime services (for JS dispatch), whether any JS handlers
+// exist, and a deep copy of the Go subscription map. It acquires f.mu,
+// copies, and releases — callers must NOT hold the lock.
+//
+// The deep copy is essential: a map value is a header/pointer to an
+// internal hmap, not its contents, so assigning goSubs := f.goSubs would
+// share the backing store. A dynamic wm.rule or wm.command calling
+// SubscribeGo while the drainer iterates would race a concurrent map
+// read/write and panic ("fatal error: concurrent map read and map
+// write"). The map is small and batches are user-paced, so the
+// allocation is negligible. The JS dispatch path (dispatch) already
+// copies its slices; this is the Go-side equivalent.
+func (f *EventFan) snapshot() (runtimebridge.RuntimeServices, bool, map[string][]func(*pbui.Msg)) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	services := f.services
+	hasJS := f.hasServices && f.jsHandlerCount() > 0
+	goSubs := make(map[string][]func(*pbui.Msg), len(f.goSubs))
+	for ev, fns := range f.goSubs {
+		cp := make([]func(*pbui.Msg), len(fns))
+		copy(cp, fns)
+		goSubs[ev] = cp
+	}
+	return services, hasJS, goSubs
 }
 
 // jsHandlerCount must be called with f.mu held.

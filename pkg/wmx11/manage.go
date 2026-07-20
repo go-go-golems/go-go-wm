@@ -504,6 +504,14 @@ func copyImage(dst *image.RGBA, src *image.RGBA, x, y int) {
 // the server discards keyboard processing and even root-grabbed
 // keybindings die — focus the frame window instead.
 func (w *WM) focus(leaf wmcore.NodeID) {
+	// While a frame is fullscreen, it is stacked above all others, so
+	// navigating focus to a hidden tiled client would leak keystrokes
+	// (Codex review RC-5): the user keeps seeing the fullscreen window
+	// while keyboard input goes to the client underneath. Pin focus to
+	// the fullscreen frame until it exits (i3 semantics).
+	if w.fullscreen != nil {
+		leaf = w.fullscreen.leaf
+	}
 	prev := w.focused
 	w.focused = leaf
 	// A navigation or tile click means "back to the tiled world": the
