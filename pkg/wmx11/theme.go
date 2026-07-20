@@ -36,7 +36,7 @@ func (w *WM) setTheme(name string) error {
 		return err
 	}
 	root := xwindow.New(w.X, w.X.RootWin())
-	root.Change(xproto.CwBackPixel, uint32(pixel(draw.Paper)))
+	root.Change(xproto.CwBackPixel, uint32(pixel(draw.Current().Paper)))
 	root.ClearAll()
 	for _, f := range w.frames {
 		f.dropBuffers()
@@ -45,7 +45,7 @@ func (w *WM) setTheme(name string) error {
 		f.dropBuffers()
 	}
 	for _, d := range w.dividers {
-		d.win.Change(xproto.CwBackPixel, uint32(pixel(draw.Paper)))
+		d.win.Change(xproto.CwBackPixel, uint32(pixel(draw.Current().Paper)))
 	}
 	// Drop the cached bar surfaces so blitCached rebuilds them via
 	// XSurfaceSet (re-establishing the background pixmap after the
@@ -59,10 +59,10 @@ func (w *WM) setTheme(name string) error {
 		w.bottomBarImg = nil
 	}
 	if w.topBar != nil {
-		w.topBar.Change(xproto.CwBackPixel, uint32(pixel(draw.Paper)))
+		w.topBar.Change(xproto.CwBackPixel, uint32(pixel(draw.Current().Paper)))
 	}
 	if w.bottomBar != nil {
-		w.bottomBar.Change(xproto.CwBackPixel, uint32(pixel(draw.Paper)))
+		w.bottomBar.Change(xproto.CwBackPixel, uint32(pixel(draw.Current().Paper)))
 	}
 	if w.launcher != nil {
 		w.paintLauncher()

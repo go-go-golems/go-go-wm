@@ -14,15 +14,20 @@ import (
 	"image"
 	"image/color"
 	"sync"
+	"sync/atomic"
 
 	"golang.org/x/image/font"
 	"golang.org/x/image/font/opentype"
 	"golang.org/x/image/math/fixed"
 )
 
-// Theme is one complete palette. Every renderer reads the package-level
-// vars below at paint time, so swapping a theme in via SetTheme and
-// repainting re-skins the whole surface (design GGWM-004 T-D1).
+// Theme is one complete palette. A live snapshot (Palette) is exposed
+// atomically via Current(): renderers call Current() at the start of a
+// paint pass and read colors off the returned struct, so a theme swap
+// can never produce a frame assembled from mixed old/new colors. This
+// replaces the older package-level mutable vars, which were read
+// lock-free by 18 files and raced SetTheme when a process had a render
+// loop separate from the theme-swap goroutine (Codex review RC-14).
 type Theme struct {
 	Name string
 	// Surfaces.
@@ -37,6 +42,22 @@ type Theme struct {
 	Sel   color.RGBA // accept/selection highlight
 	// Accent tones (title strips, buttons, event chips).
 	Sage, Blue, Rose, Mustard, Lavender, Mint color.RGBA
+}
+
+// Palette is a live, immutable snapshot of the active theme's colors
+// plus its derived AppColors cycle. Current() returns one; readers treat
+// it as read-only. A Palette is small (~60 bytes) so capturing it per
+// paint pass is cheaper than a lock.
+type Palette struct {
+	Theme
+	AppColors []color.RGBA
+}
+
+// AppColor returns the title-strip color for app slot i, cycling through
+// the palette's accent colors. Reads the snapshot's AppColors.
+func (p Palette) AppColor(i int) color.RGBA {
+	ac := p.AppColors
+	return ac[((i%len(ac))+len(ac))%len(ac)]
 }
 
 // Themes is the registry. "paper" ports C from the prototype
@@ -79,54 +100,55 @@ var Themes = map[string]Theme{
 // ThemeNames returns the registry keys in stable order.
 func ThemeNames() []string { return []string{"paper", "light", "dark"} }
 
-// The live palette. Initialized to "paper"; reassigned by SetTheme.
-// SetTheme must only be called from the goroutine that owns rendering
-// (the WM loop, or a script runtime's JS loop before posting repaints) —
-// paint paths read these vars without locks.
-var (
-	Paper    = Themes["paper"].Paper
-	Pane     = Themes["paper"].Pane
-	PaneAlt  = Themes["paper"].PaneAlt
-	Ink      = Themes["paper"].Ink
-	Faint    = Themes["paper"].Faint
-	Sage     = Themes["paper"].Sage
-	Blue     = Themes["paper"].Blue
-	Rose     = Themes["paper"].Rose
-	Mustard  = Themes["paper"].Mustard
-	Lavender = Themes["paper"].Lavender
-	Mint     = Themes["paper"].Mint
-	Red      = Themes["paper"].Red
-	Sel      = Themes["paper"].Sel
-	Field    = Themes["paper"].Field
-)
+// The live palette. Stored as an atomic pointer to an immutable Palette
+// snapshot so renderers can read it lock-free: Current() returns the
+// pointer, SetTheme swaps it. A theme change publishes a whole Palette at
+// once, so a paint pass that captured Current() at its start never sees
+// half-old/half-new colors (Codex review RC-14).
+var livePalette atomic.Pointer[Palette]
+
+func init() {
+	livePalette.Store(initialPalette("paper"))
+}
+
+// initialPalette builds the immutable Palette snapshot for a theme name.
+func initialPalette(name string) *Palette {
+	t := Themes[name]
+	return &Palette{
+		Theme:     t,
+		AppColors: []color.RGBA{t.Rose, t.Blue, t.Mint, t.Mustard, t.Lavender, t.Sage},
+	}
+}
 
 var currentTheme = "paper"
+
+// Current returns the live palette snapshot. Renderers should capture it
+// once at the start of a paint pass and read colors off the result; the
+// returned Palette is immutable for its lifetime.
+func Current() Palette { return *livePalette.Load() }
 
 // CurrentTheme returns the name of the live palette.
 func CurrentTheme() string { return currentTheme }
 
-// SetTheme swaps the live palette. Callers repaint afterwards; nothing
-// repaints on their behalf. See the goroutine rule on the var block.
+// SetTheme swaps the live palette atomically. Safe to call from any
+// goroutine: it publishes a whole Palette at once, so renderers reading
+// via Current() never see a torn palette. Callers repaint afterwards;
+// nothing repaints on their behalf.
 func SetTheme(name string) error {
-	t, ok := Themes[name]
-	if !ok {
+	if _, ok := Themes[name]; !ok {
 		return fmt.Errorf("draw: unknown theme %q (have %v)", name, ThemeNames())
 	}
-	Paper, Pane, PaneAlt, Field = t.Paper, t.Pane, t.PaneAlt, t.Field
-	Ink, Faint, Red, Sel = t.Ink, t.Faint, t.Red, t.Sel
-	Sage, Blue, Rose, Mustard, Lavender, Mint = t.Sage, t.Blue, t.Rose, t.Mustard, t.Lavender, t.Mint
-	AppColors = []color.RGBA{Rose, Blue, Mint, Mustard, Lavender, Sage}
+	livePalette.Store(initialPalette(name))
 	currentTheme = name
 	return nil
 }
 
 func rgb(r, g, b uint8) color.RGBA { return color.RGBA{R: r, G: g, B: b, A: 0xff} }
 
-// AppColors assigns tile title-strip colors to app slots, cycling through
-// the theme's accent palette. Rebuilt by SetTheme.
-var AppColors = []color.RGBA{Rose, Blue, Mint, Mustard, Lavender, Sage}
-
-func AppColor(i int) color.RGBA { return AppColors[((i%len(AppColors))+len(AppColors))%len(AppColors)] }
+// AppColor returns the title-strip color for app slot i, cycling through
+// the live palette's accent colors. Convenience for callers that don't
+// already hold a Palette snapshot.
+func AppColor(i int) color.RGBA { return Current().AppColor(i) }
 
 // IBM Plex Mono, vendored under the SIL Open Font License 1.1
 // (https://github.com/IBM/plex).

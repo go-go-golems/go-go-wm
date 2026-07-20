@@ -104,7 +104,7 @@ func (w *WM) openLauncher() {
 	}
 	err = win.CreateChecked(w.X.RootWin(), x, y, pw, ph,
 		xproto.CwBackPixel|xproto.CwOverrideRedirect|xproto.CwEventMask,
-		uint32(pixel(draw.Pane)), 1,
+		uint32(pixel(draw.Current().Pane)), 1,
 		xproto.EventMaskButtonPress|xproto.EventMaskExposure|
 			xproto.EventMaskKeyPress)
 	if err != nil {
@@ -219,7 +219,7 @@ func commandTone(c launcher.Command) color.RGBA {
 	case launcher.KindBuiltin:
 		return apps.BuiltinColor(builtinName(c.ID))
 	case launcher.KindScript:
-		return draw.Lavender
+		return draw.Current().Lavender
 	}
 	return draw.AppColor(leafColor(wmcore.NodeID(c.ID)))
 }
@@ -701,7 +701,7 @@ func (w *WM) renderLauncherTile(f *frame, cw, ch int) (*image.RGBA, []apps.Regio
 	img := apps.NewSurface(cw, ch)
 	copyImage(img, panel.Render(), 0, 0)
 	draw.Text(img, 8, ch-6, "empty tile — Mod4-Return: terminal · Mod4-d: popup · X clients land here",
-		false, 10, draw.Faint)
+		false, 10, draw.Current().Faint)
 
 	var regions []apps.Region
 	for i, r := range panel.RowRects() {

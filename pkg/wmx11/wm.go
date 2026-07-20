@@ -110,7 +110,7 @@ type frame struct {
 func (f *frame) dropBuffers() {
 	if f.surf != nil {
 		xproto.ChangeWindowAttributes(f.surf.X.Conn(), f.win.Id,
-			xproto.CwBackPixel, []uint32{uint32(pixel(draw.Pane))})
+			xproto.CwBackPixel, []uint32{uint32(pixel(draw.Current().Pane))})
 		f.surf.Destroy()
 		f.surf = nil
 	}
@@ -298,7 +298,7 @@ func (w *WM) becomeWM() error {
 	if cursor, err := xcursor.CreateCursor(w.X, xcursor.LeftPtr); err == nil {
 		root.Change(xproto.CwCursor, uint32(cursor))
 	}
-	root.Change(xproto.CwBackPixel, uint32(pixel(draw.Paper)))
+	root.Change(xproto.CwBackPixel, uint32(pixel(draw.Current().Paper)))
 	root.ClearAll()
 	return nil
 }

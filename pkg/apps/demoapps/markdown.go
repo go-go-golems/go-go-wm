@@ -53,7 +53,7 @@ func (m *Markdown) Verbs() []pbui.Verb {
 func (m *Markdown) Render(w, h int, accepting []string) (*image.RGBA, []apps.Region) {
 	img := apps.NewSurface(w, h)
 	var regions []apps.Region
-	r := apps.Btn(img, 8, 8, "Open…  (accept a file)", draw.Blue)
+	r := apps.Btn(img, 8, 8, "Open…  (accept a file)", draw.Current().Blue)
 	regions = append(regions, apps.Region{Rect: r, Action: "cmd:open",
 		Doc: "accept a <file> — e.g. click a row in the file browser"})
 	if m.Path != "" {
@@ -63,8 +63,8 @@ func (m *Markdown) Render(w, h int, accepting []string) (*image.RGBA, []apps.Reg
 			len(accepting) > 0 && pbui.TypeMatches(accepting, "file"))
 		regions = append(regions, apps.Region{Rect: chip, Object: &obj, Doc: "<file> " + m.Path})
 	}
-	up := apps.Btn(img, w-84, 8, "up", draw.PaneAlt)
-	dn := apps.Btn(img, w-44, 8, "dn", draw.PaneAlt)
+	up := apps.Btn(img, w-84, 8, "up", draw.Current().PaneAlt)
+	dn := apps.Btn(img, w-44, 8, "dn", draw.Current().PaneAlt)
 	regions = append(regions,
 		apps.Region{Rect: up, Action: "scroll:-10", Doc: "scroll up"},
 		apps.Region{Rect: dn, Action: "scroll:+10", Doc: "scroll down"})
@@ -90,28 +90,28 @@ func (m *Markdown) Render(w, h int, accepting []string) (*image.RGBA, []apps.Reg
 			inCode = !inCode
 			y += 6
 		case inCode:
-			draw.Fill(img, image.Rect(8, y-2, w-8, y+13), draw.PaneAlt)
-			draw.Text(img, 14, y+10, truncate(line, w/7), false, 10.5, draw.Ink)
+			draw.Fill(img, image.Rect(8, y-2, w-8, y+13), draw.Current().PaneAlt)
+			draw.Text(img, 14, y+10, truncate(line, w/7), false, 10.5, draw.Current().Ink)
 			y += 15
 		case strings.HasPrefix(line, "# "):
-			draw.Text(img, 8, y+16, truncate(line[2:], w/9), true, 15, draw.Ink)
+			draw.Text(img, 8, y+16, truncate(line[2:], w/9), true, 15, draw.Current().Ink)
 			tw := draw.TextWidth(truncate(line[2:], w/9), true, 15)
-			draw.Fill(img, image.Rect(8, y+20, 8+tw, y+22), draw.Ink)
+			draw.Fill(img, image.Rect(8, y+20, 8+tw, y+22), draw.Current().Ink)
 			y += 30
 		case strings.HasPrefix(line, "## "):
-			draw.Text(img, 8, y+14, truncate(line[3:], w/8), true, 13, draw.Ink)
+			draw.Text(img, 8, y+14, truncate(line[3:], w/8), true, 13, draw.Current().Ink)
 			y += 24
 		case strings.HasPrefix(line, "### "):
-			draw.Text(img, 8, y+12, truncate(line[4:], w/7), true, 11.5, draw.Ink)
+			draw.Text(img, 8, y+12, truncate(line[4:], w/7), true, 11.5, draw.Current().Ink)
 			y += 20
 		case strings.HasPrefix(strings.TrimSpace(line), "- ") || strings.HasPrefix(strings.TrimSpace(line), "* "):
-			draw.Fill(img, image.Rect(14, y+5, 18, y+9), draw.Ink)
-			draw.Text(img, 26, y+11, truncate(strings.TrimSpace(line)[2:], w/7), false, 11, draw.Ink)
+			draw.Fill(img, image.Rect(14, y+5, 18, y+9), draw.Current().Ink)
+			draw.Text(img, 26, y+11, truncate(strings.TrimSpace(line)[2:], w/7), false, 11, draw.Current().Ink)
 			y += 16
 		case strings.TrimSpace(line) == "":
 			y += 8
 		default:
-			draw.Text(img, 8, y+11, truncate(line, w/7), false, 11, draw.Ink)
+			draw.Text(img, 8, y+11, truncate(line, w/7), false, 11, draw.Current().Ink)
 			y += 16
 		}
 	}

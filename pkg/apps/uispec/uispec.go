@@ -81,17 +81,17 @@ type Spec []Row
 func tone(name string) (color.RGBA, bool) {
 	switch name {
 	case "rose":
-		return draw.Rose, true
+		return draw.Current().Rose, true
 	case "blue":
-		return draw.Blue, true
+		return draw.Current().Blue, true
 	case "mint":
-		return draw.Mint, true
+		return draw.Current().Mint, true
 	case "mustard":
-		return draw.Mustard, true
+		return draw.Current().Mustard, true
 	case "lavender":
-		return draw.Lavender, true
+		return draw.Current().Lavender, true
 	case "sage":
-		return draw.Sage, true
+		return draw.Current().Sage, true
 	}
 	return color.RGBA{}, false
 }
@@ -277,13 +277,13 @@ func Render(w, h int, spec Spec, accepting []string) (*image.RGBA, []apps.Region
 				}
 				tw := draw.TextWidth(seg.Text, seg.Bold, size)
 				place(tw)
-				draw.Text(img, x, y+int(size)+1, seg.Text, seg.Bold, size, draw.Ink)
+				draw.Text(img, x, y+int(size)+1, seg.Text, seg.Bold, size, draw.Current().Ink)
 				x += tw + 8
 				rowH = maxInt(rowH, int(size)+6)
 			case KindHint:
 				tw := draw.TextWidth(seg.Text, false, 10.5)
 				place(tw)
-				draw.Text(img, x, y+12, seg.Text, false, 10.5, draw.Faint)
+				draw.Text(img, x, y+12, seg.Text, false, 10.5, draw.Current().Faint)
 				x += tw + 8
 				rowH = maxInt(rowH, 14)
 			case KindObject:
@@ -309,7 +309,7 @@ func Render(w, h int, spec Spec, accepting []string) (*image.RGBA, []apps.Region
 				x = r.Max.X + 8
 				rowH = maxInt(rowH, r.Dy()+4)
 			case KindButton:
-				btnTone := draw.Mustard
+				btnTone := draw.Current().Mustard
 				if seg.Color != "" {
 					if t, ok := tone(seg.Color); ok {
 						btnTone = t
@@ -356,12 +356,12 @@ func Render(w, h int, spec Spec, accepting []string) (*image.RGBA, []apps.Region
 				}
 				fw := w - x - margin
 				fr := image.Rect(x, y, x+fw, y+26)
-				draw.Fill(img, fr, draw.Field)
-				draw.Border(img, fr, 1, draw.Ink)
+				draw.Fill(img, fr, draw.Current().Field)
+				draw.Border(img, fr, 1, draw.Current().Ink)
 				tx := fr.Min.X + 8
-				tx += draw.Text(img, tx, fr.Min.Y+18, seg.Text, true, 12, draw.Ink)
+				tx += draw.Text(img, tx, fr.Min.Y+18, seg.Text, true, 12, draw.Current().Ink)
 				if seg.Focus {
-					draw.Fill(img, image.Rect(tx+2, fr.Min.Y+6, tx+9, fr.Max.Y-6), draw.Sel)
+					draw.Fill(img, image.Rect(tx+2, fr.Min.Y+6, tx+9, fr.Max.Y-6), draw.Current().Sel)
 				}
 				if seg.Action != "" {
 					doc := seg.Doc
@@ -440,10 +440,10 @@ func renderTable(img *image.RGBA, seg Seg, x0, y0, maxW int, accepting []string)
 	y := y0
 	x := x0
 	for c := 0; c < shown; c++ {
-		draw.Text(img, x, y+13, seg.Columns[c], true, size, draw.Ink)
+		draw.Text(img, x, y+13, seg.Columns[c], true, size, draw.Current().Ink)
 		x += widths[c] + colPad
 	}
-	draw.Fill(img, image.Rect(x0, y+16, x0+minInt(total, maxW), y+17), draw.Faint)
+	draw.Fill(img, image.Rect(x0, y+16, x0+minInt(total, maxW), y+17), draw.Current().Faint)
 	y += rowH + 2
 	for _, row := range seg.Cells {
 		x = x0
@@ -458,28 +458,28 @@ func renderTable(img *image.RGBA, seg Seg, x0, y0, maxW int, accepting []string)
 				if err == nil {
 					sw := image.Rect(x, y+3, x+12, y+15)
 					draw.Fill(img, sw, hexTone(cell))
-					draw.Border(img, sw, 1, draw.Ink)
+					draw.Border(img, sw, 1, draw.Current().Ink)
 					if len(accepting) > 0 && pbui.TypeMatches(accepting, "color") {
-						draw.Border(img, sw.Inset(-2), 2, draw.Sel)
+						draw.Border(img, sw.Inset(-2), 2, draw.Current().Sel)
 					}
 					regions = append(regions, apps.Region{
 						Rect: sw, Object: &obj, Doc: "color " + cell,
 					})
 				}
-				draw.Text(img, x+16, y+13, cell, false, size, draw.Ink)
+				draw.Text(img, x+16, y+13, cell, false, size, draw.Current().Ink)
 			} else {
-				draw.Text(img, cx, y+13, cell, false, size, draw.Ink)
+				draw.Text(img, cx, y+13, cell, false, size, draw.Current().Ink)
 			}
 			x += widths[c] + colPad
 		}
 		y += rowH
 	}
 	if shown < nCols {
-		draw.Text(img, x0, y+13, fmt.Sprintf("… %d more columns", nCols-shown), false, 10, draw.Faint)
+		draw.Text(img, x0, y+13, fmt.Sprintf("… %d more columns", nCols-shown), false, 10, draw.Current().Faint)
 		y += rowH
 	}
 	if seg.More > 0 {
-		draw.Text(img, x0, y+13, fmt.Sprintf("… %d more rows", seg.More), false, 10, draw.Faint)
+		draw.Text(img, x0, y+13, fmt.Sprintf("… %d more rows", seg.More), false, 10, draw.Current().Faint)
 		y += rowH
 	}
 	return y - y0, regions

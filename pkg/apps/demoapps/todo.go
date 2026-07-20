@@ -45,15 +45,15 @@ func (t *Todo) Render(w, h int, accepting []string) (*image.RGBA, []apps.Region)
 
 	// Input line.
 	field := image.Rect(8, 8, w-130, 30)
-	draw.Fill(img, field, draw.Field)
-	draw.Border(img, field, 2, draw.Ink)
+	draw.Fill(img, field, draw.Current().Field)
+	draw.Border(img, field, 2, draw.Current().Ink)
 	text := t.Input
 	if text == "" {
-		draw.Text(img, 14, 23, "type a task, Enter adds", false, 11, draw.Faint)
+		draw.Text(img, 14, 23, "type a task, Enter adds", false, 11, draw.Current().Faint)
 	} else {
-		draw.Text(img, 14, 23, text+"_", false, 11, draw.Ink)
+		draw.Text(img, 14, 23, text+"_", false, 11, draw.Current().Ink)
 	}
-	r := apps.Btn(img, w-118, 8, "From accept…", draw.Mustard)
+	r := apps.Btn(img, w-118, 8, "From accept…", draw.Current().Mustard)
 	regions = append(regions, apps.Region{Rect: r, Action: "cmd:from-accept",
 		Doc: "accept ANY presentation and make a task of it"})
 
@@ -63,26 +63,26 @@ func (t *Todo) Render(w, h int, accepting []string) (*image.RGBA, []apps.Region)
 			break
 		}
 		box := image.Rect(10, y+2, 24, y+16)
-		draw.Fill(img, box, draw.Field)
-		draw.Border(img, box, 2, draw.Ink)
+		draw.Fill(img, box, draw.Current().Field)
+		draw.Border(img, box, 2, draw.Current().Ink)
 		if it.done {
-			draw.Fill(img, box.Inset(4), draw.Sage)
+			draw.Fill(img, box.Inset(4), draw.Current().Sage)
 		}
-		tone := draw.Ink
+		tone := draw.Current().Ink
 		if it.done {
-			tone = draw.Faint
+			tone = draw.Current().Faint
 		}
 		draw.Text(img, 32, y+14, it.text, false, 11.5, tone)
 		if it.done {
 			tw := draw.TextWidth(it.text, false, 11.5)
-			draw.Fill(img, image.Rect(32, y+9, 32+tw, y+10), draw.Faint)
+			draw.Fill(img, image.Rect(32, y+9, 32+tw, y+10), draw.Current().Faint)
 		}
 		obj, _ := pbui.NewObject("todo", it.id)
 		obj.Label = it.text
 		hl := len(accepting) > 0 && pbui.TypeMatches(accepting, "todo")
 		row := image.Rect(8, y, w-8, y+18)
 		if hl {
-			draw.Border(img, row, 1, draw.Red)
+			draw.Border(img, row, 1, draw.Current().Red)
 		}
 		regions = append(regions, apps.Region{
 			Rect: row, Object: &obj, Action: "toggle:" + intToStr(it.id),

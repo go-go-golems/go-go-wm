@@ -90,7 +90,7 @@ func (w *WM) manage(clientWin xproto.Window) {
 	}
 	err = fw.CreateChecked(w.X.RootWin(), 0, 0, 100, 100,
 		xproto.CwBackPixel|xproto.CwEventMask,
-		uint32(pixel(draw.Pane)),
+		uint32(pixel(draw.Current().Pane)),
 		xproto.EventMaskSubstructureRedirect|
 			xproto.EventMaskButtonPress|
 			xproto.EventMaskButtonRelease|
@@ -382,11 +382,11 @@ func (w *WM) paintFrame(f *frame) {
 		f.img = image.NewRGBA(image.Rect(0, 0, f.rect.W, f.rect.H))
 	}
 	img := f.img
-	draw.Fill(img, img.Bounds(), draw.Pane)
+	draw.Fill(img, img.Bounds(), draw.Current().Pane)
 	stripColor := draw.AppColor(leafColor(f.leaf))
 	if name := w.builtinAppOf(f); f.client == 0 && name != "" {
 		if strings.HasPrefix(name, scriptPrefix) {
-			stripColor = draw.Lavender
+			stripColor = draw.Current().Lavender
 			f.title = strings.TrimPrefix(name, scriptPrefix) + " (js)"
 		} else {
 			stripColor = apps.BuiltinColor(name)
@@ -403,14 +403,14 @@ func (w *WM) paintFrame(f *frame) {
 	if !f.floating && w.accepting != nil && matchesTile(w.accepting.ptypes) {
 		// Tiles are acceptable: highlight the strip (the pulsing red
 		// outline of the prototype, statically).
-		strip.Color = draw.Sel
+		strip.Color = draw.Current().Sel
 	}
 	stripImg := strip.Render()
 	copyImage(img, stripImg, 0, 0)
 	if f.client == 0 {
 		f.regions = w.paintBuiltin(f, img)
 	}
-	draw.Border(img, img.Bounds(), draw.BorderW, draw.Ink)
+	draw.Border(img, img.Bounds(), draw.BorderW, draw.Current().Ink)
 
 	// Upload. Preferred path (GGWM-006): a MIT-SHM shared pixmap set as
 	// the window background — WriteRGBA is the only pixel pass, and

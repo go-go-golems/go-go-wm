@@ -14,9 +14,10 @@ import (
 // Sparkline draws vals as a polyline over the Field surface. Values are
 // normalized to the value range; a flat series draws a centered line.
 func Sparkline(vals []float64, w, h int) *image.RGBA {
+	pal := Current()
 	img := image.NewRGBA(image.Rect(0, 0, w, h))
-	Fill(img, img.Bounds(), Field)
-	Border(img, img.Bounds(), 1, Faint)
+	Fill(img, img.Bounds(), pal.Field)
+	Border(img, img.Bounds(), 1, pal.Faint)
 	if len(vals) == 0 || w < 8 || h < 8 {
 		return img
 	}
@@ -35,20 +36,21 @@ func Sparkline(vals []float64, w, h int) *image.RGBA {
 		return h - 4 - int(float64(h-8)*(v-lo)/span)
 	}
 	for i := 1; i < len(vals); i++ {
-		line(img, px(i-1), py(vals[i-1]), px(i), py(vals[i]), Blue)
+		line(img, px(i-1), py(vals[i-1]), px(i), py(vals[i]), pal.Blue)
 	}
 	// End dot.
 	last := len(vals) - 1
-	Fill(img, image.Rect(px(last)-1, py(vals[last])-1, px(last)+2, py(vals[last])+2), Ink)
+	Fill(img, image.Rect(px(last)-1, py(vals[last])-1, px(last)+2, py(vals[last])+2), pal.Ink)
 	return img
 }
 
 // BarStrip draws vals as vertical bars. Negative values hang below a
 // zero baseline when the range crosses zero.
 func BarStrip(vals []float64, w, h int) *image.RGBA {
+	pal := Current()
 	img := image.NewRGBA(image.Rect(0, 0, w, h))
-	Fill(img, img.Bounds(), Field)
-	Border(img, img.Bounds(), 1, Faint)
+	Fill(img, img.Bounds(), pal.Field)
+	Border(img, img.Bounds(), 1, pal.Faint)
 	if len(vals) == 0 || w < 8 || h < 8 {
 		return img
 	}
@@ -82,10 +84,10 @@ func BarStrip(vals []float64, w, h int) *image.RGBA {
 		if r.Dy() == 0 {
 			r.Max.Y++
 		}
-		Fill(img, r, Sage)
+		Fill(img, r, pal.Sage)
 	}
 	// Zero baseline.
-	Fill(img, image.Rect(2, zeroY, w-2, zeroY+1), Faint)
+	Fill(img, image.Rect(2, zeroY, w-2, zeroY+1), pal.Faint)
 	return img
 }
 

@@ -82,8 +82,8 @@ func (w *WM) renderScriptTile(name string, cw, ch int, accepting []string) (*ima
 	tile := w.scriptTiles[strings.TrimPrefix(name, scriptPrefix)]
 	if tile == nil {
 		img := apps.NewSurface(cw, ch)
-		draw.Text(img, 8, 20, "script tile "+name, true, 11, draw.Ink)
-		draw.Text(img, 8, 36, "not registered — load its rc.js app and call app.tile()", false, 10.5, draw.Faint)
+		draw.Text(img, 8, 20, "script tile "+name, true, 11, draw.Current().Ink)
+		draw.Text(img, 8, 36, "not registered — load its rc.js app and call app.tile()", false, 10.5, draw.Current().Faint)
 		return img, nil
 	}
 	return tile.render(cw, ch, accepting)

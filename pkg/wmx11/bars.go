@@ -22,7 +22,7 @@ func (w *WM) setupBars() error {
 		}
 		err = win.CreateChecked(w.X.RootWin(), x, y, width, height,
 			xproto.CwBackPixel|xproto.CwOverrideRedirect|xproto.CwEventMask,
-			uint32(pixel(draw.Paper)), 1,
+			uint32(pixel(draw.Current().Paper)), 1,
 			xproto.EventMaskExposure|xproto.EventMaskButtonPress)
 		if err != nil {
 			return nil, err
@@ -147,7 +147,7 @@ func (w *WM) showDropPreview(tile wmcore.Rect, zone wmcore.Zone) {
 		}
 		err = win.CreateChecked(w.X.RootWin(), r.X, r.Y, r.W, r.H,
 			xproto.CwBackPixel|xproto.CwOverrideRedirect,
-			uint32(pixel(draw.Paper)), 1)
+			uint32(pixel(draw.Current().Paper)), 1)
 		if err != nil {
 			return
 		}

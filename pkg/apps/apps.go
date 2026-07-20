@@ -77,16 +77,16 @@ func Btn(img *image.RGBA, x, y int, label string, tone color.RGBA) image.Rectang
 	w := draw.TextWidth(label, true, 11) + 20
 	h := 22
 	r := image.Rect(x, y, x+w, y+h)
-	draw.Fill(img, image.Rect(x+2, y+2, x+w+2, y+h+2), draw.Ink)
+	draw.Fill(img, image.Rect(x+2, y+2, x+w+2, y+h+2), draw.Current().Ink)
 	draw.Fill(img, r, tone)
-	draw.Border(img, r, 2, draw.Ink)
-	draw.Text(img, x+10, y+15, label, true, 11, draw.Ink)
+	draw.Border(img, r, 2, draw.Current().Ink)
+	draw.Text(img, x+10, y+15, label, true, 11, draw.Current().Ink)
 	return r
 }
 
 // Hint draws faint helper text (the prototype's Hint component).
 func Hint(img *image.RGBA, x, y int, text string) int {
-	draw.Text(img, x, y, text, false, 10.5, draw.Faint)
+	draw.Text(img, x, y, text, false, 10.5, draw.Current().Faint)
 	return y + 14
 }
 
@@ -106,29 +106,29 @@ func Chip(img *image.RGBA, x, y int, o pbui.Object, highlight bool) image.Rectan
 	w := draw.TextWidth(label, false, 11) + 2*pad + sw
 	h := 18
 	r := image.Rect(x, y, x+w, y+h)
-	bg := draw.PaneAlt
+	bg := draw.Current().PaneAlt
 	if highlight {
-		bg = draw.Sel
+		bg = draw.Current().Sel
 	}
 	draw.Fill(img, r, bg)
-	draw.Border(img, r, 1, draw.Ink)
+	draw.Border(img, r, 1, draw.Current().Ink)
 	if highlight {
-		draw.Border(img, r.Inset(-1), 1, draw.Red)
+		draw.Border(img, r.Inset(-1), 1, draw.Current().Red)
 	}
 	tx := x + pad
 	if sw > 0 {
 		c := parseHex(o.StringValue())
 		draw.Fill(img, image.Rect(x+3, y+4, x+3+11, y+4+11), c)
-		draw.Border(img, image.Rect(x+3, y+4, x+3+11, y+4+11), 1, draw.Ink)
+		draw.Border(img, image.Rect(x+3, y+4, x+3+11, y+4+11), 1, draw.Current().Ink)
 		tx = x + 3 + 11 + 3
 	}
-	draw.Text(img, tx, y+13, label, false, 11, draw.Ink)
+	draw.Text(img, tx, y+13, label, false, 11, draw.Current().Ink)
 	return r
 }
 
 func parseHex(s string) color.RGBA {
 	if len(s) != 7 || s[0] != '#' {
-		return draw.Faint
+		return draw.Current().Faint
 	}
 	hex := func(c byte) uint8 {
 		switch {
@@ -152,6 +152,6 @@ func parseHex(s string) color.RGBA {
 // NewSurface allocates a pane-colored content image.
 func NewSurface(w, h int) *image.RGBA {
 	img := image.NewRGBA(image.Rect(0, 0, w, h))
-	draw.Fill(img, img.Bounds(), draw.Pane)
+	draw.Fill(img, img.Bounds(), draw.Current().Pane)
 	return img
 }

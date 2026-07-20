@@ -40,15 +40,16 @@ func checkGolden(t *testing.T, name string, img *image.RGBA) {
 }
 
 func TestGoldenTitleStrip(t *testing.T) {
-	checkGolden(t, "title-strip", TitleStrip{Title: "color lab", Color: Rose, Width: 420}.Render())
-	checkGolden(t, "title-strip-focused", TitleStrip{Title: "listener", Color: Mint, Focused: true, Width: 420}.Render())
-	checkGolden(t, "title-strip-float", TitleStrip{Title: "save as", Color: Blue, Float: true, Width: 420}.Render())
+	pal := Current()
+	checkGolden(t, "title-strip", TitleStrip{Title: "color lab", Color: pal.Rose, Width: 420}.Render())
+	checkGolden(t, "title-strip-focused", TitleStrip{Title: "listener", Color: pal.Mint, Focused: true, Width: 420}.Render())
+	checkGolden(t, "title-strip-float", TitleStrip{Title: "save as", Color: pal.Blue, Float: true, Width: 420}.Render())
 	checkGolden(t, "launcher-panel", LauncherPanel{
 		Query: "fire", Selected: 0, Width: 640, Height: 240,
 		Rows: []LauncherRow{
-			{Label: "Firefox", Doc: "Browse the web", Tag: "app", Tone: Rose},
-			{Label: "firewall config", Doc: "gufw", Tag: "app", Tone: Blue},
-			{Label: "trace", Doc: "open the trace tile", Tag: "builtin", Tone: Sage},
+			{Label: "Firefox", Doc: "Browse the web", Tag: "app", Tone: pal.Rose},
+			{Label: "firewall config", Doc: "gufw", Tag: "app", Tone: pal.Blue},
+			{Label: "trace", Doc: "open the trace tile", Tag: "builtin", Tone: pal.Sage},
 		},
 	}.Render())
 	checkGolden(t, "launcher-panel-empty", LauncherPanel{

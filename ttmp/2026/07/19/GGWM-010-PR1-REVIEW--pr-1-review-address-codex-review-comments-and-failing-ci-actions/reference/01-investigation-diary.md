@@ -360,3 +360,55 @@ rescan) and frecency (burst-before-shutdown persists).
 - Add a regression test for RC-8 (edit a .desktop file's contents -> Refresh returns the new Name/Exec).
 - Add a launcher hook to drop the `"xapp"` redraw key when a jsXApp window closes (needs a Stop hook on the xapp App interface).
 - Re-request Codex review after pushing.
+
+## Step 5: Third Codex batch (RC-11..RC-16) + systemic pattern analysis
+
+Codex reviewed commit `6635c69` and left 6 more comments (1× P1, 5× P2).
+The user asked to step back and look for patterns. Three systemic patterns
+emerged from this batch plus the earlier fullscreen comments (RC-5/6/7/12/13):
+
+### Prompt Context
+
+**User prompt (verbatim):** "Address the next batch of review comments. Take a step back and see if there are patterns / bigger picture things involved that could benefit from some refactoring to address these issues at a systemic level."
+
+**Assistant interpretation:** Fix the new comments, but first identify cross-cutting patterns and refactor at the systemic level where one change addresses several comments.
+
+**Inferred user intent:** Stop fixing one comment at a time; find the root causes that keep spawning fullscreen/focus/race comments and fix those.
+
+### The three systemic patterns
+
+**Pattern A — Fullscreen state is scattered, not encapsulated.** `w.fullscreen` (a `*frame`) is read/written across `fullscreen.go`, `manage.go` (focus), `wm.go` (ApplyBatch/afterOp), `theme.go` (repaint), `ipc.go`, and `manage.go:330` (relayout skip). Five of the 16 Codex comments (RC-5, RC-6, RC-7, RC-12, RC-13) are all consequences of the same root cause: there is no single "fullscreen owns focus and geometry" invariant — every call site re-derives what fullscreen means (is it floating? does it have a leaf? should focus pin? should configure be ignored?). Each new code path that touches focus or geometry re-asks those questions and gets one wrong.
+
+**Pattern B — Focus state is a coupled trio (`focused` + `focusedFloat` + `fullscreen`) with no single mutator.** 7 files touch both `focused` and `focusedFloat`. `focus()`, `focusFloat()`, `refocusCurrent()`, `unmanageFloat()` each independently maintain the invariant that exactly one of {tiled leaf, float, fullscreen} holds keyboard focus. RC-7 and RC-13 are both "the wrong field got cleared" bugs. The fix shape is the same as Pattern A: one method that transitions focus state atomically.
+
+**Pattern C — The theme palette is a package-global mutable singleton read by 18 files with no synchronization.** `draw.SetTheme` rewrites ~14 package vars + `AppColors` from the event-fan drainer goroutine while renderers on the X loop read them lock-free (the var-block comment admits this and pins the rule to "the goroutine that owns rendering"). RC-14 is the concrete failure: `run`/`repl --ui` have a *separate* X app loop, so `SetTheme` runs on the drainer while `uispec.Render` runs on the app loop — a genuine data race and torn frames. 136 read sites across 18 files make a lock-per-var infeasible; the systemic fix is to make the palette **immutable** (a pointer to a `Theme` struct swapped atomically) so readers never see a half-applied theme.
+
+### Per-comment plan (mapped to patterns)
+
+- **RC-11 (P1, xgojaprovider):** `pbui` and `wm` each call `newState()` → two broker connections, same client name → verb routing nondeterminism. *Not* a pattern issue — a plain bug: the two `NewModuleFactory` closures must share one `runtimeState`. Fix: hoist `state` to the `Register` scope.
+- **RC-12 (P2, manage.go:589):** float ConfigureRequest honored while fullscreen → frame shrinks, WM stuck. Pattern A: fullscreen should own geometry. Fix: ignore float configure while `w.fullscreen == f`.
+- **RC-13 (P2, manage.go:521):** fullscreen float clears `w.focused`, losing the tiled leaf for restoration. Pattern B: focus state clobbered. Fix: don't clear `w.focused` when pinning a fullscreen float — preserve it for `unmanageFloat`.
+- **RC-14 (P2, run.go:236):** `draw.SetTheme` races renderers. Pattern C: make palette immutable. Fix: `SetTheme` swaps an `atomic.Pointer[Theme]`; readers go through `draw.Current()`.
+- **RC-15 (P2, xshm:103):** assumes 24-bit root depth; 16-bit visuals corrupt. Fix: validate `X.Screen().RootDepth == 24` in `Available`.
+- **RC-16 (P2, frecency:92):** `Flush` returns while a save is in flight, losing the final launch. Fix: `Flush` waits for an in-flight save, then re-snapshots.
+
+### What I did
+- Captured the 6 comments to `scripts/08-pr-review-comments-batch3.md`.
+- Mapped each to a pattern; confirmed the fullscreen/focus cluster (5 comments) and the palette race (1) are the systemic targets.
+- Will implement RC-11 (shared state) and RC-14 (immutable palette) as the systemic refactors; RC-12/13 as the focus-state consolidation; RC-15/16 as targeted fixes.
+
+### What I learned
+- The fullscreen comments are not independent nits — they are the same invariant violation surfacing in different code paths. Encapsulating fullscreen state (one method that says "fullscreen owns focus+geometry; everything else defers") would have prevented RC-5/6/7/12/13 at once.
+- The palette race is structural: a mutable package-global read by 18 files cannot be made safe by adding locks to each reader. Immutability + atomic swap is the only fix that scales.
+
+### What warrants a second pair of eyes
+- The immutable-palette refactor touches 18 files' read sites — high blast radius. Must verify every `draw.Paper` etc. becomes `draw.Current().Paper` (or a captured local) and that no reader caches a stale value across a swap.
+- The focus-state consolidation must not change observable behavior for the common (non-fullscreen) path.
+
+### What should be done in the future
+- Consider a `fullscreenState` helper type that owns the pin/exit/owns-geometry decisions, so new call sites can't re-derive them.
+- Consider a `focusState` type that makes the {tiled, float, fullscreen} transition atomic.
+
+### Technical details
+- Commit under review: `6635c69`.
+- New comments: RC-11 (`xgojaprovider/provider.go:108`), RC-12 (`manage.go:589`), RC-13 (`manage.go:521`), RC-14 (`run.go:236`), RC-15 (`xshm/xshm.go:103`), RC-16 (`launcher/frecency.go:92`).

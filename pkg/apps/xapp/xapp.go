@@ -310,5 +310,5 @@ func (a *shell) hover(x, y int) {
 		a.lastDoc = doc
 		_ = a.broker.Hover(doc)
 	}
-	_ = draw.Ink // keep draw import for future cursor affordances
+	_ = draw.Current().Ink // keep draw import for future cursor affordances
 }

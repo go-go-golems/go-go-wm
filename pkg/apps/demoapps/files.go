@@ -81,7 +81,7 @@ func (f *Files) Verbs() []pbui.Verb {
 func (f *Files) Render(w, h int, accepting []string) (*image.RGBA, []apps.Region) {
 	img := apps.NewSurface(w, h)
 	var regions []apps.Region
-	draw.Text(img, 8, 18, f.Dir, true, 11, draw.Ink)
+	draw.Text(img, 8, 18, f.Dir, true, 11, draw.Current().Ink)
 	if f.Err != "" {
 		apps.Hint(img, 8, 36, f.Err)
 		return img, regions
@@ -109,14 +109,14 @@ func (f *Files) Render(w, h int, accepting []string) (*image.RGBA, []apps.Region
 		hl := len(accepting) > 0 && pbui.TypeMatches(accepting, ptype)
 		r := image.Rect(8, y, w-8, y+rowH-1)
 		if hl {
-			draw.Fill(img, r, draw.Sel)
-			draw.Border(img, r, 1, draw.Red)
+			draw.Fill(img, r, draw.Current().Sel)
+			draw.Border(img, r, 1, draw.Current().Red)
 		}
-		tone := draw.Ink
+		tone := draw.Current().Ink
 		bold := e.isDir
 		draw.Text(img, 12, y+13, label, bold, 11, tone)
 		if !e.isDir {
-			draw.Text(img, w-90, y+13, byteSize(e.size), false, 9.5, draw.Faint)
+			draw.Text(img, w-90, y+13, byteSize(e.size), false, 9.5, draw.Current().Faint)
 		}
 		obj, _ := pbui.NewObject(ptype, full)
 		obj.Label = e.name

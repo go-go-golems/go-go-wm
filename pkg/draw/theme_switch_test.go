@@ -16,20 +16,21 @@ func TestSetThemeSwapsEverySlotAndAppColors(t *testing.T) {
 		t.Fatal(err)
 	}
 	d := Themes["dark"]
+	pal := Current() // immutable snapshot of the swapped palette
 	got := map[string][2]color.RGBA{
-		"Paper": {Paper, d.Paper}, "Pane": {Pane, d.Pane}, "PaneAlt": {PaneAlt, d.PaneAlt},
-		"Field": {Field, d.Field}, "Ink": {Ink, d.Ink}, "Faint": {Faint, d.Faint},
-		"Red": {Red, d.Red}, "Sel": {Sel, d.Sel}, "Sage": {Sage, d.Sage},
-		"Blue": {Blue, d.Blue}, "Rose": {Rose, d.Rose}, "Mustard": {Mustard, d.Mustard},
-		"Lavender": {Lavender, d.Lavender}, "Mint": {Mint, d.Mint},
+		"Paper": {pal.Paper, d.Paper}, "Pane": {pal.Pane, d.Pane}, "PaneAlt": {pal.PaneAlt, d.PaneAlt},
+		"Field": {pal.Field, d.Field}, "Ink": {pal.Ink, d.Ink}, "Faint": {pal.Faint, d.Faint},
+		"Red": {pal.Red, d.Red}, "Sel": {pal.Sel, d.Sel}, "Sage": {pal.Sage, d.Sage},
+		"Blue": {pal.Blue, d.Blue}, "Rose": {pal.Rose, d.Rose}, "Mustard": {pal.Mustard, d.Mustard},
+		"Lavender": {pal.Lavender, d.Lavender}, "Mint": {pal.Mint, d.Mint},
 	}
 	for slot, pair := range got {
 		if pair[0] != pair[1] {
 			t.Errorf("%s: live %v != theme %v", slot, pair[0], pair[1])
 		}
 	}
-	if AppColors[0] != d.Rose {
-		t.Errorf("AppColors not rebuilt: %v", AppColors[0])
+	if pal.AppColors[0] != d.Rose {
+		t.Errorf("AppColors not rebuilt: %v", pal.AppColors[0])
 	}
 	if CurrentTheme() != "dark" {
 		t.Errorf("CurrentTheme = %q", CurrentTheme())

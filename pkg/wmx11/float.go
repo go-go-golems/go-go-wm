@@ -215,7 +215,7 @@ func (w *WM) manageFloat(clientWin xproto.Window, title, class, instance string,
 	}
 	err = fw.CreateChecked(w.X.RootWin(), f.rect.X, f.rect.Y, f.rect.W, f.rect.H,
 		xproto.CwBackPixel|xproto.CwEventMask,
-		uint32(pixel(draw.Pane)),
+		uint32(pixel(draw.Current().Pane)),
 		xproto.EventMaskSubstructureRedirect|
 			xproto.EventMaskButtonPress|
 			xproto.EventMaskButtonRelease|

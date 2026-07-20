@@ -86,49 +86,50 @@ func (p LauncherPanel) RowAt(x, y int) int {
 
 // Render draws the panel.
 func (p LauncherPanel) Render() *image.RGBA {
+	pal := Current()
 	img := image.NewRGBA(image.Rect(0, 0, p.Width, p.Height))
-	Fill(img, img.Bounds(), Pane)
+	Fill(img, img.Bounds(), pal.Pane)
 
-	// Query field: Field surface, ink rule, caret after the query.
+	// Query field: pal.Field surface, ink rule, caret after the query.
 	fr := p.fieldRect()
-	Fill(img, fr, Field)
-	Border(img, fr, 1, Ink)
+	Fill(img, fr, pal.Field)
+	Border(img, fr, 1, pal.Ink)
 	tx := fr.Min.X + 8
 	ty := fr.Min.Y + 20
 	if p.Query == "" && p.Prompt != "" {
-		Text(img, tx, ty, p.Prompt, false, 11.5, Faint)
+		Text(img, tx, ty, p.Prompt, false, 11.5, pal.Faint)
 	} else {
-		tx += Text(img, tx, ty, p.Query, true, 12, Ink)
+		tx += Text(img, tx, ty, p.Query, true, 12, pal.Ink)
 	}
 	// Block caret.
-	Fill(img, image.Rect(tx+2, fr.Min.Y+7, tx+9, fr.Max.Y-7), Sel)
+	Fill(img, image.Rect(tx+2, fr.Min.Y+7, tx+9, fr.Max.Y-7), pal.Sel)
 
 	rects := p.RowRects()
 	for i, r := range rects {
 		row := p.Rows[i]
 		if i == p.Selected {
-			Fill(img, r, PaneAlt)
-			Border(img, r, 1, Ink)
+			Fill(img, r, pal.PaneAlt)
+			Border(img, r, 1, pal.Ink)
 		}
 		// Accent chip.
 		chip := image.Rect(r.Min.X+6, r.Min.Y+8, r.Min.X+16, r.Min.Y+18)
 		Fill(img, chip, row.Tone)
-		Border(img, chip, 1, Ink)
+		Border(img, chip, 1, pal.Ink)
 		x := r.Min.X + 24
-		x += Text(img, x, r.Min.Y+17, row.Label, true, 11.5, Ink)
+		x += Text(img, x, r.Min.Y+17, row.Label, true, 11.5, pal.Ink)
 		if row.Doc != "" {
-			Text(img, x+10, r.Min.Y+17, row.Doc, false, 10.5, Faint)
+			Text(img, x+10, r.Min.Y+17, row.Doc, false, 10.5, pal.Faint)
 		}
 		if row.Tag != "" {
 			tw := TextWidth(row.Tag, false, 9.5)
-			Text(img, r.Max.X-tw-8, r.Min.Y+17, row.Tag, false, 9.5, Faint)
+			Text(img, r.Max.X-tw-8, r.Min.Y+17, row.Tag, false, 9.5, pal.Faint)
 		}
 	}
 	if len(p.Rows) == 0 {
-		Text(img, fr.Min.X+2, fr.Max.Y+24, "no matches", false, 11, Faint)
+		Text(img, fr.Min.X+2, fr.Max.Y+24, "no matches", false, 11, pal.Faint)
 	}
 	if !p.Compact {
-		Border(img, img.Bounds(), BorderW, Ink)
+		Border(img, img.Bounds(), BorderW, pal.Ink)
 	}
 	return img
 }

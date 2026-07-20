@@ -28,24 +28,24 @@ func RenderColors(w, h int, colors []string, accepting []string) (*image.RGBA, [
 			card = image.Rect(x, y, x+56, y+52)
 		}
 		hl := len(accepting) > 0 && pbui.TypeMatches(accepting, "color")
-		bg := draw.PaneAlt
+		bg := draw.Current().PaneAlt
 		if hl {
-			bg = draw.Sel
+			bg = draw.Current().Sel
 		}
 		draw.Fill(img, card, bg)
-		draw.Border(img, card, 2, draw.Ink)
+		draw.Border(img, card, 2, draw.Current().Ink)
 		if hl {
-			draw.Border(img, card.Inset(-2), 2, draw.Red)
+			draw.Border(img, card.Inset(-2), 2, draw.Current().Red)
 		}
 		draw.Fill(img, image.Rect(x+5, y+5, x+51, y+33), parseHex(hex))
-		draw.Border(img, image.Rect(x+5, y+5, x+51, y+33), 1, draw.Ink)
-		draw.Text(img, x+5, y+46, hex, false, 9, draw.Ink)
+		draw.Border(img, image.Rect(x+5, y+5, x+51, y+33), 1, draw.Current().Ink)
+		draw.Text(img, x+5, y+46, hex, false, 9, draw.Current().Ink)
 		obj, _ := pbui.NewObject("color", hex)
 		regions = append(regions, Region{Rect: card, Object: &obj, Doc: "color " + hex})
 		x += 62
 	}
 	y += 62
-	r := Btn(img, 8, y, "Add random swatch", draw.Rose)
+	r := Btn(img, 8, y, "Add random swatch", draw.Current().Rose)
 	regions = append(regions, Region{Rect: r, Action: "cmd:add-random", Doc: "add a random swatch"})
 	return img, regions
 }
@@ -68,22 +68,22 @@ func RenderNumbers(w, h int, accepting []string) (*image.RGBA, []Region) {
 			y += 24
 		}
 		r := image.Rect(x, y, x+bw, y+20)
-		bg := draw.PaneAlt
+		bg := draw.Current().PaneAlt
 		bold := false
 		if isPrime(n) {
-			bg = draw.Sage
+			bg = draw.Current().Sage
 			bold = true
 		}
 		if hl {
-			bg = draw.Sel
+			bg = draw.Current().Sel
 		}
 		draw.Fill(img, r, bg)
-		draw.Border(img, r, 1, draw.Ink)
+		draw.Border(img, r, 1, draw.Current().Ink)
 		if hl {
-			draw.Border(img, r.Inset(-1), 1, draw.Red)
+			draw.Border(img, r.Inset(-1), 1, draw.Current().Red)
 		}
 		tw := draw.TextWidth(label, bold, 11)
-		draw.Text(img, x+(bw-tw)/2, y+14, label, bold, 11, draw.Ink)
+		draw.Text(img, x+(bw-tw)/2, y+14, label, bold, 11, draw.Current().Ink)
 		obj, _ := pbui.NewObject("number", n)
 		doc := "number " + label
 		if isPrime(n) {
@@ -106,7 +106,7 @@ type Note struct {
 func RenderNotes(w, h int, notes []Note, accepting []string) (*image.RGBA, []Region) {
 	img := NewSurface(w, h)
 	var regions []Region
-	r := Btn(img, 8, 8, "Collect…  (accept anything)", draw.Mustard)
+	r := Btn(img, 8, 8, "Collect…  (accept anything)", draw.Current().Mustard)
 	regions = append(regions, Region{Rect: r, Action: "cmd:collect",
 		Doc: "accept ANY presentation — any tile — and keep it here, live"})
 	y := Hint(img, 8, 48, "collected objects remain LIVE: a collected color still mixes,")
@@ -122,12 +122,12 @@ func RenderNotes(w, h int, notes []Note, accepting []string) (*image.RGBA, []Reg
 		idObj.Label = "note " + idLabel
 		idW := draw.TextWidth(idLabel, false, 10) + 6
 		idR := image.Rect(8, y, 8+idW, y+16)
-		draw.Text(img, 11, y+12, idLabel, false, 10, draw.Faint)
+		draw.Text(img, 11, y+12, idLabel, false, 10, draw.Current().Faint)
 		for xx := 10; xx < 8+idW-2; xx += 3 {
-			draw.Fill(img, image.Rect(xx, y+14, xx+1, y+15), draw.Faint)
+			draw.Fill(img, image.Rect(xx, y+14, xx+1, y+15), draw.Current().Faint)
 		}
 		regions = append(regions, Region{Rect: idR, Object: &idObj, Doc: "note " + idLabel + " — remove via menu"})
-		tw := draw.Text(img, 8+idW+6, y+12, "<"+n.Obj.Ptype+">", false, 10, draw.Faint)
+		tw := draw.Text(img, 8+idW+6, y+12, "<"+n.Obj.Ptype+">", false, 10, draw.Current().Faint)
 		hl := len(accepting) > 0 && pbui.TypeMatches(accepting, n.Obj.Ptype)
 		obj := n.Obj
 		chipR := Chip(img, 8+idW+6+tw+6, y-2, obj, hl)

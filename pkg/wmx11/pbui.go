@@ -195,7 +195,7 @@ func (w *WM) showMenu(obj pbui.Object, verbs []pbui.Verb, x, y int) {
 	}
 	err = win.CreateChecked(w.X.RootWin(), x, y, mw, mh,
 		xproto.CwBackPixel|xproto.CwOverrideRedirect|xproto.CwEventMask,
-		uint32(pixel(draw.Pane)), 1,
+		uint32(pixel(draw.Current().Pane)), 1,
 		xproto.EventMaskButtonPress|xproto.EventMaskPointerMotion|
 			xproto.EventMaskLeaveWindow|xproto.EventMaskExposure)
 	if err != nil {

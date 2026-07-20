@@ -85,7 +85,7 @@ func (w *WM) openBuiltin(leafID wmcore.NodeID, name string) {
 	// route to the focused surface via handleFrameKey.
 	err = fw.CreateChecked(w.X.RootWin(), 0, 0, 100, 100,
 		xproto.CwBackPixel|xproto.CwEventMask,
-		uint32(pixel(draw.Pane)),
+		uint32(pixel(draw.Current().Pane)),
 		xproto.EventMaskButtonPress|
 			xproto.EventMaskButtonRelease|
 			xproto.EventMaskPointerMotion|
