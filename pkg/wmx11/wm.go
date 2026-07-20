@@ -144,10 +144,11 @@ type WM struct {
 	frames   map[wmcore.NodeID]*frame // leaf id → frame
 	byClient map[xproto.Window]*frame // client window → frame
 	byFrame  map[xproto.Window]*frame // frame window → frame
-	focused  wmcore.NodeID
+	focused  wmcore.NodeID            // [shadowed by fstate; B10 deletes]
+	fstate   focusState               // unified focus owner (Option B; shadows focused/focusedFloat)
 
 	floats       map[xproto.Window]*frame // client → floating frame (GGWM-007)
-	focusedFloat xproto.Window            // 0 = the tiled world holds focus
+	focusedFloat xproto.Window            // 0 = the tiled world holds focus [shadowed by focus; B10 deletes]
 	floatRules   []compiledFloatRule      // scripting-layer float overrides
 
 	fullscreen  *frame          // the one fullscreen window, nil = none
@@ -219,7 +220,8 @@ func New(cfg Config) (*WM, error) {
 		ctx:      ctx,
 		cancel:   cancel,
 	}
-	w.fs.wm = w // back-reference for the fullscreenState read helpers
+	w.fs.wm = w     // back-reference for the fullscreenState read helpers
+	w.fstate.wm = w // back-reference for the focusState (Option B)
 	return w, nil
 }
 

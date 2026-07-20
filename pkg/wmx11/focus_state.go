@@ -200,3 +200,128 @@ func (w *WM) shouldHonorFloatConfigure(f *frame) bool {
 func (w *WM) shouldExitFullscreenOnSwitch(anySwitch bool) bool {
 	return anySwitch && w.fs.OwnsGeometry()
 }
+
+// --- Option B: the unified focusState (B1-B3) ---
+//
+// focusState owns the "exactly one of {tile, float, fullscreen} holds
+// keyboard focus" invariant as a single enum value, replacing the coupled
+// trio (WM.focused + WM.focusedFloat + the fullscreen-owns-focus
+// convention) that RC-7 and RC-13 broke by clearing the wrong field.
+//
+// During the migration (B2-B10) focusState SHADOWS the old fields: every
+// mutator updates both the new target and the old focused/focusedFloat so
+// the two never disagree, and Current() reads the old fields (the source
+// of truth until B10 deletes them). After B10, target becomes the sole
+// source of truth and the old fields are gone.
+
+type focusState struct {
+	wm *WM
+	// target is the single source of truth for "what has the keyboard"
+	// once B10 lands. During the shadow phase it mirrors the old fields.
+	target focusTarget
+	// preservedTile is the tiled leaf to restore when a float/fullscreen
+	// closes — the explicit form of the implicit "w.focused stays set"
+	// convention that RC-13 had to re-establish by hand.
+	preservedTile wmcore.NodeID
+}
+
+type focusTarget struct {
+	kind   focusKind
+	leaf   wmcore.NodeID // set when kind == focusTile (or the tile under a fullscreen float)
+	client xproto.Window // set when kind == focusFloat or focusFullscreen (the float's client)
+}
+
+type focusKind uint8
+
+const (
+	focusKindNone focusKind = iota
+	focusKindTile
+	focusKindFloat
+	focusKindFullscreen
+)
+
+// Current returns the active focus target. During the shadow phase it
+// derives the target from the old fields (the source of truth); after B10
+// it returns target directly.
+func (fs *focusState) Current() focusTarget {
+	w := fs.wm
+	// Fullscreen owns focus when active (coordinated with fullscreenState).
+	if f := w.fs.FocusTarget(); f != nil {
+		if f.floating {
+			return focusTarget{kind: focusKindFullscreen, client: f.client, leaf: w.focused}
+		}
+		return focusTarget{kind: focusKindFullscreen, leaf: f.leaf}
+	}
+	if w.focusedFloat != 0 {
+		return focusTarget{kind: focusKindFloat, client: w.focusedFloat, leaf: w.focused}
+	}
+	if w.focused != "" {
+		return focusTarget{kind: focusKindTile, leaf: w.focused}
+	}
+	return focusTarget{kind: focusKindNone}
+}
+
+// Focused reports whether f currently has keyboard focus (replaces
+// frameFocused). A float is focused when it holds focusedFloat; a tile
+// only counts while no float does and it isn't shadowed by fullscreen.
+func (fs *focusState) Focused(f *frame) bool {
+	if f == nil {
+		return false
+	}
+	cur := fs.Current()
+	if f.floating {
+		return (cur.kind == focusKindFloat || cur.kind == focusKindFullscreen && cur.client == f.client) &&
+			cur.client == f.client
+	}
+	return cur.kind == focusKindTile && cur.leaf == f.leaf
+}
+
+// FocusTile makes leaf the focus target, clearing any float. Updates both
+// the new target and the old w.focused/w.focusedFloat (shadow sync).
+func (fs *focusState) FocusTile(leaf wmcore.NodeID) {
+	w := fs.wm
+	fs.target = focusTarget{kind: focusKindTile, leaf: leaf}
+	fs.preservedTile = leaf
+	w.focused = leaf
+	w.focusedFloat = 0
+}
+
+// FocusFloat makes f the focus target, preserving the current tile for
+// restoration. The tile register (w.focused) stays intact so unmanageFloat
+// can restore it (RC-13's contract, now explicit).
+func (fs *focusState) FocusFloat(f *frame) {
+	w := fs.wm
+	fs.target = focusTarget{kind: focusKindFloat, client: f.client, leaf: w.focused}
+	fs.preservedTile = w.focused
+	w.focusedFloat = f.client
+}
+
+// FocusFullscreen pins focus to the fullscreen frame (tile or float),
+// preserving the underlying tile. Coordinated with fullscreenState: when
+// fullscreen is active, focus belongs to the fullscreen frame.
+func (fs *focusState) FocusFullscreen(f *frame) {
+	w := fs.wm
+	if f.floating {
+		fs.target = focusTarget{kind: focusKindFullscreen, client: f.client, leaf: w.focused}
+		fs.preservedTile = w.focused
+		w.focusedFloat = f.client
+	} else {
+		fs.target = focusTarget{kind: focusKindFullscreen, leaf: f.leaf}
+		fs.preservedTile = w.focused
+		w.focused = f.leaf
+		w.focusedFloat = 0
+	}
+}
+
+// Restore returns focus to the preserved tile, called by unmanageFloat /
+// exitFullscreen when a float or fullscreen closes.
+func (fs *focusState) Restore() {
+	w := fs.wm
+	leaf := fs.preservedTile
+	if leaf == "" {
+		leaf = w.focused
+	}
+	fs.target = focusTarget{kind: focusKindTile, leaf: leaf}
+	w.focused = leaf
+	w.focusedFloat = 0
+}

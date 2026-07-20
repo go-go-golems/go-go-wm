@@ -28,6 +28,7 @@ func floatFrame(client xproto.Window) *frame {
 func newTestWM() *WM {
 	w := &WM{}
 	w.fs.wm = w
+	w.fstate.wm = w
 	return w
 }
 
