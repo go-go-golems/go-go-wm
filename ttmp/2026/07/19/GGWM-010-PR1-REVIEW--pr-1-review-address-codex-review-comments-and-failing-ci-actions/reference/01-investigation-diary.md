@@ -184,3 +184,76 @@ The user explicitly asked for an intern-ready guide with prose, bullets, pseudoc
 - Design doc path: `ttmp/2026/07/19/GGWM-010-PR1-REVIEW--.../design-doc/01-pr-1-review-analysis-and-intern-implementation-guide.md` (48 KB, 10 parts).
 - reMarkable remote: `/ai/2026/07/19/GGWM-010-PR1-REVIEW/GGWM-010 PR #1 Review — Analysis & Intern Guide.pdf`.
 - Commit (doc + bookkeeping): `0bac078`.
+
+## Step 3: Implemented the phased plan — all failing CI checks now pass locally
+
+With the analysis and guide complete, the user said "go ahead", so I implemented
+the fixes in the four phases from the guide. Each phase was committed separately
+and verified before moving on. All five failing checks now pass locally: build
+OK, 15 test packages pass under `-race`, golangci-lint 0 issues, govulncheck 0
+vulnerabilities, gosec 0 issues.
+
+### Prompt Context
+
+**User prompt (verbatim):** "go ahead"
+
+**Assistant interpretation:** Proceed with implementing the phased plan from the design doc to fix all of PR #1's review comments and failing CI actions.
+
+**Inferred user intent:** Move from analysis to implementation: actually fix the issues, test, and commit at intervals, keeping the diary updated.
+
+### What I did
+- **Phase 1 (toolchain):** added `toolchain go1.26.5` to `go.mod`; `govulncheck` (run with `GOTOOLCHAIN=go1.26.5`) reports 0 vulnerabilities (was 9 stdlib). Commit `dcb86c7`.
+- **Phase 2 (lint):** added the missing `launcher.KindApp` case to `commandTone` (`pkg/wmx11/launcher.go`); dropped the named return on `eval` and declared `console` as a local var (`pkg/cmds/replui.go`). `golangci-lint` reports 0 issues (was 2). Commit `2b11ee3`.
+- **Phase 3 (gosec):** added `X16`/`X32` clamp helpers to `pkg/draw/ximage.go` and used them in `fullscreen.go`/`xshm.go`; made `parseHex`'s `hex()` return `uint8` (`apps.go`); added `clampByte` (`uispec.go`); `filepath.Clean` + scoped `#nosec` in `kitty_install.go`; dedicated pprof mux + `http.Server` timeouts in `wm.go`; `#nosec G404` on the deterministic demo RNG (`colors.go`). `gosec` reports 0 issues (was 20). Commit `e174f28`.
+- **Phase 4 (Codex bugs):**
+  - RC-3: extracted `snapshot()` that deep-copies `goSubs` under the lock in `pkg/jsmod/eventfan.go`; added a `-race` regression test `TestEventFanSnapshotConcurrentSubscribe`.
+  - RC-1: changed the retry condition from `strings.Contains(err, "SyntaxError")` to `Execution.Status == "parse-error"` in `pkg/cmds/replui.go` — a runtime SyntaxError has Status `"runtime-error"` and no longer triggers a re-evaluation.
+  - RC-2: added an `evalQueue` channel + single `evalWorker` goroutine to `richReplApp` so cells are evaluated in submission order.
+  - RC-4: changed `NormalizeRich(value, descriptor)` to store the exported VALUE in `Value.Raw` (not the descriptor); updated caller and test.
+  - RC-5: pinned focus to the fullscreen frame in `pkg/wmx11/manage.go` while one is active.
+  - Commit `8d9e905`.
+- Pushed the branch to `wesen/task/go-go-wm` to trigger CI.
+
+### Why
+The guide's phased plan ordered the work from lowest-risk (toolchain) to highest-value (Codex bugs), so each phase was independently verifiable and the dangerous concurrency bug (RC-3) was fixed with a regression test.
+
+### What worked
+- The `Execution.Status` field in `replsession.EvaluateResponse` cleanly distinguishes `"parse-error"` from `"runtime-error"` — discovered by reading the `go-go-goja` source, which made the RC-1 fix structural rather than a heuristic.
+- The `-race` test for RC-3 passes and would catch the original bug (deep-copy vs map-header copy).
+- The toolchain directive (`toolchain go1.26.5`) is honored by `actions/setup-go` with `go-version-file: go.mod`, so CI will pick it up automatically.
+
+### What didn't work
+- First attempt at the `nonamedreturns` fix broke the build: `console` was a named return used as a local. Fixed by declaring `var console []string`.
+- First RC-2 test draft deadlocked (double `wg.Add(1)`). Fixed the WaitGroup accounting.
+- `//nolint:gosec` annotations were ignored by gosec (that's golangci-lint syntax); switched to gosec's own `#nosec` directive, which cleared the findings.
+- The first `snapshot()` method used named returns, which re-triggered `nonamedreturns`; removed them.
+
+### What I learned
+- gosec's comment directive is `#nosec` (optionally with rule IDs like `#nosec G404`), NOT `//nolint:gosec` (which is golangci-lint's). The two linters use different suppression syntax.
+- The `toolchain` directive in `go.mod` is the cleanest way to fix stdlib vulns without forcing all contributors onto a newer language version; `GOTOOLCHAIN=auto` downloads it on demand.
+- `replsession.ExecutionReport.Status` is the authoritative signal for parse-vs-runtime failure — far more reliable than error-string sniffing.
+
+### What was tricky to build
+- RC-1 was the subtlest: the original code inspected `resp.Cell.Execution.Error` for the substring `"SyntaxError"`, but goja reports both a wrapper parse failure AND a runtime `JSON.parse("{")` throw as `SyntaxError`. The fix required discovering that the kernel sets `Status: "parse-error"` only for true parse failures (line 190 of `evaluate.go`) and `"runtime-error"` for throws (line 343) — so checking Status is structurally sound and cannot be fooled.
+- RC-4 required an API change to `NormalizeRich` (new second parameter) and updating both the caller and the test, since the descriptor and the value are genuinely two different things.
+- The eventfan deep-copy must hold the lock while copying BOTH the map keys and the slices; copying just the map header (the original bug) shares the backing store.
+
+### What warrants a second pair of eyes
+- RC-2's serialized worker adds ordering latency: a slow cell now blocks later cells. This is the correct tradeoff for a notebook (output attribution > throughput), but worth confirming the UX is acceptable.
+- RC-4 is a behavior change: any verb that depended on receiving the descriptor in `pbui.Object.Value` will now receive the actual value. Audit `pkg/jsmod/pbuimod/verbs.go` against this.
+- The Dependency Review (Topic D) failure could not be reproduced locally — it needs the failed CI job logs to identify the specific third-party package. This remains an open item (see open questions in the design doc).
+
+### What should be done in the future
+- Watch the CI run on the pushed branch: confirm `lint`, `Go Vulnerability Check`, `GoSec Security Scan` all pass, then read the `Dependency Review` job logs to resolve the last open item.
+- Re-request the Codex review (`@codex review`) and confirm the five comments are resolved.
+- Consider adding a REPL-level test for RC-1 (a side-effecting expression with a runtime SyntaxError runs exactly once) and RC-2 (two rapid submissions preserve console attribution) — these need a kernel harness, which is heavier than the unit tests added.
+
+### Code review instructions
+- Review the four phase commits in order: `dcb86c7`, `2b11ee3`, `e174f28`, `8d9e905`.
+- Validate locally: `env GOTOOLCHAIN=go1.26.5 go test ./... -race`, `golangci-lint run ./...`, `env GOTOOLCHAIN=go1.26.5 govulncheck ./...`, `gosec -exclude=G101,G304,G301,G306,G204 ./...`.
+- The key structural fix to verify is RC-1: `pkg/cmds/replui.go` now checks `Status == "parse-error"` (not error-string sniffing).
+
+### Technical details
+- Commits: `dcb86c7` (toolchain), `2b11ee3` (lint), `e174f28` (gosec), `8d9e905` (Codex bugs).
+- Verification (all with `GOTOOLCHAIN=go1.26.5`): build OK, 15 packages pass `-race`, lint 0 issues, govulncheck 0 vulns, gosec 0 issues (3 justified `#nosec`).
+- Branch pushed: `wesen/task/go-go-wm` (e9fa8be..8d9e905).

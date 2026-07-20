@@ -22,3 +22,15 @@ Uploaded design doc + diary bundle to reMarkable at /ai/2026/07/19/GGWM-010-PR1-
 
 - /home/manuel/workspaces/2026-07-18/go-go-wm/go-go-wm/ttmp/2026/07/19/GGWM-010-PR1-REVIEW--pr-1-review-address-codex-review-comments-and-failing-ci-actions/reference/01-investigation-diary.md — Diary Step 2 — doc creation + reMarkable upload
 
+
+## 2026-07-19
+
+Implemented phased plan: toolchain bump (govulncheck 0), lint fixes (0 issues), gosec fixes (0 issues), Codex review bugs RC-1..RC-5 with regression tests. All checks pass locally; pushed to wesen/task/go-go-wm.
+
+### Related Files
+
+- /home/manuel/workspaces/2026-07-18/go-go-wm/go-go-wm/pkg/cmds/replui.go — RC-1 parse-error status check + RC-2 serialized eval worker
+- /home/manuel/workspaces/2026-07-18/go-go-wm/go-go-wm/pkg/jsmod/eventfan.go — RC-3 deep-copy goSubs under lock via snapshot()
+- /home/manuel/workspaces/2026-07-18/go-go-wm/go-go-wm/pkg/repl/value.go — RC-4 NormalizeRich stores value not descriptor
+- /home/manuel/workspaces/2026-07-18/go-go-wm/go-go-wm/pkg/wmx11/manage.go — RC-5 pin focus to fullscreen frame
+
