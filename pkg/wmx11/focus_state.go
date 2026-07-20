@@ -216,12 +216,17 @@ func (w *WM) shouldExitFullscreenOnSwitch(anySwitch bool) bool {
 
 type focusState struct {
 	wm *WM
-	// target is the single source of truth for "what has the keyboard"
-	// once B10 lands. During the shadow phase it mirrors the old fields.
-	target focusTarget
+	// target is the single source of truth for "what has the keyboard".
 	// preservedTile is the tiled leaf to restore when a float/fullscreen
 	// closes — the explicit form of the implicit "w.focused stays set"
 	// convention that RC-13 had to re-establish by hand.
+	//
+	// Threading (B12): no mutex is needed. All focus mutations happen on
+	// the single WM loop goroutine (WM.Run selects between xevent.MainPing
+	// X-event handlers and the w.ops posted-function drain, both inline on
+	// that goroutine). Broker/IPC paths that spawn goroutines post back to
+	// the loop via w.Post rather than touching focusState directly.
+	target        focusTarget
 	preservedTile wmcore.NodeID
 }
 
