@@ -71,8 +71,8 @@ func (w *WM) setTheme(name string) error {
 	// the fullscreen frame is skipped by relayout (it owns its geometry)
 	// so it repaints explicitly; paintBars redraws both bars.
 	w.relayout()
-	if w.fullscreen != nil {
-		w.paintFrame(w.fullscreen)
+	if w.fs.OwnsGeometry() {
+		w.paintFrame(w.fs.Active())
 	}
 	w.paintBars()
 	w.emitEvent("theme.changed", map[string]interface{}{"theme": name})

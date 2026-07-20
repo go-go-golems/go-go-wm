@@ -150,8 +150,9 @@ type WM struct {
 	focusedFloat xproto.Window            // 0 = the tiled world holds focus
 	floatRules   []compiledFloatRule      // scripting-layer float overrides
 
-	fullscreen  *frame      // the one fullscreen window, nil = none
-	fsSavedRect wmcore.Rect // float's pre-fullscreen rect (tiles restore from the tree)
+	fullscreen  *frame          // the one fullscreen window, nil = none
+	fs          fullscreenState // read-side owner of the fullscreen invariant (Phase 1)
+	fsSavedRect wmcore.Rect     // float's pre-fullscreen rect (tiles restore from the tree)
 
 	screen wmcore.Rect // full root geometry
 	area   wmcore.Rect // screen minus bars
@@ -218,6 +219,7 @@ func New(cfg Config) (*WM, error) {
 		ctx:      ctx,
 		cancel:   cancel,
 	}
+	w.fs.wm = w // back-reference for the fullscreenState read helpers
 	return w, nil
 }
 

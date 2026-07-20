@@ -10,8 +10,38 @@ import (
 // fullscreen state machines. Extracting them makes the invariants behind
 // the Codex review fixes (RC-5/6/7/12/13) unit-testable with a bare &WM{},
 // matching the floatDecision pattern in float_test.go. Phase 1 of
-// GGWM-011-FOCUS-FS will promote these into a fullscreenState type; for
-// now they are the single source of truth the production paths consult.
+// GGWM-011-FOCUS-FS promotes the fullscreen reads into a fullscreenState
+// type; Phase 2 will move the mutators in.
+
+// fullscreenState owns the "one window covers the screen" invariant's
+// READ side. It is the single place that interprets w.fullscreen, so call
+// sites stop poking the field directly and can't re-derive the
+// fullscreen-owns-geometry/focus invariant wrong (the root cause of
+// RC-5/6/7/12). Phase 1: read methods only; the mutators still live on WM
+// (fullscreen.go) and will move here in Phase 2.
+type fullscreenState struct {
+	wm *WM
+}
+
+// Active returns the fullscreen frame, or nil if none.
+func (fs fullscreenState) Active() *frame { return fs.wm.fullscreen }
+
+// Owns reports whether f is the fullscreen frame.
+func (fs fullscreenState) Owns(f *frame) bool { return fs.wm.fullscreen == f }
+
+// OwnsGeometry reports whether fullscreen currently owns geometry (i.e. a
+// frame is fullscreen). relayout and handleConfigureRequest check this so
+// they skip/honor the fullscreen frame.
+func (fs fullscreenState) OwnsGeometry() bool { return fs.wm.fullscreen != nil }
+
+// OwnsFocus reports whether fullscreen currently owns keyboard focus.
+// focus() checks this instead of poking w.fullscreen directly.
+func (fs fullscreenState) OwnsFocus() bool { return fs.wm.fullscreen != nil }
+
+// FocusTarget returns the frame that should receive focus while fullscreen
+// is active (handles the tiled-vs-floating distinction that RC-7/13 got
+// wrong). Returns nil if not active.
+func (fs fullscreenState) FocusTarget() *frame { return fs.wm.fullscreen }
 
 // focusDecision is the outcome of deciding where keyboard focus should go
 // given the current fullscreen/focus state. It is computed without
@@ -50,7 +80,7 @@ const (
 // The returned decision tells the caller which X window to focus and
 // whether the tiled register (w.focused) should change.
 func (w *WM) computeFocusDecision(leaf wmcore.NodeID) focusDecision {
-	fs := w.fullscreen
+	fs := w.fs.FocusTarget()
 	if fs == nil {
 		return focusDecision{kind: focusTile, leaf: leaf}
 	}
@@ -73,7 +103,7 @@ func (w *WM) shouldHonorFloatConfigure(f *frame) bool {
 		return false
 	}
 	// Fullscreen owns the geometry of the fullscreen frame.
-	return w.fullscreen != f
+	return !w.fs.Owns(f)
 }
 
 // shouldExitFullscreenOnSwitch answers whether a workspace switch (or add)
@@ -83,5 +113,5 @@ func (w *WM) shouldHonorFloatConfigure(f *frame) bool {
 // RC-6). anySwitch is true when the batch contained an OpSwitchWorkspace
 // or OpAddWorkspace.
 func (w *WM) shouldExitFullscreenOnSwitch(anySwitch bool) bool {
-	return anySwitch && w.fullscreen != nil
+	return anySwitch && w.fs.OwnsGeometry()
 }

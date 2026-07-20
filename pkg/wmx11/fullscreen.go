@@ -19,7 +19,7 @@ import (
 // toggleFullscreen flips the focused window (tile or float); returns
 // the resulting state.
 func (w *WM) toggleFullscreen() (bool, error) {
-	if w.fullscreen != nil {
+	if w.fs.OwnsGeometry() {
 		w.exitFullscreen()
 		return false, nil
 	}
@@ -58,7 +58,7 @@ func (w *WM) enterFullscreen(f *frame) {
 }
 
 func (w *WM) exitFullscreen() {
-	f := w.fullscreen
+	f := w.fs.Active()
 	if f == nil {
 		return
 	}
@@ -82,7 +82,7 @@ func (w *WM) exitFullscreen() {
 // clearFullscreenFor drops fullscreen state when its window goes away
 // (unmanage paths) — state only, the window is being destroyed.
 func (w *WM) clearFullscreenFor(f *frame) {
-	if w.fullscreen == f {
+	if w.fs.Owns(f) {
 		w.fullscreen = nil
 	}
 }

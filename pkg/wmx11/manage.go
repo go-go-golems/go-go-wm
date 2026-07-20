@@ -327,7 +327,7 @@ func (w *WM) relayoutPaint(paintAll bool) {
 		}
 		visible[id] = true
 		f := w.frames[id]
-		if f == nil || f == w.fullscreen {
+		if f == nil || w.fs.Owns(f) {
 			continue // fullscreen owns its geometry until it exits
 		}
 		r := item.Rect

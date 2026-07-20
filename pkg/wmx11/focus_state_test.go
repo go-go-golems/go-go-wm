@@ -22,15 +22,23 @@ func floatFrame(client xproto.Window) *frame {
 	return &frame{floating: true, client: client}
 }
 
+// newTestWM builds a bare WM with the fullscreenState back-reference wired
+// (the production constructor does this; tests construct &WM{} directly so
+// they must set it for the fs helpers to dereference).
+func newTestWM() *WM {
+	w := &WM{}
+	w.fs.wm = w
+	return w
+}
+
 // RC-5: while a tiled frame is fullscreen, navigation (Mod4-space) must
 // pin focus to the fullscreen frame's leaf, NOT the hidden tiled client
 // underneath. The user keeps seeing the fullscreen window; keystrokes
 // must not leak to the client beneath it.
 func TestRC5_FocusPinsToFullscreenTile(t *testing.T) {
-	w := &WM{
-		frames:     map[wmcore.NodeID]*frame{"l1": tileFrame("l1", 100)},
-		fullscreen: tileFrame("l1", 100), // a tiled frame is fullscreen
-	}
+	w := newTestWM()
+	w.frames = map[wmcore.NodeID]*frame{"l1": tileFrame("l1", 100)}
+	w.fullscreen = tileFrame("l1", 100) // a tiled frame is fullscreen
 	// Navigation asks to focus l2 (a hidden tile under the fullscreen).
 	dec := w.computeFocusDecision("l2")
 	if dec.kind != focusFullscreenTile {
@@ -45,7 +53,8 @@ func TestRC5_FocusPinsToFullscreenTile(t *testing.T) {
 // to the float's client (tracked via focusedFloat), not be lost by setting
 // leaf to "". The float must remain targetable by close/float/fullscreen.
 func TestRC7_FocusPinsToFullscreenFloat(t *testing.T) {
-	w := &WM{fullscreen: floatFrame(200)}
+	w := newTestWM()
+	w.fullscreen = floatFrame(200)
 	dec := w.computeFocusDecision("l1")
 	if dec.kind != focusFullscreenFloat {
 		t.Fatalf("RC-7: want focusFullscreenFloat, got %v", dec.kind)
@@ -62,10 +71,9 @@ func TestRC7_FocusPinsToFullscreenFloat(t *testing.T) {
 // the decision does NOT carry a "clear the tile" instruction — the
 // preserved tile is whatever w.focused already is.
 func TestRC13_TiledLeafPreservedUnderFullscreenFloat(t *testing.T) {
-	w := &WM{
-		focused:    "l3", // the tile the user was on
-		fullscreen: floatFrame(200),
-	}
+	w := newTestWM()
+	w.focused = "l3" // the tile the user was on
+	w.fullscreen = floatFrame(200)
 	dec := w.computeFocusDecision("l9")
 	if dec.kind != focusFullscreenFloat {
 		t.Fatalf("RC-13: want focusFullscreenFloat, got %v", dec.kind)
@@ -90,7 +98,8 @@ func TestRC13_TiledLeafPreservedUnderFullscreenFloat(t *testing.T) {
 // stays set (fullscreen-locked but visibly not fullscreen).
 func TestRC12_FloatConfigureIgnoredWhileFullscreen(t *testing.T) {
 	fs := floatFrame(300)
-	w := &WM{fullscreen: fs}
+	w := newTestWM()
+	w.fullscreen = fs
 	if w.shouldHonorFloatConfigure(fs) {
 		t.Fatal("RC-12: configure must be ignored for the fullscreen float")
 	}
@@ -118,7 +127,8 @@ func TestRC12_FloatConfigureIgnoredWhileFullscreen(t *testing.T) {
 // and leaving w.fullscreen set strands focus on it. Fullscreen is
 // workspace-local.
 func TestRC6_SwitchExitsFullscreen(t *testing.T) {
-	w := &WM{fullscreen: tileFrame("l1", 100)}
+	w := newTestWM()
+	w.fullscreen = tileFrame("l1", 100)
 	if !w.shouldExitFullscreenOnSwitch(true) {
 		t.Fatal("RC-6: a switch while fullscreen must exit fullscreen")
 	}
@@ -139,7 +149,7 @@ func TestRC6_SwitchExitsFullscreen(t *testing.T) {
 // tiled leaf (the common path). This guards against the refactor
 // accidentally always pinning.
 func TestFocusDecisionNoFullscreen(t *testing.T) {
-	w := &WM{}
+	w := newTestWM()
 	dec := w.computeFocusDecision("l7")
 	if dec.kind != focusTile || dec.leaf != "l7" {
 		t.Fatalf("no-fullscreen: want focusTile/l7, got %v/%q", dec.kind, dec.leaf)
