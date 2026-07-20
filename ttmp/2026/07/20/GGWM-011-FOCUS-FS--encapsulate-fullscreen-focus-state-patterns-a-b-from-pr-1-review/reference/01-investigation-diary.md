@@ -144,3 +144,59 @@ The decision-helper extraction (Phase 0) is the lowest-risk way to bridge the te
 - Phase 1 commit: `2e16ddd`.
 - Verification: build OK, 15+ packages pass `-race`, lint 0 issues, gosec 0 issues (3 justified `#nosec`).
 - Tasks checked: `x3yh` (Phase 0), `cet6` (Phase 1).
+
+## Step 3: Implemented Phase 2 (move mutators) + Phase 3 (simplify focus)
+
+The user asked for Phase 2 + Phase 3. Phase 2 moves the fullscreen
+mutators into fullscreenState; Phase 3 simplifies focus() to lean on the
+fullscreenState API as the single source of the tiled-vs-floating
+distinction.
+
+### Prompt Context
+
+**User prompt (verbatim):** "phase 2 + 3"
+
+**Assistant interpretation:** Implement Phase 2 (move enter/exit/clear/toggle into fullscreenState methods, WM methods become thin delegates) and Phase 3 (simplify focus() to consult fullscreenState.FocusTarget rather than re-deriving the floating distinction inline).
+
+**Inferred user intent:** Continue the encapsulation: fullscreenState should own the writes too, and focus() should stop re-deriving the fullscreen branch.
+
+### What I did
+- **Phase 2 (commit `6cf2884`):** moved the bodies of `enterFullscreen`/`exitFullscreen`/`clearFullscreenFor`/`toggleFullscreen` from `fullscreen.go` into `fullscreenState` methods (`Enter`/`Exit`/`Clear`/`Toggle`) in `focus_state.go`. The WM methods became thin delegates (`w.toggleFullscreen()` → `w.fs.Toggle()`, etc.). Removed the now-unused `enterFullscreen` delegate (it was only called by `toggleFullscreen`, which now calls `fs.Enter` directly — no dead code). The `w.fullscreen` field stays as the backing store; only call sites changed. Checked off task `cn83`.
+- **Phase 3 (commit `c80e5fe`):** simplified `focus()` to consult `computeFocusDecision` (which leans on `fullscreenState.FocusTarget`) as the single source of truth. Collapsed the 4-case `switch` (with two unreachable cases) into two clean `if` branches: `focusFullscreenFloat` (early return, preserves the tiled leaf — RC-7/13) and `focusFullscreenTile` (pins the leaf — RC-5). The floating-vs-tiled distinction now lives in one place. Checked off task `evg2`.
+
+### Why
+Phase 2 makes fullscreenState own both reads and writes, so no call site can poke `w.fullscreen` directly — the invariant can't be re-derived wrong (the root cause of RC-5/6/7/12). Phase 3 removes the duplicated floating-distinction logic from `focus()`; the decision is now in one tested function.
+
+### What worked
+- The back-pointer (`fs.wm`) gave the mutators clean access to all WM internals (frames, screen, menu, X, paintFrame, relayout, emitEvent) without changing call sites.
+- The Phase 0 tests passed unchanged after both phases — behavior preserved.
+- Removing the unreachable `focusNone`/`focusFloat` cases from the switch eliminated the `exhaustive` lint concern and made the control flow clearer.
+
+### What didn't work
+- First Phase 3 attempt re-derived the floating distinction inline in `focus()` (via `fs.floating`), duplicating `computeFocusDecision` — violating the "no duplicated logic" constraint. Reverted to have `focus()` call `computeFocusDecision` (single source of truth) and collapse the switch to two `if` branches instead.
+- Phase 2 initially left `enterFullscreen` as an unused delegate (only `toggleFullscreen` called it, now via `fs.Enter`); lint flagged it. Removed it (no dead code).
+
+### What I learned
+- A value-receiver read method + pointer-receiver mutator on the same type is fine in Go (the reads don't mutate); `w.fs.Enter()` auto-takes the address of the addressable `w.fs` field.
+- "Simplify via the API" can mean two things: (a) call the API directly in the caller, or (b) keep one decision function the caller consults. The latter avoids duplicating the branch logic; the former duplicates it. The goal's "no duplicated logic" constraint picks (b).
+
+### What was tricky to build
+- Resolving the tension between the goal's two clauses: "focus() leans on the fullscreenState API directly" vs "no duplicated logic." Reading `FocusTarget` directly in `focus()` would duplicate the floating branch that `computeFocusDecision` already encodes. The resolution: `focus()` consults `computeFocusDecision` (the API), which leans on `FocusTarget` — one decision function, no duplication.
+
+### What warrants a second pair of eyes
+- `computeFocusDecision` is now used only by `focus()` and the tests. Confirm it's the right seam (vs. inlining it back into `focus()` and testing `FocusTarget` directly). Keeping it gives a display-free test target, which is why it stays.
+- The mutator delegates (`toggleFullscreen`/`exitFullscreen`/`clearFullscreenFor`) are kept for call-site ergonomics (`w.toggleFullscreen()` reads better than `w.fs.Toggle()`). Confirm this is preferred over migrating all callers to `w.fs.*`.
+
+### What should be done in the future
+- Phase 4 (Option B): introduce the unified `focusState` (tasks B1-B13) to encapsulate the focus trio.
+- Consider migrating the remaining `w.fullscreen` *writes* (in `Enter`/`Exit`/`Clear`) behind a private setter so even fullscreenState's own methods go through one write path.
+
+### Code review instructions
+- Review commits `6cf2884` (Phase 2) and `c80e5fe` (Phase 3).
+- Validate: `env GOTOOLCHAIN=go1.26.5 go test ./... -race`, `golangci-lint run ./...`, `gosec -exclude=G101,G304,G301,G306,G204 ./...`.
+- Grep: mutator bodies on fullscreenState (`grep 'func (fs \*fullscreenState)' pkg/wmx11/focus_state.go`), WM methods are one-line delegates (`grep 'func (w \*WM) .*Fullscreen' pkg/wmx11/fullscreen.go`).
+
+### Technical details
+- Phase 2 commit: `6cf2884`. Phase 3 commit: `c80e5fe`.
+- Verification: build OK, all tests pass under `-race`, lint 0 issues, gosec 0 issues (3 justified `#nosec`), Phase 0 tests pass unchanged.
+- Tasks checked: `cn83` (Phase 2), `evg2` (Phase 3).

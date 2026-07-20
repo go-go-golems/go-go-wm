@@ -4,8 +4,8 @@
 
 - [x] Phase 0: add regression tests for current focus/fullscreen behavior (RC-5/6/7/12/13) <!-- t:x3yh -->
 - [x] Phase 1: extract read-only fullscreenState helpers (Option A, read side) <!-- t:cet6 -->
-- [ ] Phase 2: move fullscreen mutators into fullscreenState (Option A, write side) <!-- t:cn83 -->
-- [ ] Phase 3: simplify focus() via fullscreenState.FocusTarget <!-- t:evg2 -->
+- [x] Phase 2: move fullscreen mutators into fullscreenState (Option A, write side) <!-- t:cn83 -->
+- [x] Phase 3: simplify focus() via fullscreenState.FocusTarget <!-- t:evg2 -->
 - [ ] B1: define focusTarget/focusKind + focusState type with Current()/Focused(f) read methods (no fields wired yet; pure types in a new focus_state.go) <!-- t:hjh4 -->
 - [ ] B2: add focusState to WM struct alongside focused/focusedFloat (shadow, not replace); seed it from the old fields so Current() agrees <!-- t:qtkf -->
 - [ ] B3: implement focusState mutators FocusTile/FocusFloat/FocusFullscreen/Restore, each updating target + preservedTile atomically <!-- t:5wug -->

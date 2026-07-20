@@ -32,3 +32,13 @@ Implemented Phase 0 (regression tests for RC-5/6/7/12/13 via pure decision helpe
 - /home/manuel/workspaces/2026-07-18/go-go-wm/go-go-wm/pkg/wmx11/focus_state.go — Phase 0 decision helpers + Phase 1 fullscreenState read methods
 - /home/manuel/workspaces/2026-07-18/go-go-wm/go-go-wm/pkg/wmx11/focus_state_test.go — RC-5/6/7/12/13 regression tests
 
+
+## 2026-07-20
+
+Implemented Phase 2 (fullscreen mutators moved into fullscreenState: Toggle/Enter/Exit/Clear; WM methods are thin delegates) + Phase 3 (focus() simplified to consult computeFocusDecision/FocusTarget as single source of truth; 4-case switch collapsed to 2 if-branches). Build OK, tests pass -race, lint/gosec clean, Phase 0 tests pass unchanged. Tasks cn83 + evg2 checked.
+
+### Related Files
+
+- /home/manuel/workspaces/2026-07-18/go-go-wm/go-go-wm/pkg/wmx11/focus_state.go — Phase 2 fullscreenState mutators (Toggle/Enter/Exit/Clear)
+- /home/manuel/workspaces/2026-07-18/go-go-wm/go-go-wm/pkg/wmx11/manage.go — Phase 3 simplified focus() via computeFocusDecision
+
