@@ -84,7 +84,7 @@ func (k *replKernel) prelude(ctx context.Context) error {
 // (capturing the raw value into __pbui_hist); a parse failure falls
 // back to evaluating the source verbatim — safe, because a parse error
 // executes nothing, so the fallback is the first execution.
-func (k *replKernel) eval(ctx context.Context, n int, input string) (console []string, errText, result string, val *repl.Value) {
+func (k *replKernel) eval(ctx context.Context, n int, input string) ([]string, string, string, *repl.Value) {
 	trimmed := strings.TrimRight(strings.TrimSpace(input), "; \t\n")
 	wrapped := fmt.Sprintf("globalThis.__pbui_hist[%d] = globalThis.__pbui_hist.last = (\n%s\n);", n, trimmed)
 
@@ -101,6 +101,7 @@ func (k *replKernel) eval(ctx context.Context, n int, input string) (console []s
 		return nil, "kernel returned no cell", "", nil
 	}
 	exec := resp.Cell.Execution
+	var console []string
 	for _, ev := range exec.Console {
 		console = append(console, "["+ev.Kind+"] "+ev.Message)
 	}

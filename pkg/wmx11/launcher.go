@@ -214,6 +214,8 @@ func (w *WM) launcherPanel() draw.LauncherPanel {
 // trick: hash the ID into the palette).
 func commandTone(c launcher.Command) color.RGBA {
 	switch c.Kind {
+	case launcher.KindApp:
+		return draw.AppColor(leafColor(wmcore.NodeID(c.ID)))
 	case launcher.KindBuiltin:
 		return apps.BuiltinColor(builtinName(c.ID))
 	case launcher.KindScript:
