@@ -257,3 +257,13 @@ The guide's phased plan ordered the work from lowest-risk (toolchain) to highest
 - Commits: `dcb86c7` (toolchain), `2b11ee3` (lint), `e174f28` (gosec), `8d9e905` (Codex bugs).
 - Verification (all with `GOTOOLCHAIN=go1.26.5`): build OK, 15 packages pass `-race`, lint 0 issues, govulncheck 0 vulns, gosec 0 issues (3 justified `#nosec`).
 - Branch pushed: `wesen/task/go-go-wm` (e9fa8be..8d9e905).
+
+### CI results (after push)
+
+GitHub Actions ran on the pushed branch. Of the 4 originally-failing checks:
+- ✅ **lint** (golangci-lint) — passes
+- ✅ **Go Vulnerability Check** (govulncheck) — passes
+- ✅ **GoSec Security Scan** (gosec) — passes
+- ⚠️ **Dependency Review** — still fails, but NOT a code problem.
+
+The Dependency Review job logs show: `Dependency review is not supported on this repository. Please ensure that Dependency graph is enabled, see https://github.com/go-go-golems/go-go-wm/settings/security_analysis`. This is a **repository settings issue**: the repo's "Dependency graph" feature (Settings → Code security → Dependency graph) is not enabled, so the `dependency-review-action` cannot run. It requires a repo admin to toggle that setting — it cannot be fixed by code changes. This resolves the open question in the design doc (Part 6.2 / 9.3): the failure was never about a specific vulnerable third-party package; it was the missing repository feature.

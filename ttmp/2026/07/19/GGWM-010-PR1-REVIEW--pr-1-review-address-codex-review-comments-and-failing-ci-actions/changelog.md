@@ -34,3 +34,8 @@ Implemented phased plan: toolchain bump (govulncheck 0), lint fixes (0 issues), 
 - /home/manuel/workspaces/2026-07-18/go-go-wm/go-go-wm/pkg/repl/value.go — RC-4 NormalizeRich stores value not descriptor
 - /home/manuel/workspaces/2026-07-18/go-go-wm/go-go-wm/pkg/wmx11/manage.go — RC-5 pin focus to fullscreen frame
 
+
+## 2026-07-19
+
+CI verified: lint/govulncheck/gosec all pass on pushed branch. Dependency Review fails due to repo's Dependency graph feature being disabled (settings issue, not code). Updated design doc + diary with confirmed root cause.
+

@@ -991,28 +991,11 @@ have known high/critical vulnerabilities or disallowed licenses. The PR adds
 a large dependency tree (goja, glazed, go-go-goja, xgb, xgbutil, zerolog,
 cobra, charmbracelet stack, etc.).
 
-**Root cause.** Either (a) one of the newly added dependencies has a known
-high-severity advisory, or (b) the action cannot evaluate a dependency
-(github.com/... pseudo-versions like `go-go-goja v0.10.6-0.20260718...`).
+**Root cause (confirmed via CI job logs).** The `dependency-review-action` requires the repository's "Dependency graph" feature to be enabled (Settings → Code security → Dependency graph). On this repository that feature is **not enabled**, so the action fails immediately with: `Dependency review is not supported on this repository. Please ensure that Dependency graph is enabled` (see https://github.com/go-go-golems/go-go-wm/settings/security_analysis). This was confirmed after the fixes were pushed: the govulncheck and gosec jobs in the same workflow pass, and only the Dependency Review job fails, with this settings-level message.
 
-**How to diagnose.** The dependency-review-action output (in the failed CI
-run) lists the specific offending packages. Since the GitHub API was
-returning 503s during investigation, the exact list could not be fetched
-remotely; the intern should open the failed "Dependency Review" job logs on
-GitHub Actions and read the table. Common causes:
+**Fix.** This is **not a code problem**. A repository admin must enable the Dependency graph at https://github.com/go-go-golems/go-go-wm/settings/security_analysis. No code change will make this check pass. Once enabled, the action will evaluate the PR's new dependencies for known vulnerabilities and licenses.
 
-- A transitive dependency with an open GHSA advisory.
-- A dependency pinned to a commit (`v0.0.0-2025...`) that the action cannot
-  map to a release for license/advisory lookup.
-
-**Fix.** Once the offending package is identified:
-- If it has an advisory, bump to a fixed version (`go get -u <pkg>`).
-- If it is a pseudo-version lookup failure, ensure the module is tagged or
-  add it to the dependency-review `allow-licenses` / config as appropriate.
-
-**Note.** Bumping the Go toolchain (6.1) does **not** fix the
-dependency-review failure — that is about *third-party* deps, not stdlib. The
-two are independent and both must be addressed.
+**Note.** Bumping the Go toolchain (6.1) does **not** affect this check — it is about *third-party* deps and a repository feature flag, not stdlib. The govulncheck and gosec failures (Topics D and C) are now fixed by code; only this Dependency Review check remains, pending the repo setting.
 
 ---
 
@@ -1148,9 +1131,7 @@ DISPLAY=:1 xprop -id $(xdotool getwindowfocus) | grep WM_NAME
 - Does `replapi` expose a parse-only check for RC-1? If not, is adding one to
   `go-go-goja` in scope, or should we use a heuristic on the error position?
   (Check `pkg/jsmod` and the `go-go-goja` `replapi` package.)
-- What exactly does the Dependency Review action flag? The GitHub API was
-  returning 503s during investigation; the intern must read the failed job
-  logs to get the specific package list.
+- What exactly does the Dependency Review action flag? **Resolved** (post-implementation): the failure is NOT a vulnerable package — it is the repository's "Dependency graph" feature being disabled. A repo admin must enable it at https://github.com/go-go-golems/go-go-wm/settings/security_analysis. See Part 6.2.
 - Should the pprof server bind to localhost only (`127.0.0.1:6060`) rather
   than the env-var address? The env var currently allows any address; for a
   dev-only profiler, defaulting to localhost is safer.
