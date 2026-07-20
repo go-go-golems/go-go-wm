@@ -505,14 +505,12 @@ func copyImage(dst *image.RGBA, src *image.RGBA, x, y int) {
 // keybindings die — focus the frame window instead.
 func (w *WM) focus(leaf wmcore.NodeID) {
 	// Decide where focus actually goes given the fullscreen state (RC-5/7/13).
-	// The decision is display-free and unit-tested in focus_state_test.go.
+	// The decision is the single source of truth for the tiled-vs-floating
+	// distinction (Phase 3 of GGWM-011): focus() no longer re-derives it
+	// inline, it consults computeFocusDecision, which leans on
+	// fullscreenState.FocusTarget. Display-free and unit-tested.
 	dec := w.computeFocusDecision(leaf)
-	switch dec.kind {
-	case focusNone, focusFloat:
-		// computeFocusDecision never returns these (no fullscreen →
-		// focusTile; fullscreen → a fullscreen* kind). No-op: fall
-		// through to the tiled path below with the requested leaf.
-	case focusFullscreenFloat:
+	if dec.kind == focusFullscreenFloat {
 		// A floating fullscreen frame has an empty leaf (floats are not
 		// tree leaves). Keep it tracked through focusedFloat, and PRESERVE
 		// w.focused (the tiled leaf beneath) so unmanageFloat can restore
@@ -526,11 +524,10 @@ func (w *WM) focus(leaf wmcore.NodeID) {
 			w.paintFrame(pf)
 		}
 		return
-	case focusFullscreenTile:
+	}
+	if dec.kind == focusFullscreenTile {
 		// Tiled fullscreen: pin to the fullscreen frame's leaf (RC-5).
 		leaf = dec.leaf
-	case focusTile:
-		// Common path: focus the requested tiled leaf.
 	}
 	prev := w.focused
 	w.focused = leaf
