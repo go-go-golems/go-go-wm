@@ -68,28 +68,29 @@ func TestRC7_FocusPinsToFullscreenFloat(t *testing.T) {
 // RC-13: when focus pins to a fullscreen float, the tiled leaf beneath
 // must be PRESERVED (not cleared) so unmanageFloat can restore it after
 // the fullscreen dialog closes. computeFocusDecision returns the float
-// target; the caller (focus) keeps w.focused intact. This test asserts
-// the decision does NOT carry a "clear the tile" instruction — the
-// preserved tile is whatever w.focused already is.
+// target; the caller (focus) keeps the preserved tile intact via
+// focusState. This test asserts the decision does NOT carry a
+// "clear the tile" instruction — the preserved tile is whatever
+// focusState.preservedTile already holds.
 func TestRC13_TiledLeafPreservedUnderFullscreenFloat(t *testing.T) {
 	w := newTestWM()
-	w.focused = "l3" // the tile the user was on
+	w.fstate.SetTile("l3") // the tile the user was on
 	w.fullscreen = floatFrame(200)
 	dec := w.computeFocusDecision("l9")
 	if dec.kind != focusFullscreenFloat {
 		t.Fatalf("RC-13: want focusFullscreenFloat, got %v", dec.kind)
 	}
-	// The decision must not change the tile register: w.focused stays "l3".
-	// (focus() implements this by not assigning to w.focused in this branch.)
-	// We assert the contract: the decision targets the float, and the
-	// caller is responsible for leaving w.focused alone. Verify the
-	// decision carries no tile-clearing leaf.
+	// The decision must not change the tile register: the preserved tile
+	// stays "l3". (focus() implements this by not assigning to the tile
+	// in this branch.) We assert the contract: the decision targets the
+	// float, and the caller is responsible for leaving the tile alone.
+	// Verify the decision carries no tile-clearing leaf.
 	if dec.leaf != "" {
 		t.Fatalf("RC-13: fullscreen-float decision must not set a leaf (would clobber the preserved tile), got %q", dec.leaf)
 	}
-	// And the preserved tile is still readable on the WM.
-	if w.focused != "l3" {
-		t.Fatalf("RC-13: preserved tile must stay l3, got %q", w.focused)
+	// And the preserved tile is still readable via focusState.
+	if w.fstate.FocusedLeaf() != "l3" {
+		t.Fatalf("RC-13: preserved tile must stay l3, got %q", w.fstate.FocusedLeaf())
 	}
 }
 

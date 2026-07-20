@@ -144,12 +144,10 @@ type WM struct {
 	frames   map[wmcore.NodeID]*frame // leaf id → frame
 	byClient map[xproto.Window]*frame // client window → frame
 	byFrame  map[xproto.Window]*frame // frame window → frame
-	focused  wmcore.NodeID            // [shadowed by fstate; B10 deletes]
-	fstate   focusState               // unified focus owner (Option B; shadows focused/focusedFloat)
+	fstate   focusState               // unified focus owner (Option B; single source of truth)
 
-	floats       map[xproto.Window]*frame // client → floating frame (GGWM-007)
-	focusedFloat xproto.Window            // 0 = the tiled world holds focus [shadowed by focus; B10 deletes]
-	floatRules   []compiledFloatRule      // scripting-layer float overrides
+	floats     map[xproto.Window]*frame // client → floating frame (GGWM-007)
+	floatRules []compiledFloatRule      // scripting-layer float overrides
 
 	fullscreen  *frame          // the one fullscreen window, nil = none
 	fs          fullscreenState // read-side owner of the fullscreen invariant (Phase 1)
@@ -437,7 +435,7 @@ func (w *WM) refocusCurrent() {
 	// A workspace switch can leave focusedFloat pointing at a float that
 	// is now hidden; keyboard input would go to an unmapped window.
 	if pf := w.floats[w.fstate.FocusedFloat()]; pf != nil && pf.ws != w.desktop.Current {
-		w.focusedFloat = 0
+		w.fstate.ClearFloat()
 		if w.frames[w.fstate.FocusedLeaf()] != nil {
 			w.focus(w.fstate.FocusedLeaf())
 		}

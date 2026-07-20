@@ -265,7 +265,7 @@ func (w *WM) unmanageFloat(f *frame) {
 	f.dropBuffers()
 	f.win.Destroy()
 
-	if w.focusedFloat == f.client {
+	if w.fstate.FocusedFloat() == f.client {
 		// Route through focusState (Option B B6): Restore returns focus to
 		// the preserved tile, replacing the implicit w.fstate.FocusedLeaf() convention.
 		w.fstate.Restore()
@@ -408,8 +408,8 @@ func (w *WM) liftTile(f *frame) {
 	f.ws = w.desktop.Current
 	f.rect = w.clampFloatRect(f.rect)
 	w.floats[f.client] = f
-	if w.focused == leaf {
-		w.focused = ""
+	if w.fstate.FocusedLeaf() == leaf {
+		w.fstate.ClearTile()
 	}
 
 	if ws := w.desktop.FindLeafWorkspace(leaf); ws != nil {
@@ -435,7 +435,7 @@ func (w *WM) sinkFloat(f *frame) error {
 		return fmt.Errorf("no leaf available for the window")
 	}
 	delete(w.floats, f.client)
-	w.focusedFloat = 0
+	w.fstate.ClearFloat()
 	f.floating = false
 	f.leaf = leafID
 	f.ws = ""

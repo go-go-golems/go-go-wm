@@ -235,8 +235,8 @@ func (w *WM) unmanage(clientWin xproto.Window) {
 		}
 	}
 	w.syncBuiltins()
-	if w.focused == f.leaf {
-		w.focused = ""
+	if w.fstate.FocusedLeaf() == f.leaf {
+		w.fstate.ClearTile()
 		if ws := w.desktop.CurrentWorkspace(); ws != nil {
 			for _, l := range ws.Root.Leaves() {
 				if _, ok := w.frames[l.ID]; ok {

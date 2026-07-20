@@ -119,7 +119,7 @@ func (b *ScriptBackend) Focus(ctx context.Context, target string) (string, error
 	var focused string
 	if lerr := b.onLoop(ctx, func() {
 		err = b.WM.focusTarget(target)
-		focused = string(b.WM.focused)
+		focused = string(b.WM.fstate.FocusedLeaf())
 	}); lerr != nil {
 		return "", lerr
 	}
@@ -131,7 +131,7 @@ func (b *ScriptBackend) Move(ctx context.Context, dir string) (string, error) {
 	var focused string
 	if lerr := b.onLoop(ctx, func() {
 		err = b.WM.moveDir(dir)
-		focused = string(b.WM.focused)
+		focused = string(b.WM.fstate.FocusedLeaf())
 	}); lerr != nil {
 		return "", lerr
 	}
@@ -214,7 +214,7 @@ func (w *WM) windowsSnapshot() []WindowInfo {
 			Instance:  f.instance,
 			Workspace: f.ws,
 			Rect:      f.rect.String(),
-			Focused:   w.focusedFloat == f.client,
+			Focused:   w.fstate.FocusedFloat() == f.client,
 			Floating:  true,
 			Leader:    uint32(f.leader),
 		})

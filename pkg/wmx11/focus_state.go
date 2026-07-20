@@ -56,8 +56,8 @@ func (fs *fullscreenState) Toggle() (bool, error) {
 		fs.Exit()
 		return false, nil
 	}
-	f := w.frames[w.focused]
-	if pf := w.floats[w.focusedFloat]; pf != nil {
+	f := w.frames[w.fstate.FocusedLeaf()]
+	if pf := w.floats[w.fstate.FocusedFloat()]; pf != nil {
 		f = pf
 	}
 	if f == nil {
@@ -256,25 +256,18 @@ func (fs *focusState) FocusedFloat() xproto.Window {
 	return 0
 }
 
-// Current returns the active focus target. During the shadow phase it
-// derives the target from the old fields (the source of truth); after B10
-// it returns target directly.
+// Current returns the active focus target. target is the single source
+// of truth (the old focused/focusedFloat fields are gone — B10).
 func (fs *focusState) Current() focusTarget {
 	w := fs.wm
 	// Fullscreen owns focus when active (coordinated with fullscreenState).
 	if f := w.fs.FocusTarget(); f != nil {
 		if f.floating {
-			return focusTarget{kind: focusKindFullscreen, client: f.client, leaf: w.focused}
+			return focusTarget{kind: focusKindFullscreen, client: f.client, leaf: fs.preservedTile}
 		}
 		return focusTarget{kind: focusKindFullscreen, leaf: f.leaf}
 	}
-	if w.focusedFloat != 0 {
-		return focusTarget{kind: focusKindFloat, client: w.focusedFloat, leaf: w.focused}
-	}
-	if w.focused != "" {
-		return focusTarget{kind: focusKindTile, leaf: w.focused}
-	}
-	return focusTarget{kind: focusKindNone}
+	return fs.target
 }
 
 // Focused reports whether f currently has keyboard focus (replaces
@@ -292,52 +285,53 @@ func (fs *focusState) Focused(f *frame) bool {
 	return cur.kind == focusKindTile && cur.leaf == f.leaf
 }
 
-// FocusTile makes leaf the focus target, clearing any float. Updates both
-// the new target and the old w.focused/w.focusedFloat (shadow sync).
+// FocusTile makes leaf the focus target, clearing any float.
 func (fs *focusState) FocusTile(leaf wmcore.NodeID) {
-	w := fs.wm
 	fs.target = focusTarget{kind: focusKindTile, leaf: leaf}
 	fs.preservedTile = leaf
-	w.focused = leaf
-	w.focusedFloat = 0
 }
 
 // FocusFloat makes f the focus target, preserving the current tile for
-// restoration. The tile register (w.focused) stays intact so unmanageFloat
-// can restore it (RC-13's contract, now explicit).
+// restoration. The tile register stays intact so unmanageFloat can restore
+// it (RC-13's contract, now explicit).
 func (fs *focusState) FocusFloat(f *frame) {
-	w := fs.wm
-	fs.target = focusTarget{kind: focusKindFloat, client: f.client, leaf: w.focused}
-	fs.preservedTile = w.focused
-	w.focusedFloat = f.client
+	fs.target = focusTarget{kind: focusKindFloat, client: f.client, leaf: fs.preservedTile}
 }
 
 // FocusFullscreen pins focus to the fullscreen frame (tile or float),
 // preserving the underlying tile. Coordinated with fullscreenState: when
 // fullscreen is active, focus belongs to the fullscreen frame.
 func (fs *focusState) FocusFullscreen(f *frame) {
-	w := fs.wm
 	if f.floating {
-		fs.target = focusTarget{kind: focusKindFullscreen, client: f.client, leaf: w.focused}
-		fs.preservedTile = w.focused
-		w.focusedFloat = f.client
+		fs.target = focusTarget{kind: focusKindFullscreen, client: f.client, leaf: fs.preservedTile}
 	} else {
 		fs.target = focusTarget{kind: focusKindFullscreen, leaf: f.leaf}
-		fs.preservedTile = w.focused
-		w.focused = f.leaf
-		w.focusedFloat = 0
 	}
 }
 
 // Restore returns focus to the preserved tile, called by unmanageFloat /
 // exitFullscreen when a float or fullscreen closes.
 func (fs *focusState) Restore() {
-	w := fs.wm
 	leaf := fs.preservedTile
-	if leaf == "" {
-		leaf = w.focused
-	}
 	fs.target = focusTarget{kind: focusKindTile, leaf: leaf}
-	w.focused = leaf
-	w.focusedFloat = 0
+}
+
+// ClearTile drops the tiled focus target (used when a focused tile becomes
+// a float, so the leaf no longer holds focus).
+func (fs *focusState) ClearTile() {
+	fs.target = focusTarget{kind: focusKindNone}
+}
+
+// ClearFloat drops the float focus target (used when a float sinks back to
+// a tile).
+func (fs *focusState) ClearFloat() {
+	fs.target = focusTarget{kind: focusKindNone}
+}
+
+// SetTile sets the focused tiled leaf directly (used by workspace swap and
+// drag-swap that assign focus without going through the full focus()
+// repaint path).
+func (fs *focusState) SetTile(leaf wmcore.NodeID) {
+	fs.target = focusTarget{kind: focusKindTile, leaf: leaf}
+	fs.preservedTile = leaf
 }

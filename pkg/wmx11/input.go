@@ -102,7 +102,7 @@ func (w *WM) spawnTerminal() {
 }
 
 func (w *WM) splitFocused(dir wmcore.Dir) {
-	if w.focused == "" {
+	if w.fstate.FocusedLeaf() == "" {
 		return
 	}
 	_, _ = w.Apply(wmcore.Op{Op: wmcore.OpSplitLeaf, Node: w.fstate.FocusedLeaf(), Dir: dir, App: ""})
@@ -417,9 +417,9 @@ func (w *WM) swapFrames(a, b wmcore.NodeID) {
 	}
 	switch w.fstate.FocusedLeaf() {
 	case a:
-		w.focused = b
+		w.fstate.SetTile(b)
 	case b:
-		w.focused = a
+		w.fstate.SetTile(a)
 	}
 	w.relayout()
 	w.paintBars()

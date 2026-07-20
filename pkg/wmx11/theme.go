@@ -89,7 +89,7 @@ func (w *WM) focusTarget(target string) error {
 	}
 	switch target {
 	case "left", "right", "up", "down":
-		if w.focused == "" {
+		if w.fstate.FocusedLeaf() == "" {
 			return nil
 		}
 		if n := wmcore.NeighborLeaf(ws.Root, w.area, Gap, w.fstate.FocusedLeaf(), target); n != "" {
@@ -130,7 +130,7 @@ func (w *WM) moveDir(dir string) error {
 	if ws == nil {
 		return fmt.Errorf("no current workspace")
 	}
-	if w.focused == "" {
+	if w.fstate.FocusedLeaf() == "" {
 		return nil
 	}
 	switch dir {
