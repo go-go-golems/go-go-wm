@@ -510,6 +510,24 @@ func (w *WM) focus(leaf wmcore.NodeID) {
 	// while keyboard input goes to the client underneath. Pin focus to
 	// the fullscreen frame until it exits (i3 semantics).
 	if w.fullscreen != nil {
+		// A floating fullscreen frame has an empty leaf (floats are not
+		// tree leaves). Pinning via leaf would set it to "" and then the
+		// focusedFloat-clearing below would lose the float entirely, so
+		// after leaving fullscreen, close/float/fullscreen verbs would no
+		// longer target it. Keep it tracked through focusedFloat instead
+		// (Codex review RC-7).
+		if w.fullscreen.floating {
+			w.focusedFloat = w.fullscreen.client
+			w.focused = ""
+			if w.fullscreen.client != 0 {
+				xwindow.New(w.X, w.fullscreen.client).Focus()
+				_ = ewmh.ActiveWindowSet(w.X, w.fullscreen.client)
+			}
+			if pf := w.frames[w.focused]; pf != nil && pf.leaf != "" {
+				w.paintFrame(pf)
+			}
+			return
+		}
 		leaf = w.fullscreen.leaf
 	}
 	prev := w.focused

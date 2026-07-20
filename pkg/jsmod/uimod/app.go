@@ -33,9 +33,9 @@ type jsAppState struct {
 
 	services runtimebridge.RuntimeServices
 
-	mu     sync.Mutex
-	rows   uispec.Spec
-	redraw func() // posts a repaint to the render side; may be nil early
+	mu      sync.Mutex
+	rows    uispec.Spec
+	redraws map[string]func() // per-surface repaint hooks (xapp window, tile, ...) — RC-10
 
 	shown bool
 	tiled bool
@@ -162,7 +162,7 @@ func (m *Module) jsApp(vm *goja.Runtime) func(goja.FunctionCall) goja.Value {
 			a.tiled = true
 			host := m.opts.TileHost
 			name := a.name
-			a.setRedraw(func() { host.RepaintTile(name) })
+			a.setRedraw("tile", func() { host.RepaintTile(name) })
 			return vm.ToValue(tileApp)
 		})
 		mustSet(handle, "refresh", func(goja.FunctionCall) goja.Value {
@@ -193,17 +193,26 @@ func (a *jsAppState) rerenderOnLoop(vm *goja.Runtime) error {
 	return nil
 }
 
-func (a *jsAppState) setRedraw(fn func()) {
+func (a *jsAppState) setRedraw(key string, fn func()) {
 	a.mu.Lock()
-	a.redraw = fn
+	if a.redraws == nil {
+		a.redraws = map[string]func(){}
+	}
+	a.redraws[key] = fn
 	a.mu.Unlock()
 }
 
 func (a *jsAppState) postRedraw() {
 	a.mu.Lock()
-	fn := a.redraw
+	hooks := make([]func(), 0, len(a.redraws))
+	for _, fn := range a.redraws {
+		hooks = append(hooks, fn)
+	}
 	a.mu.Unlock()
-	if fn != nil {
+	// Invoke every live surface's repaint, not just the last-registered
+	// one: a ui.app exposed through both show() and tile() must repaint
+	// both surfaces (Codex review RC-10).
+	for _, fn := range hooks {
 		fn()
 	}
 }
@@ -273,7 +282,7 @@ func (x *jsXApp) Render(w, h int, accepting []string) (*image.RGBA, []apps.Regio
 
 // Started hands the app its redraw hook (design: Starter extension).
 func (x *jsXApp) Started(ctx xapp.Ctx) {
-	x.a.setRedraw(func() { ctx.Post(ctx.Redraw) })
+	x.a.setRedraw("xapp", func() { ctx.Post(ctx.Redraw) })
 }
 
 func (x *jsXApp) HandleAction(_ xapp.Ctx, action string) {

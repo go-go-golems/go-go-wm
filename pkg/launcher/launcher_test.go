@@ -232,7 +232,8 @@ func TestFrecencyPersistence(t *testing.T) {
 	r := New(WithDataDirs(fixtureDir(t)), WithStatePath(path),
 		WithNow(func() time.Time { return clock }))
 	r.Refresh()
-	r.Bump("app:htop") // first bump always writes (lastSave is zero)
+	r.Bump("app:htop") // schedules a debounced write
+	r.Flush()          // force the trailing write before checking the file
 	if _, err := os.Stat(path); err != nil {
 		t.Fatalf("state file not written: %v", err)
 	}
@@ -241,5 +242,41 @@ func TestFrecencyPersistence(t *testing.T) {
 	r2.Refresh()
 	if all := r2.All(); all[0].ID != "app:htop" {
 		t.Fatalf("persisted frecency must survive reload, got %s", all[0].ID)
+	}
+}
+
+// TestFrecencyBurstFlushedOnShutdown is the regression test for Codex review
+// RC-9: before the fix, bump() within 5s of a prior save dropped the trailing
+// write entirely (it only checked "5s since lastSave" and returned), so a
+// burst of launches right before shutdown lost all its counts. Now bump()
+// (re)arms a resettable timer and Flush() forces the write, so a burst is
+// always persisted.
+func TestFrecencyBurstFlushedOnShutdown(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "state", "launcher.json")
+	clock := time.Date(2026, 7, 19, 12, 0, 0, 0, time.UTC)
+	r := New(WithDataDirs(fixtureDir(t)), WithStatePath(path),
+		WithNow(func() time.Time { return clock }))
+	r.Refresh()
+	// A burst: several bumps within the debounce window. With the old
+	// "5s since lastSave" logic only the first would write; here the
+	// trailing write is deferred and only lands on Flush.
+	r.Bump("app:htop")
+	r.Bump("app:htop")
+	r.Bump("app:htop")
+	// No file yet (write is debounced, not immediate).
+	if _, err := os.Stat(path); err == nil {
+		t.Fatalf("state file should not exist before Flush")
+	}
+	// Flush at shutdown: the full burst (count 3) must persist.
+	r.Flush()
+	if _, err := os.Stat(path); err != nil {
+		t.Fatalf("state file not written after Flush: %v", err)
+	}
+	r2 := New(WithDataDirs(fixtureDir(t)), WithStatePath(path),
+		WithNow(func() time.Time { return clock }))
+	r2.Refresh()
+	all := r2.All()
+	if all[0].ID != "app:htop" {
+		t.Fatalf("burst must persist and order htop first, got %s", all[0].ID)
 	}
 }

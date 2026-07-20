@@ -44,10 +44,12 @@ func defaultStatePath() string {
 	return filepath.Join(state, "go-go-wm", "launcher.json")
 }
 
-// scanDesktopDirs re-parses every dir whose mtime changed; returns the
-// full app list, the new mtime map, and whether anything changed.
-// Later dirs never shadow earlier ones (XDG precedence: first wins by
-// desktop-file id).
+// scanDesktopDirs re-parses every dir whose mtime changed OR any .desktop
+// file whose own mtime changed (editing a file's contents does not bump the
+// parent directory's mtime on most filesystems — Codex review RC-8). Returns
+// the full app list, the new path→mtime map (dir mtimes + per-file mtimes),
+// and whether anything changed. Later dirs never shadow earlier ones (XDG
+// precedence: first wins by desktop-file id).
 func scanDesktopDirs(dirs []string, prev map[string]time.Time) ([]Command, map[string]time.Time, bool) {
 	scanned := make(map[string]time.Time, len(dirs))
 	changed := false
@@ -63,6 +65,30 @@ func scanDesktopDirs(dirs []string, prev map[string]time.Time) ([]Command, map[s
 		scanned[d] = st.ModTime()
 		if prev[d] != st.ModTime() {
 			changed = true
+		}
+	}
+	// Even when no directory mtime changed, a single .desktop file may have
+	// been edited in place. Stat each candidate file and record its mtime so
+	// a content edit invalidates the cache (the dir mtime alone is stable).
+	for _, d := range dirs {
+		entries, err := os.ReadDir(d)
+		if err != nil {
+			continue
+		}
+		for _, e := range entries {
+			if e.IsDir() || !strings.HasSuffix(e.Name(), ".desktop") {
+				continue
+			}
+			p := filepath.Join(d, e.Name())
+			fi, err := e.Info()
+			if err != nil {
+				continue
+			}
+			mt := fi.ModTime()
+			scanned[p] = mt
+			if prev[p] != mt {
+				changed = true
+			}
 		}
 	}
 	if !changed && len(prev) == len(scanned) {

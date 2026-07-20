@@ -384,6 +384,12 @@ func (w *WM) ApplyBatch(ops []wmcore.Op) ([]wmcore.Result, error) {
 	w.updateEWMH()
 	w.paintBars()
 	if anySwitch {
+		// Mirror afterOp: a workspace switch must exit fullscreen (the
+		// old fullscreen frame is unmapped by relayout, so leaving
+		// w.fullscreen set strands focus on it — refocusCurrent would
+		// pin focus back to the old leaf, leaving the new workspace
+		// without usable keyboard input) (Codex review RC-6).
+		w.exitFullscreen()
 		w.refocusCurrent()
 	}
 	return results, err
@@ -449,4 +455,12 @@ func (w *WM) emitEvent(event string, data map[string]interface{}) {
 }
 
 // Shutdown stops the WM loop.
-func (w *WM) Shutdown() { w.cancel(); xevent.Quit(w.X) }
+func (w *WM) Shutdown() {
+	// Persist any pending frecency state so a burst of launches right
+	// before quit is not lost (Codex review RC-9).
+	if w.registry != nil {
+		w.registry.Flush()
+	}
+	w.cancel()
+	xevent.Quit(w.X)
+}

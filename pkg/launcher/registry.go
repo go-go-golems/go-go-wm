@@ -183,3 +183,13 @@ func (r *Registry) Bump(id string) {
 	defer r.mu.Unlock()
 	r.frec.bump(id, r.now())
 }
+
+// Flush persists any pending frecency state immediately and cancels the
+// trailing debounced write. Call at shutdown so a burst of launches that
+// never reached the 5s deadline is not lost (Codex review RC-9).
+func (r *Registry) Flush() {
+	r.mu.Lock()
+	frec := r.frec
+	r.mu.Unlock()
+	frec.Flush()
+}
