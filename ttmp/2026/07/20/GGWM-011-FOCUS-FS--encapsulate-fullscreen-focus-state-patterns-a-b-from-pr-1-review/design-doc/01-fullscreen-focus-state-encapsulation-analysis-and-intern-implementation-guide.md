@@ -493,18 +493,47 @@ Commit: `refactor(wmx11): simplify focus() via fullscreenState.FocusTarget`.
 
 Replace the `focused` + `focusedFloat` fields with a single `focusState`.
 Migrate all read sites (`w.focused` → `w.focus.Current().leaf`, etc.).
-This is the largest phase; do it in sub-commits per file. Verify after
-each.
+This is the largest phase; it is broken into the B1–B13 task sequence in
+`tasks.md` (shadow the old fields first, route the mutators, migrate
+read sites per file, then delete the old fields). Do it in sub-commits
+per file. Verify after each.
 
-Commit: `refactor(wmx11): unify focus state into focusState`.
+The task breakdown (see `tasks.md`):
 
-### Phase 5 — Make `frameFocused` and `unmanageFloat` use `focusState`
+- **B1** define `focusTarget`/`focusKind` + `focusState` read methods
+  (`Current()`, `Focused(f)`) in a new `focus_state.go` — pure types, no
+  wiring yet.
+- **B2** add `focusState` to the `WM` struct *alongside* `focused`/
+  `focusedFloat` (shadow, not replace); seed it so `Current()` agrees.
+- **B3** implement the mutators `FocusTile`/`FocusFloat`/
+  `FocusFullscreen`/`Restore`, each updating `target` + `preservedTile`
+  atomically.
+- **B4** route `focus()` (`manage.go:506`) through `focusState` — the
+  RC-5/7/13 special cases collapse into `FocusFullscreen`/`FocusTile`.
+- **B5** route `focusFloat()` (`float.go:285`) through
+  `FocusFloat`; make `preservedTile` explicit.
+- **B6** route `unmanageFloat()` restoration (`float.go:255`) through
+  `Restore()` — replaces the implicit `w.focused` convention.
+- **B7** replace `frameFocused()` (`float.go:303`) with
+  `focusState.Focused(f)`; delete the old predicate.
+- **B8** migrate `w.focused` read sites: `input.go` (7), `ipc.go` (2),
+  `launcher.go` (2), `pbui.go` (2), `theme.go` (6) → `Current()`.
+- **B9** migrate `w.focusedFloat` read sites: `float.go` (8),
+  `input.go` (1), `launcher.go` (1), `scripting.go` (1), `wm.go` (2) →
+  `Current()`.
+- **B10** delete the `focused` + `focusedFloat` fields from `WM`;
+  `focusState` is the single source of truth.
+- **B11** coordinate `focusState` with `fullscreenState` (Phases 1–3)
+  so the two can't disagree on who owns focus.
+- **B12** audit the WM threading model (the `ops` channel) — confirm
+  `focusState` needs no mutex, or add one if X-event handling isn't
+  serialized.
+- **B13** verify: `go test ./... -race`; manual X11 (fullscreen
+  tile/float + `Mod4-space` + close + workspace switch); confirm the
+  RC-5/6/7/12/13 regression tests pass.
 
-The `frameFocused` predicate and `unmanageFloat`'s restoration become
-`focusState.Focused(f)` and `focusState.Restore()`. The implicit
-"preservedTile" contract becomes explicit. Verify.
-
-Commit: `refactor(wmx11): route focus predicate + restoration through focusState`.
+Commit per sub-task; the whole is `refactor(wmx11): unify focus state
+into focusState`.
 
 ---
 
