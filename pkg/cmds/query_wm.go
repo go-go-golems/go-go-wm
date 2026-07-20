@@ -146,9 +146,11 @@ func (c *QueryWindowsCommand) RunIntoGlazeProcessor(ctx context.Context, vals *v
 			types.MRP("leaf", wi.Leaf),
 			types.MRP("client", fmt.Sprintf("0x%x", wi.Client)),
 			types.MRP("title", wi.Title),
+			types.MRP("class", wi.Class),
 			types.MRP("workspace", wi.Workspace),
 			types.MRP("rect", wi.Rect),
 			types.MRP("focused", wi.Focused),
+			types.MRP("floating", wi.Floating),
 		)); err != nil {
 			return err
 		}

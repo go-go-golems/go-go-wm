@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"github.com/jezek/xgb/xproto"
+	"github.com/jezek/xgbutil/xevent"
 	"github.com/jezek/xgbutil/xwindow"
 
 	"github.com/go-go-golems/go-go-wm/pkg/apps"
@@ -24,12 +25,18 @@ import (
 const builtinPrefix = "builtin:"
 
 func isBuiltinLeaf(app string) bool {
-	return app == "" || strings.HasPrefix(app, builtinPrefix)
+	return app == "" || app == apps.AppLauncher ||
+		strings.HasPrefix(app, builtinPrefix) || strings.HasPrefix(app, scriptPrefix)
 }
 
+// builtinName maps a leaf app to its renderer name. Script tiles keep
+// their "script:" prefix so the paint path can branch on it.
 func builtinName(app string) string {
-	if app == "" {
+	if app == "" || app == apps.AppLauncher {
 		return apps.AppLauncher
+	}
+	if strings.HasPrefix(app, scriptPrefix) {
+		return app
 	}
 	return strings.TrimPrefix(app, builtinPrefix)
 }
@@ -43,6 +50,9 @@ func (w *WM) syncBuiltins() {
 			if f.client == 0 {
 				delete(w.frames, leaf)
 				delete(w.byFrame, f.win.Id)
+				delete(w.launcherTiles, leaf)
+				xevent.Detach(w.X, f.win.Id)
+				f.dropBuffers()
 				f.win.Destroy()
 			}
 			continue
@@ -70,18 +80,26 @@ func (w *WM) openBuiltin(leafID wmcore.NodeID, name string) {
 	if err != nil {
 		return
 	}
+	// KeyPress is the L3 substrate (GGWM-008): builtin frames take input
+	// focus themselves (client == 0), so typed keys arrive here and
+	// route to the focused surface via handleFrameKey.
 	err = fw.CreateChecked(w.X.RootWin(), 0, 0, 100, 100,
 		xproto.CwBackPixel|xproto.CwEventMask,
-		uint32(pixel(draw.Pane)),
+		uint32(pixel(draw.Current().Pane)),
 		xproto.EventMaskButtonPress|
 			xproto.EventMaskButtonRelease|
 			xproto.EventMaskPointerMotion|
 			xproto.EventMaskExposure|
-			xproto.EventMaskEnterWindow)
+			xproto.EventMaskEnterWindow|
+			xproto.EventMaskKeyPress)
 	if err != nil {
 		return
 	}
-	f := &frame{leaf: leafID, client: 0, win: fw, title: apps.BuiltinTitle(name)}
+	title := apps.BuiltinTitle(name)
+	if strings.HasPrefix(name, scriptPrefix) {
+		title = strings.TrimPrefix(name, scriptPrefix) + " (js)"
+	}
+	f := &frame{leaf: leafID, client: 0, win: fw, title: title}
 	w.frames[leafID] = f
 	w.byFrame[fw.Id] = f
 	w.connectFrameEvents(fw)
@@ -116,7 +134,18 @@ func (w *WM) paintBuiltin(f *frame, img *image.RGBA) []apps.Region {
 	if w.accepting != nil {
 		accepting = w.accepting.ptypes
 	}
-	content, regions := apps.RenderBuiltin(name, cw, ch, w.world, accepting)
+	var content *image.RGBA
+	var regions []apps.Region
+	switch {
+	case strings.HasPrefix(name, scriptPrefix):
+		content, regions = w.renderScriptTile(name, cw, ch, accepting)
+	case name == apps.AppLauncher:
+		// Launcher tile v2 (GGWM-008 L3): the live registry surface,
+		// rendered WM-side because its query state lives with the WM.
+		content, regions = w.renderLauncherTile(f, cw, ch)
+	default:
+		content, regions = apps.RenderBuiltin(name, cw, ch, w.world, accepting)
+	}
 	copyImage(img, content, draw.BorderW, draw.TitleH)
 	// Shift regions into frame coordinates.
 	for i := range regions {
@@ -149,7 +178,17 @@ func (w *WM) builtinClick(f *frame, x, y, rootX, rootY, button int) {
 
 // builtinAction runs launcher buttons and listener commands.
 func (w *WM) builtinAction(f *frame, action string) {
+	// Script tiles own their whole action namespace.
+	if name := w.builtinAppOf(f); strings.HasPrefix(name, scriptPrefix) {
+		w.scriptTileAction(name, action)
+		return
+	}
 	switch {
+	case strings.HasPrefix(action, "launchcmd:"):
+		// Launcher tile row click: launch into this tile (GGWM-008 L3).
+		if cmd, ok := w.registry.Get(strings.TrimPrefix(action, "launchcmd:")); ok {
+			w.launchIntoTile(f, cmd)
+		}
 	case strings.HasPrefix(action, "launch:"):
 		name := strings.TrimPrefix(action, "launch:")
 		_, _ = w.Apply(wmcore.Op{Op: wmcore.OpSetLeafApp, Node: f.leaf, App: builtinPrefix + name})
@@ -319,6 +358,15 @@ func (w *WM) watchEvents() {
 				})
 				if typ == "listener.print" {
 					w.world.Print(parsePrintSegs(data)...)
+				}
+				// A2 daemon commands die with their broker client.
+				if typ == "client.disconnected" {
+					var d struct {
+						Name string `json:"name"`
+					}
+					if err := json.Unmarshal(data, &d); err == nil && d.Name != "" {
+						w.dropRemoteCommands(d.Name)
+					}
 				}
 				w.repaintBuiltins()
 			})

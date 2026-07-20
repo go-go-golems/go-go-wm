@@ -3,7 +3,7 @@ package wmx11
 import (
 	"context"
 	"fmt"
-	"os/exec"
+	"time"
 
 	"github.com/jezek/xgb/xproto"
 	"github.com/jezek/xgbutil"
@@ -18,12 +18,20 @@ import (
 
 // dragState tracks an in-progress pointer drag.
 type dragState struct {
-	kind    string        // "divider" | "grip"
+	kind    string        // "divider" | "grip" | "float"
 	split   wmcore.NodeID // divider drags
 	from    wmcore.NodeID // grip drags
 	over    wmcore.NodeID
 	zone    wmcore.Zone
 	snapped bool
+
+	fl         *frame // float drags: the frame being moved
+	offX, offY int    // pointer offset inside the float frame
+
+	// Divider drags repaint whole panes; X delivers motion far faster
+	// than panes can paint, so motion is coalesced to ~60Hz and the
+	// release applies the final pointer position (GGWM-005).
+	lastPaint time.Time
 }
 
 func (w *WM) setupInput() {
@@ -40,17 +48,25 @@ func (w *WM) setupInput() {
 		}
 	}
 
-	bind("Mod4-Return", w.spawnTerminal)
-	bind("Mod4-d", func() { w.splitFocused(wmcore.Row) })
-	bind("Mod4-s", func() { w.splitFocused(wmcore.Col) })
-	bind("Mod4-w", w.closeFocused)
-	bind("Mod4-space", w.focusNext)
-	bind("Mod4-n", func() { _, _ = w.Apply(wmcore.Op{Op: wmcore.OpAddWorkspace}) })
-	for i := 1; i <= 9; i++ {
-		idx := i - 1
-		bind(fmt.Sprintf("Mod4-%d", i), func() { w.switchWorkspaceIndex(idx) })
+	// An rc.js that owns the whole keyboard (an i3-style config) sets
+	// NoDefaultBinds: a wm.bind on a combo the WM already grabbed would
+	// fire both handlers. Escape stays — it is modal (accept/menu
+	// cancellation), not a layout binding.
+	if !w.cfg.NoDefaultBinds {
+		bind("Mod4-Return", w.spawnTerminal)
+		bind("Mod4-d", w.toggleLauncher)
+		bind("Mod4-Shift-d", func() { w.splitFocused(wmcore.Row) })
+		bind("Mod4-s", func() { w.splitFocused(wmcore.Col) })
+		bind("Mod4-w", w.closeFocused)
+		bind("Mod4-f", func() { _, _ = w.toggleFullscreen() })
+		bind("Mod4-space", w.focusNext)
+		bind("Mod4-n", func() { _, _ = w.Apply(wmcore.Op{Op: wmcore.OpAddWorkspace}) })
+		for i := 1; i <= 9; i++ {
+			idx := i - 1
+			bind(fmt.Sprintf("Mod4-%d", i), func() { w.switchWorkspaceIndex(idx) })
+		}
+		bind("Mod4-Shift-q", func() { w.Shutdown() })
 	}
-	bind("Mod4-Shift-q", func() { w.Shutdown() })
 	bind("Escape", w.cancelAccept) // grabbed only while accepting? kept global: harmless
 
 	// X event wiring.
@@ -82,26 +98,21 @@ func (w *WM) spawnTerminal() {
 	if cmd == "" {
 		cmd = "xterm"
 	}
-	c := exec.Command("sh", "-c", cmd)
-	if w.cfg.Display != "" {
-		c.Env = append(c.Environ(), "DISPLAY="+w.cfg.Display)
-	}
-	if err := c.Start(); err != nil {
-		log.Warn().Err(err).Str("cmd", cmd).Msg("spawn failed")
-		return
-	}
-	go func() { _ = c.Wait() }()
+	w.execCommand(cmd)
 }
 
 func (w *WM) splitFocused(dir wmcore.Dir) {
-	if w.focused == "" {
+	if w.fstate.FocusedLeaf() == "" {
 		return
 	}
-	_, _ = w.Apply(wmcore.Op{Op: wmcore.OpSplitLeaf, Node: w.focused, Dir: dir, App: ""})
+	_, _ = w.Apply(wmcore.Op{Op: wmcore.OpSplitLeaf, Node: w.fstate.FocusedLeaf(), Dir: dir, App: ""})
 }
 
 func (w *WM) closeFocused() {
-	f := w.frames[w.focused]
+	f := w.frames[w.fstate.FocusedLeaf()]
+	if pf := w.floats[w.fstate.FocusedFloat()]; pf != nil {
+		f = pf // the float band holds focus; Mod4-w closes the float
+	}
 	if f == nil {
 		return
 	}
@@ -116,7 +127,7 @@ func (w *WM) focusNext() {
 	}
 	next := leaves[0].ID
 	for i, l := range leaves {
-		if l.ID == w.focused && i+1 < len(leaves) {
+		if l.ID == w.fstate.FocusedLeaf() && i+1 < len(leaves) {
 			next = leaves[i+1].ID
 			break
 		}
@@ -135,6 +146,22 @@ func (w *WM) switchWorkspaceIndex(i int) {
 
 // FramePress handles a ButtonPress inside a frame window (title strip area).
 func (w *WM) handleFramePress(f *frame, x, y int, button byte, rootX, rootY int) {
+	if f.floating {
+		// Float strips have close only (splitting a dialog is
+		// meaningless); everywhere else on the strip drags the float.
+		if y < draw.TitleH {
+			_, _, _, cl := draw.TitleButtons(f.rect.W)
+			if image_Pt(x, y).In(cl) {
+				w.closeClient(f)
+				return
+			}
+			w.focusFloat(f)
+			w.beginFloatDrag(f, rootX, rootY)
+			return
+		}
+		w.focusFloat(f)
+		return
+	}
 	if y >= draw.TitleH {
 		w.focus(f.leaf)
 		if f.client == 0 {
@@ -186,7 +213,11 @@ func (w *WM) tileClicked(leaf wmcore.NodeID, _ byte, rootX, rootY int) {
 func (w *WM) handleRootPress(ev xevent.ButtonPressEvent) {
 	x, y := int(ev.RootX), int(ev.RootY)
 
-	// Menu open? Any root press outside it closes it.
+	// Popup open? Any root press outside it closes it.
+	if w.launcher != nil {
+		w.closeLauncher()
+		return
+	}
 	if w.menu != nil {
 		w.closeMenu()
 		return
@@ -241,6 +272,15 @@ func (w *WM) beginDividerDrag(split wmcore.NodeID) {
 	w.setMouseDoc("drag divider — sticky at ¼ ⅓ ½ ⅔ ¾")
 }
 
+func (w *WM) beginFloatDrag(f *frame, rootX, rootY int) {
+	if !w.grabPointer() {
+		return
+	}
+	w.drag = &dragState{kind: "float", fl: f,
+		offX: rootX - f.rect.X, offY: rootY - f.rect.Y}
+	w.setMouseDoc("drag float — release to place")
+}
+
 func (w *WM) beginGripDrag(from wmcore.NodeID) {
 	if !w.grabPointer() {
 		return
@@ -267,10 +307,33 @@ func (w *WM) handleMotion(x, y int) {
 		w.dividerMotion(d, x, y)
 	case "grip":
 		w.gripMotion(d, x, y)
+	case "float":
+		w.floatMotion(d, x, y)
 	}
 }
 
+// floatMotion moves the dragged float with the pointer. No repaint is
+// needed: the frame's content rides along in its background pixmap.
+func (w *WM) floatMotion(d *dragState, x, y int) {
+	f := d.fl
+	r := f.rect
+	r.X = x - d.offX
+	r.Y = y - d.offY
+	r = w.clampFloatRect(r)
+	if r == f.rect {
+		return
+	}
+	f.rect = r
+	f.win.Move(r.X, r.Y)
+}
+
 func (w *WM) dividerMotion(d *dragState, x, y int) {
+	// Coalesce: skip repaints closer than a frame apart; handleRelease
+	// runs a final dividerMotion with the release coordinates.
+	if time.Since(d.lastPaint) < 16*time.Millisecond {
+		return
+	}
+	d.lastPaint = time.Now()
 	ws := w.desktop.CurrentWorkspace()
 	n := ws.Root.Find(d.split)
 	if n == nil {
@@ -285,7 +348,7 @@ func (w *WM) dividerMotion(d *dragState, x, y int) {
 	f, snapped := wmcore.Snap(f)
 	d.snapped = snapped
 	_, _ = wmcore.Apply(w.desktop, wmcore.Op{Op: wmcore.OpSetRatio, Node: d.split, Ratio: f})
-	w.relayout()
+	w.relayoutResized()
 	w.dividerDragFeedback(d.split, snapped)
 }
 
@@ -326,6 +389,10 @@ func (w *WM) handleRelease(x, y int) {
 		}
 	}
 	if d.kind == "divider" {
+		// Final position: the throttle above may have dropped the last
+		// few motion events.
+		d.lastPaint = time.Time{}
+		w.dividerMotion(d, x, y)
 		w.dividerDragEnd(d.split)
 		w.emitEvent("move_split_ratio", map[string]interface{}{"split": string(d.split), "snapped": d.snapped})
 	}
@@ -348,11 +415,11 @@ func (w *WM) swapFrames(a, b wmcore.NodeID) {
 		fb.leaf = a
 		w.frames[a] = fb
 	}
-	switch w.focused {
+	switch w.fstate.FocusedLeaf() {
 	case a:
-		w.focused = b
+		w.fstate.SetTile(b)
 	case b:
-		w.focused = a
+		w.fstate.SetTile(a)
 	}
 	w.relayout()
 	w.paintBars()

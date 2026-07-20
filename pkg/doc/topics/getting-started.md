@@ -1,0 +1,126 @@
+---
+Title: Getting started with go-go-wm
+Slug: getting-started
+Topics:
+- wm
+- getting-started
+IsTemplate: false
+IsTopLevel: true
+ShowPerDefault: true
+SectionType: GeneralTopic
+---
+
+go-go-wm is a presentation-based tiling window manager for X11: every
+interesting piece of data on screen — colors, files, commit hashes,
+tiles, workspaces — is a typed object the whole desktop can click,
+accept, and attach actions to. One binary contains the WM, the message
+broker, the terminal tools, and a JavaScript runtime for scripting it.
+
+## Build
+
+    go build -o ~/.local/bin/go-go-wm ./cmd/go-go-wm
+
+## First session (nested, safe)
+
+The fastest tour is the playground script — Xephyr, the WM, demo apps,
+the rich REPL, a floating dialog, and a script daemon, plus a printed
+cheat sheet of every key and command to try:
+
+    scripts/playground.sh              # or --i3 for the i3.js config
+
+Or by hand, inside a nested X server so your real desktop is untouched:
+
+    Xephyr :5 -screen 1600x900 &
+    go-go-wm wm --display :5 --embedded-broker &
+    DISPLAY=:5 kitty &          # feed it windows
+    DISPLAY=:5 xterm &
+
+Click inside the Xephyr window, then press Ctrl+Shift inside it to
+grab the keyboard and mouse — otherwise your real WM eats Mod4.
+Ctrl+Shift again releases the grab. (Do not pass `-no-host-grab`: it
+disables the Ctrl+Shift toggle entirely.)
+
+Headless (for tests and automation), substitute
+`Xvfb :5 -screen 0 1600x900x24 &` and drive it with xdotool.
+
+## Default keys
+
+- Mod4-Return — terminal (`--spawn`, default xterm)
+- Mod4-d — the launcher popup (type to filter, Enter launches)
+- Mod4-Shift-d / Mod4-s — split right / below
+- Mod4-w — close tile · Mod4-space — focus next
+- Mod4-f — fullscreen toggle
+- Mod4-1..9 — switch workspace · Mod4-n — new workspace
+- Escape — cancel an accept or menu · Mod4-Shift-q — quit
+
+Mouse: drag dividers to resize (sticky at ¼ ⅓ ½ ⅔ ¾), drag the ⠿ grip
+to swap or dock tiles, click titles/chips/objects to interact,
+right-click any object for its verb menu.
+
+## Themes
+
+    go-go-wm wm --display :5 --embedded-broker --theme dark
+
+Three themes: `paper` (default), `light` (true white), `dark`. Switch
+live from a script (`wm.theme("dark")`) or the control socket
+(`{"q":"set-theme","theme":"light"}`).
+
+## Clickable output in your terminal (kitty)
+
+`go-go-wm scrape` wraps recognizable tokens (hex colors, git SHAs,
+paths, IPs, URLs) in `pbui://` terminal hyperlinks:
+
+    git log --oneline | go-go-wm scrape
+
+To make clicking one open the PBUI action menu instead of your browser,
+install the kitty integration once:
+
+    go-go-wm kitty install      # writes open-actions.conf + the kitten
+    # then reload kitty config: Ctrl+Shift+F5 (or restart kitty)
+
+The click runs `go-go-wm menu`, so the binary must be on your PATH
+(`go build -o ~/.local/bin/go-go-wm ./cmd/go-go-wm`) and the broker
+must be reachable. Terminals opened *inside* the session (Mod4-Return,
+or the launcher) inherit `PBUI_SOCKET`/`GO_GO_WM_SOCKET` automatically;
+from an outside terminal, export them to match your `--socket`.
+
+## Try the presentation model (the point of it all)
+
+In a terminal *outside* the session:
+
+    go-go-wm accept --ptype color
+
+The desktop enters accepting mode; click any color anywhere — a chip
+in a demo app, a swatch a script printed — and the command prints the
+chosen object. That round trip is the core interaction; everything
+else builds on it.
+
+## First script
+
+    go-go-wm run --once /dev/stdin <<'EOF'
+    const wm = require("wm"), pbui = require("pbui");
+    wm.split(wm.focused(), "row", { app: "builtin:trace" });
+    pbui.print("hello from a script:", pbui.object("color", "#b0563f"));
+    EOF
+
+The color it printed is live — click it. For an interactive version
+of this, `go-go-wm repl --ui` opens the notebook REPL (also in the
+Mod4-d launcher as "repl"): evaluate `"#b0563f"` and the result is a
+clickable swatch; evaluate `[1,2,5,3]` and you get a sparkline.
+
+## Your config is a JavaScript file
+
+    go-go-wm wm --display :5 --embedded-broker \
+      --theme dark --no-default-binds --rc examples/scripts/i3.js
+
+`examples/scripts/i3.js` is a full i3-style configuration (numbered
+workspaces, launcher keys, directional focus, window assignment
+rules). Copy it and edit; `glaze help js-api-reference` documents
+everything it uses.
+
+## Where to next
+
+- `glaze help user-guide` — daily use: workspaces, accepts, verbs,
+  scripts as daemons.
+- `glaze help js-api-reference` — the complete scripting API.
+- `glaze help developer-guide` — architecture and contributing.

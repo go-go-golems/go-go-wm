@@ -6,6 +6,7 @@ package xapp
 
 import (
 	"context"
+	"encoding/json"
 	"image"
 	"time"
 
@@ -14,7 +15,6 @@ import (
 	"github.com/jezek/xgbutil/ewmh"
 	"github.com/jezek/xgbutil/keybind"
 	"github.com/jezek/xgbutil/xevent"
-	"github.com/jezek/xgbutil/xgraphics"
 	"github.com/jezek/xgbutil/xwindow"
 
 	"github.com/go-go-golems/go-go-wm/pkg/apps"
@@ -43,6 +43,13 @@ type Keyer interface {
 	HandleKey(ctx Ctx, key string)
 }
 
+// Starter is an optional App extension: Started runs once on the xapp
+// loop after the window and broker are up, handing the app its Ctx so
+// out-of-band state changes (timers, bus events) can trigger Redraw.
+type Starter interface {
+	Started(ctx Ctx)
+}
+
 // Ctx is what handlers get: broker access plus a repaint trigger.
 type Ctx struct {
 	Broker *client.Client
@@ -52,8 +59,25 @@ type Ctx struct {
 	Print  func(segs ...apps.Seg) // print a line to the WM listener (via event bus)
 }
 
+// RunOption configures Run.
+type RunOption func(*runConfig)
+
+type runConfig struct {
+	followThemes bool
+}
+
+// WithThemeFollowing makes the shell consume the broker event stream
+// and, on theme.changed, swap this process's palette and repaint —
+// both on the xapp loop (one palette writer per process). Opt-in
+// because a client has ONE event channel: processes that run their own
+// event fan (repl --ui, run daemons) must keep it and handle themes
+// there instead.
+func WithThemeFollowing() RunOption {
+	return func(c *runConfig) { c.followThemes = true }
+}
+
 // Run opens the window and blocks until the window is closed or ctx ends.
-func Run(ctx context.Context, display, brokerSocket string, app App) error {
+func Run(ctx context.Context, display, brokerSocket string, app App, opts ...RunOption) error {
 	X, err := connect(display)
 	if err != nil {
 		return err
@@ -75,12 +99,39 @@ func Run(ctx context.Context, display, brokerSocket string, app App) error {
 	_ = ewmh.WmNameSet(X, win.Id, app.Title())
 	win.Map()
 
+	var cfg runConfig
+	for _, o := range opts {
+		o(&cfg)
+	}
 	a := &shell{X: X, win: win, app: app, ops: make(chan func(), 64)}
 
 	// Broker (best effort — the app still renders without it).
 	cctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	cl, err := client.Connect(cctx, client.Options{Socket: brokerSocket, Name: app.Name()})
 	cancel()
+	if err == nil && cfg.followThemes {
+		if events, eerr := cl.Events(ctx); eerr == nil {
+			go func() {
+				for msg := range events {
+					if msg.Event != "theme.changed" {
+						continue
+					}
+					var d struct {
+						Theme string `json:"theme"`
+					}
+					if jerr := json.Unmarshal(msg.Data, &d); jerr != nil || d.Theme == "" {
+						continue
+					}
+					theme := d.Theme
+					a.post(func() {
+						if serr := draw.SetTheme(theme); serr == nil {
+							a.redraw()
+						}
+					})
+				}
+			}()
+		}
+	}
 	if err == nil {
 		a.broker = cl
 		defer func() { _ = cl.Close() }()
@@ -133,6 +184,9 @@ func Run(ctx context.Context, display, brokerSocket string, app App) error {
 	}).Connect(X, win.Id)
 
 	a.w, a.h = 640, 420
+	if starter, ok := app.(Starter); ok {
+		starter.Started(a.appCtx())
+	}
 	a.redraw()
 
 	pingBefore, pingAfter, pingQuit := xevent.MainPing(X)
@@ -223,7 +277,7 @@ func (a *shell) redraw() {
 	}
 	img, regions := a.app.Render(a.w, a.h, a.accepting)
 	a.regions = regions
-	ximg := xgraphics.NewConvert(a.X, img)
+	ximg := draw.ToXImage(a.X, img)
 	if err := ximg.XSurfaceSet(a.win.Id); err == nil {
 		ximg.XDraw()
 		ximg.XPaint(a.win.Id)
@@ -256,5 +310,5 @@ func (a *shell) hover(x, y int) {
 		a.lastDoc = doc
 		_ = a.broker.Hover(doc)
 	}
-	_ = draw.Ink // keep draw import for future cursor affordances
+	_ = draw.Current().Ink // keep draw import for future cursor affordances
 }

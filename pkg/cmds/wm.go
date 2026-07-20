@@ -2,6 +2,10 @@ package cmds
 
 import (
 	"context"
+	"net/http"
+	"net/http/pprof"
+	"os"
+	"time"
 
 	glazed_cmds "github.com/go-go-golems/glazed/pkg/cmds"
 	"github.com/go-go-golems/glazed/pkg/cmds/fields"
@@ -23,6 +27,9 @@ type wmSettings struct {
 	Spawn          string `glazed:"spawn"`
 	EmbeddedBroker bool   `glazed:"embedded-broker"`
 	NoBroker       bool   `glazed:"no-broker"`
+	RC             string `glazed:"rc"`
+	Theme          string `glazed:"theme"`
+	NoDefaultBinds bool   `glazed:"no-default-binds"`
 }
 
 func NewWMCommand() (*WMCommand, error) {
@@ -52,6 +59,12 @@ Development happens in a nested server:
 				fields.WithHelp("run the PBUI broker inside this process (still spoken to via its socket)")),
 			fields.New("no-broker", fields.TypeBool, fields.WithDefault(false),
 				fields.WithHelp("run without PBUI presentations (pure WM)")),
+			fields.New("rc", fields.TypeString, fields.WithDefault(""),
+				fields.WithHelp("rc.js startup script run in an in-process goja runtime (wm.bind works here)")),
+			fields.New("theme", fields.TypeString, fields.WithDefault(""),
+				fields.WithHelp("initial theme: paper (default), light, dark — switchable live via wm.theme()")),
+			fields.New("no-default-binds", fields.TypeBool, fields.WithDefault(false),
+				fields.WithHelp("skip built-in keybindings so an rc.js config owns the keyboard (Escape stays)")),
 		),
 	)}, nil
 }
@@ -62,7 +75,53 @@ func (c *WMCommand) Run(ctx context.Context, vals *values.Values) error {
 		return err
 	}
 
+	// GO_GO_WM_PPROF=localhost:6060 serves net/http/pprof for profiling
+	// paint/layout work (flamegraphs via `go tool pprof`). Handlers are
+	// registered on a dedicated mux (not DefaultServeMux) and the server
+	// has a read-header timeout to limit Slowloris-style exposure.
+	if addr := os.Getenv("GO_GO_WM_PPROF"); addr != "" {
+		go func() {
+			mux := http.NewServeMux()
+			mux.HandleFunc("/debug/pprof/", pprof.Index)
+			mux.HandleFunc("/debug/pprof/cmdline", pprof.Cmdline)
+			mux.HandleFunc("/debug/pprof/profile", pprof.Profile)
+			mux.HandleFunc("/debug/pprof/symbol", pprof.Symbol)
+			mux.HandleFunc("/debug/pprof/trace", pprof.Trace)
+			srv := &http.Server{
+				Addr:              addr,
+				Handler:           mux,
+				ReadHeaderTimeout: 5 * time.Second,
+				// WriteTimeout stays 0: /debug/pprof/profile and /trace run
+				// for the requested capture duration.
+			}
+			log.Info().Str("addr", addr).Msg("pprof listening")
+			if err := srv.ListenAndServe(); err != nil {
+				log.Warn().Err(err).Msg("pprof server failed")
+			}
+		}()
+	}
+
 	sock := socketOrDefault(s.Socket)
+
+	// Publish the session's sockets into the WM process environment so
+	// everything it spawns — terminals, launcher apps, wm.exec children,
+	// and their grandchildren — reaches THIS desktop's broker and
+	// control socket. Without this, tools run inside the session
+	// (go-go-wm scrape/menu/accept, clicked pbui:// links) fall back to
+	// the default socket paths, which an embedded broker on a custom
+	// --socket is not using.
+	if !s.NoBroker {
+		_ = os.Setenv("PBUI_SOCKET", sock)
+	}
+	ipcSock := s.IPCSocket
+	if ipcSock == "" {
+		ipcSock = wmx11.DefaultIPCSocketPath()
+	}
+	_ = os.Setenv("GO_GO_WM_SOCKET", ipcSock)
+	if s.Display != "" {
+		_ = os.Setenv("DISPLAY", s.Display)
+	}
+
 	if s.EmbeddedBroker && !s.NoBroker {
 		b := broker.New()
 		go func() {
@@ -72,13 +131,21 @@ func (c *WMCommand) Run(ctx context.Context, vals *values.Values) error {
 		}()
 	}
 
-	w, err := wmx11.New(wmx11.Config{
+	cfg := wmx11.Config{
 		Display:      s.Display,
 		BrokerSocket: sock,
 		IPCSocket:    s.IPCSocket,
 		Spawn:        s.Spawn,
 		NoBroker:     s.NoBroker,
-	})
+		Theme:        s.Theme,
+
+		NoDefaultBinds: s.NoDefaultBinds,
+	}
+	if s.RC != "" {
+		rcPath := s.RC
+		cfg.OnReady = func(w *wmx11.WM) { startRC(ctx, w, rcPath, sock, s.Display, s.NoBroker) }
+	}
+	w, err := wmx11.New(cfg)
 	if err != nil {
 		return err
 	}

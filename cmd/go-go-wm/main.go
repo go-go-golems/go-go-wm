@@ -10,6 +10,7 @@ import (
 	"github.com/go-go-golems/glazed/pkg/help"
 	help_cmd "github.com/go-go-golems/glazed/pkg/help/cmd"
 	wmcmds "github.com/go-go-golems/go-go-wm/pkg/cmds"
+	"github.com/go-go-golems/go-go-wm/pkg/doc"
 	"github.com/spf13/cobra"
 )
 
@@ -26,8 +27,16 @@ var rootCmd = &cobra.Command{
 
 func addBare(parent *cobra.Command, c glazed_cmds.Command, err error) {
 	cobra.CheckErr(err)
+	// No AppName: it would turn on glazed's env-prefix binding, mapping
+	// every flag to GO_GO_WM_<FLAG> — and `--socket` (the broker socket,
+	// which resolves from PBUI_SOCKET in code) would collide with
+	// GO_GO_WM_SOCKET (the WM control socket), so a broker CLI tool run
+	// inside the session would silently connect to the control socket
+	// and fail with a protocol error. Every env-configurable value here
+	// (PBUI_SOCKET, GO_GO_WM_SOCKET, DISPLAY) is resolved explicitly in
+	// the command code, so the auto-binding is pure liability.
 	cc, err := cli.BuildCobraCommand(c,
-		cli.WithParserConfig(cli.CobraParserConfig{AppName: "go-go-wm"}),
+		cli.WithParserConfig(cli.CobraParserConfig{}),
 	)
 	cobra.CheckErr(err)
 	parent.AddCommand(cc)
@@ -38,6 +47,8 @@ func main() {
 	cobra.CheckErr(err)
 
 	helpSystem := help.NewHelpSystem()
+	err = doc.AddDocToHelpSystem(helpSystem)
+	cobra.CheckErr(err)
 	help_cmd.SetupCobraRootCommand(helpSystem, rootCmd)
 
 	// Daemons.
@@ -57,8 +68,14 @@ func main() {
 	addBare(rootCmd, menuCmd, err)
 	scrapeCmd, err := wmcmds.NewScrapeCommand()
 	addBare(rootCmd, scrapeCmd, err)
+	runCmd, err := wmcmds.NewRunCommand()
+	addBare(rootCmd, runCmd, err)
+	replCmd, err := wmcmds.NewReplCommand()
+	addBare(rootCmd, replCmd, err)
 	demoCmd, err := wmcmds.NewDemoCommand()
 	addBare(rootCmd, demoCmd, err)
+	testwinCmd, err := wmcmds.NewTestwinCommand()
+	addBare(rootCmd, testwinCmd, err)
 
 	// Introspection.
 	queryCmd := &cobra.Command{Use: "query", Short: "Ask the WM and broker what they believe"}

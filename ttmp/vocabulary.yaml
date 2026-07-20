@@ -15,6 +15,22 @@ topics:
       description: PBUI broker daemon and accept/verb wire protocol
     - slug: kitty
       description: Kitty terminal integration (kittens, OSC 8, remote control)
+    - slug: goja
+      description: go-go-goja JavaScript runtime embedding
+    - slug: scripting
+      description: Scripting surfaces, DSLs, automation
+    - slug: ui
+      description: 'Scripted UI surfaces: the ui module, uispec IR, script tiles'
+    - slug: performance
+      description: Profiling, rendering performance, optimization work
+    - slug: ci
+      description: 'Continuous integration: GitHub Actions workflows, lint, security scans, dependency review'
+    - slug: concurrency
+      description: 'Concurrency: goroutines, mutexes, data races, channel/queue patterns'
+    - slug: lint
+      description: 'Linting: golangci-lint, gosec, static analysis, code style enforcement'
+    - slug: security
+      description: 'Security: vulnerability scanning, path traversal, unsafe patterns, govulncheck'
 docTypes:
     - slug: design-doc
       description: Structured rationale and architecture notes

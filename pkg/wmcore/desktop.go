@@ -1,6 +1,9 @@
 package wmcore
 
-import "fmt"
+import (
+	"encoding/json"
+	"fmt"
+)
 
 // Workspace is a named tree (ports the spaces array, pbui-shell.jsx:536-548).
 type Workspace struct {
@@ -159,4 +162,27 @@ func (d *Desktop) Validate() error {
 		}
 	}
 	return nil
+}
+
+// DeserializeDesktop is the inverse of Serialize: it decodes the JSON and
+// reseeds the id generators past every id in use, so a deserialized
+// desktop is safe to Apply further ops to (fresh ids never collide).
+func DeserializeDesktop(raw []byte) (*Desktop, error) {
+	var d Desktop
+	if err := json.Unmarshal(raw, &d); err != nil {
+		return nil, fmt.Errorf("desktop: %w", err)
+	}
+	for i := range d.Workspaces {
+		var n int
+		if _, err := fmt.Sscanf(d.Workspaces[i].ID, "ws%d", &n); err == nil && n > d.wsSeq {
+			d.wsSeq = n
+		}
+		d.Workspaces[i].Root.Walk(func(node *Node) {
+			var m int
+			if _, err := fmt.Sscanf(string(node.ID), "n%d", &m); err == nil {
+				d.gen.Seed(m)
+			}
+		})
+	}
+	return &d, nil
 }

@@ -79,7 +79,7 @@ func (w *WM) createDivider(split wmcore.NodeID, dir wmcore.Dir) *dividerWin {
 	cursor, _ := xcursor.CreateCursor(w.X, cursorShape)
 	err = win.CreateChecked(w.X.RootWin(), 0, 0, 1, 1,
 		xproto.CwBackPixel|xproto.CwEventMask|xproto.CwCursor,
-		uint32(pixel(draw.Paper)),
+		uint32(pixel(draw.Current().Paper)),
 		uint32(xproto.EventMaskButtonPress|xproto.EventMaskButtonRelease|
 			xproto.EventMaskPointerMotion|xproto.EventMaskExposure|
 			xproto.EventMaskEnterWindow|xproto.EventMaskLeaveWindow),
@@ -136,13 +136,13 @@ func (w *WM) paintDivider(d *dividerWin) {
 		x := d.rect.W/2 - 1
 		y0 := d.rect.H/2 - mark/2
 		for y := y0; y < y0+mark; y += 4 {
-			draw.Fill(img, image.Rect(x, y, x+2, y+2), draw.Faint)
+			draw.Fill(img, image.Rect(x, y, x+2, y+2), draw.Current().Faint)
 		}
 	} else {
 		y := d.rect.H/2 - 1
 		x0 := d.rect.W/2 - mark/2
 		for x := x0; x < x0+mark; x += 4 {
-			draw.Fill(img, image.Rect(x, y, x+2, y+2), draw.Faint)
+			draw.Fill(img, image.Rect(x, y, x+2, y+2), draw.Current().Faint)
 		}
 	}
 	w.blit(d.win, img)

@@ -1,0 +1,2 @@
+go test fuzz v1
+[]byte("{\"ptype\":\"color\",\"value\":\"#fff%0X\"}")

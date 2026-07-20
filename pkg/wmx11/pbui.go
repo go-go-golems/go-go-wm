@@ -2,6 +2,7 @@ package wmx11
 
 import (
 	"context"
+	"strings"
 
 	"github.com/jezek/xgb/xproto"
 	"github.com/jezek/xgbutil/xwindow"
@@ -58,7 +59,7 @@ func (w *WM) connectBroker() {
 	go func() {
 		regCtx, regCancel := context.WithTimeout(w.ctx, brokerDialTimeout)
 		defer regCancel()
-		_ = cl.RegisterVerbs(regCtx, w.tileVerbs())
+		_ = cl.RegisterVerbs(regCtx, append(w.tileVerbs(), commandVerbs()...))
 	}()
 	w.watchEvents()
 }
@@ -83,6 +84,10 @@ func (w *WM) tileVerbs() []pbui.Verb {
 // runVerb executes a WM-owned verb (already on the WM loop).
 func (w *WM) runVerb(verbID string, obj *pbui.Object) {
 	if obj == nil {
+		return
+	}
+	if strings.HasPrefix(verbID, "command.") {
+		w.runCommandVerb(verbID, obj)
 		return
 	}
 	leaf := wmcore.NodeID(obj.StringValue())
@@ -121,13 +126,25 @@ func (w *WM) runVerb(verbID string, obj *pbui.Object) {
 	}
 }
 
-// cancelAccept is the Escape handler.
+// cancelAccept is the Escape handler. Escape is a global grab, so an
+// open launcher popup never sees the KeyPress itself — close it here.
 func (w *WM) cancelAccept() {
+	if w.launcher != nil {
+		w.closeLauncher()
+		return
+	}
 	if w.menu != nil {
 		w.closeMenu()
 		return
 	}
 	if w.accepting == nil || w.broker == nil {
+		// No modal state: Escape clears the focused launcher tile's query.
+		if st := w.launcherTiles[w.fstate.FocusedLeaf()]; st != nil && st.query != "" {
+			st.query, st.sel = "", 0
+			if f := w.frames[w.fstate.FocusedLeaf()]; f != nil {
+				w.paintFrame(f)
+			}
+		}
 		return
 	}
 	session := w.accepting.session
@@ -138,6 +155,11 @@ func (w *WM) cancelAccept() {
 func (w *WM) repaintAllFrames() {
 	for _, f := range w.frames {
 		if f.rect.W > 0 {
+			w.paintFrame(f)
+		}
+	}
+	for _, f := range w.floats {
+		if f.ws == w.desktop.Current {
 			w.paintFrame(f)
 		}
 	}
@@ -173,7 +195,7 @@ func (w *WM) showMenu(obj pbui.Object, verbs []pbui.Verb, x, y int) {
 	}
 	err = win.CreateChecked(w.X.RootWin(), x, y, mw, mh,
 		xproto.CwBackPixel|xproto.CwOverrideRedirect|xproto.CwEventMask,
-		uint32(pixel(draw.Pane)), 1,
+		uint32(pixel(draw.Current().Pane)), 1,
 		xproto.EventMaskButtonPress|xproto.EventMaskPointerMotion|
 			xproto.EventMaskLeaveWindow|xproto.EventMaskExposure)
 	if err != nil {

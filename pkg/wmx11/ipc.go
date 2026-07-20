@@ -6,6 +6,8 @@ import (
 	"net"
 	"os"
 
+	"github.com/go-go-golems/go-go-wm/pkg/draw"
+	"github.com/go-go-golems/go-go-wm/pkg/launcher"
 	"github.com/go-go-golems/go-go-wm/pkg/wmcore"
 )
 
@@ -14,11 +16,23 @@ import (
 // stream and the debugging tool forever (design doc §Part V).
 //
 // Requests:  {"q":"tree"} | {"q":"windows"} | {"q":"op","op":{...}}
+//          | {"q":"theme"} | {"q":"set-theme","theme":"dark"}
+//          | {"q":"focus","target":"left|right|up|down|next|prev|<leaf>"}
+//          | {"q":"move","dir":"left|right|up|down"}
 // Responses: {"ok":true,"data":...} | {"ok":false,"error":"..."}
 
 type ipcRequest struct {
-	Q  string     `json:"q"`
-	Op *wmcore.Op `json:"op,omitempty"`
+	Q          string      `json:"q"`
+	Op         *wmcore.Op  `json:"op,omitempty"`
+	Ops        []wmcore.Op `json:"ops,omitempty"` // {"q":"batch","ops":[...]}
+	Theme      string      `json:"theme,omitempty"`
+	Target     string      `json:"target,omitempty"`
+	Dir        string      `json:"dir,omitempty"`
+	FloatRules []FloatRule `json:"float_rules,omitempty"` // {"q":"set-float-rules"}
+
+	// {"q":"register-command"} — an A2 daemon's launcher entry.
+	Command *launcher.Command `json:"command,omitempty"`
+	Owner   string            `json:"owner,omitempty"`
 }
 
 type ipcResponse struct {
@@ -32,9 +46,13 @@ type WindowInfo struct {
 	Leaf      string `json:"leaf"`
 	Client    uint32 `json:"client"`
 	Title     string `json:"title"`
+	Class     string `json:"class,omitempty"`    // WM_CLASS class (e.g. "Slack")
+	Instance  string `json:"instance,omitempty"` // WM_CLASS instance (e.g. "slack")
 	Workspace string `json:"workspace"`
 	Rect      string `json:"rect"`
 	Focused   bool   `json:"focused"`
+	Floating  bool   `json:"floating,omitempty"` // GGWM-007: shell-state floats
+	Leader    uint32 `json:"leader,omitempty"`   // WM_TRANSIENT_FOR target
 }
 
 func (w *WM) startIPC() error {
@@ -95,21 +113,7 @@ func (w *WM) dispatchIPC(req ipcRequest) ipcResponse {
 			}
 			done <- ipcResponse{OK: true, Data: json.RawMessage(raw)}
 		case "windows":
-			var out []WindowInfo
-			for leaf, f := range w.frames {
-				info := WindowInfo{
-					Leaf:    string(leaf),
-					Client:  uint32(f.client),
-					Title:   f.title,
-					Rect:    f.rect.String(),
-					Focused: w.focused == leaf,
-				}
-				if ws := w.desktop.FindLeafWorkspace(leaf); ws != nil {
-					info.Workspace = ws.ID
-				}
-				out = append(out, info)
-			}
-			done <- ipcResponse{OK: true, Data: out}
+			done <- ipcResponse{OK: true, Data: w.windowsSnapshot()}
 		case "op":
 			if req.Op == nil {
 				done <- ipcResponse{OK: false, Error: "missing op"}
@@ -121,6 +125,87 @@ func (w *WM) dispatchIPC(req ipcRequest) ipcResponse {
 				return
 			}
 			done <- ipcResponse{OK: true, Data: res}
+		case "batch":
+			if len(req.Ops) == 0 {
+				done <- ipcResponse{OK: false, Error: "missing ops"}
+				return
+			}
+			results, err := w.ApplyBatch(req.Ops)
+			if err != nil {
+				done <- ipcResponse{OK: false, Error: err.Error()}
+				return
+			}
+			done <- ipcResponse{OK: true, Data: results}
+		case "theme":
+			done <- ipcResponse{OK: true, Data: ThemeInfo{Theme: draw.CurrentTheme(), Available: draw.ThemeNames()}}
+		case "set-theme":
+			if err := w.setTheme(req.Theme); err != nil {
+				done <- ipcResponse{OK: false, Error: err.Error()}
+				return
+			}
+			done <- ipcResponse{OK: true, Data: ThemeInfo{Theme: draw.CurrentTheme(), Available: draw.ThemeNames()}}
+		case "focus":
+			if err := w.focusTarget(req.Target); err != nil {
+				done <- ipcResponse{OK: false, Error: err.Error()}
+				return
+			}
+			done <- ipcResponse{OK: true, Data: string(w.fstate.FocusedLeaf())}
+		case "move":
+			if err := w.moveDir(req.Dir); err != nil {
+				done <- ipcResponse{OK: false, Error: err.Error()}
+				return
+			}
+			done <- ipcResponse{OK: true, Data: string(w.fstate.FocusedLeaf())}
+		case "set-float-rules":
+			if err := w.SetFloatRules(req.FloatRules); err != nil {
+				done <- ipcResponse{OK: false, Error: err.Error()}
+				return
+			}
+			done <- ipcResponse{OK: true, Data: len(req.FloatRules)}
+		case "float":
+			floating, err := w.toggleFloat()
+			if err != nil {
+				done <- ipcResponse{OK: false, Error: err.Error()}
+				return
+			}
+			done <- ipcResponse{OK: true, Data: floating}
+		case "fullscreen":
+			on, err := w.toggleFullscreen()
+			if err != nil {
+				done <- ipcResponse{OK: false, Error: err.Error()}
+				return
+			}
+			done <- ipcResponse{OK: true, Data: on}
+		case "launcher-open":
+			w.openLauncher()
+			done <- ipcResponse{OK: true, Data: w.launcherInfo()}
+		case "launcher-close":
+			w.closeLauncher()
+			done <- ipcResponse{OK: true}
+		case "launcher":
+			done <- ipcResponse{OK: true, Data: w.launcherInfo()}
+		case "launcher-tile":
+			done <- ipcResponse{OK: true, Data: w.launcherTileInfo()}
+		case "launch":
+			kind, err := w.launchTarget(req.Target)
+			if err != nil {
+				done <- ipcResponse{OK: false, Error: err.Error()}
+				return
+			}
+			done <- ipcResponse{OK: true, Data: kind}
+		case "commands":
+			w.registry.Refresh()
+			done <- ipcResponse{OK: true, Data: w.registry.All()}
+		case "register-command":
+			if req.Command == nil {
+				done <- ipcResponse{OK: false, Error: "missing command"}
+				return
+			}
+			if err := w.registerRemoteCommand(*req.Command, req.Owner); err != nil {
+				done <- ipcResponse{OK: false, Error: err.Error()}
+				return
+			}
+			done <- ipcResponse{OK: true}
 		default:
 			done <- ipcResponse{OK: false, Error: "unknown query " + req.Q}
 		}

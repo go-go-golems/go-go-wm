@@ -1,0 +1,312 @@
+[gosec] 2026/07/19 20:45:20 Including rules: default
+[gosec] 2026/07/19 20:45:20 Excluding rules: G101,G304,G301,G306,G204
+[gosec] 2026/07/19 20:45:20 Including analyzers: default
+[gosec] 2026/07/19 20:45:20 Excluding analyzers: G101,G304,G301,G306,G204
+[gosec] 2026/07/19 20:45:20 Import directory: /home/manuel/workspaces/2026-07-18/go-go-wm/go-go-wm/pkg/pbui/scrape
+[gosec] 2026/07/19 20:45:20 Import directory: /home/manuel/workspaces/2026-07-18/go-go-wm/go-go-wm/cmd/go-go-wm
+[gosec] 2026/07/19 20:45:20 Import directory: /home/manuel/workspaces/2026-07-18/go-go-wm/go-go-wm/pkg/cmds
+[gosec] 2026/07/19 20:45:20 Import directory: /home/manuel/workspaces/2026-07-18/go-go-wm/go-go-wm/pkg/doc
+[gosec] 2026/07/19 20:45:20 Import directory: /home/manuel/workspaces/2026-07-18/go-go-wm/go-go-wm/pkg/jsmod
+[gosec] 2026/07/19 20:45:20 Import directory: /home/manuel/workspaces/2026-07-18/go-go-wm/go-go-wm/pkg/launcher
+[gosec] 2026/07/19 20:45:20 Import directory: /home/manuel/workspaces/2026-07-18/go-go-wm/go-go-wm/pkg/pbui
+[gosec] 2026/07/19 20:45:20 Import directory: /home/manuel/workspaces/2026-07-18/go-go-wm/go-go-wm/pkg/repl
+[gosec] 2026/07/19 20:45:20 Checking package: pbui
+[gosec] 2026/07/19 20:45:20 Checking file: /home/manuel/workspaces/2026-07-18/go-go-wm/go-go-wm/pkg/pbui/logcopter.go
+[gosec] 2026/07/19 20:45:20 Checking file: /home/manuel/workspaces/2026-07-18/go-go-wm/go-go-wm/pkg/pbui/object.go
+[gosec] 2026/07/19 20:45:20 Checking file: /home/manuel/workspaces/2026-07-18/go-go-wm/go-go-wm/pkg/pbui/wire.go
+[gosec] 2026/07/19 20:45:20 Import directory: /home/manuel/workspaces/2026-07-18/go-go-wm/go-go-wm/pkg/wmx11
+[gosec] 2026/07/19 20:45:20 Checking package: launcher
+[gosec] 2026/07/19 20:45:20 Checking file: /home/manuel/workspaces/2026-07-18/go-go-wm/go-go-wm/pkg/launcher/desktop.go
+[gosec] 2026/07/19 20:45:20 Checking package: repl
+[gosec] 2026/07/19 20:45:20 Checking file: /home/manuel/workspaces/2026-07-18/go-go-wm/go-go-wm/pkg/launcher/frecency.go
+[gosec] 2026/07/19 20:45:20 Checking file: /home/manuel/workspaces/2026-07-18/go-go-wm/go-go-wm/pkg/launcher/logcopter.go
+[gosec] 2026/07/19 20:45:20 Checking file: /home/manuel/workspaces/2026-07-18/go-go-wm/go-go-wm/pkg/launcher/match.go
+[gosec] 2026/07/19 20:45:20 Checking file: /home/manuel/workspaces/2026-07-18/go-go-wm/go-go-wm/pkg/launcher/registry.go
+[gosec] 2026/07/19 20:45:20 Checking file: /home/manuel/workspaces/2026-07-18/go-go-wm/go-go-wm/pkg/repl/derive.go
+[gosec] 2026/07/19 20:45:20 Checking file: /home/manuel/workspaces/2026-07-18/go-go-wm/go-go-wm/pkg/repl/logcopter.go
+[gosec] 2026/07/19 20:45:20 Checking file: /home/manuel/workspaces/2026-07-18/go-go-wm/go-go-wm/pkg/repl/session.go
+[gosec] 2026/07/19 20:45:20 Checking file: /home/manuel/workspaces/2026-07-18/go-go-wm/go-go-wm/pkg/repl/value.go
+[gosec] 2026/07/19 20:45:20 Checking package: scrape
+[gosec] 2026/07/19 20:45:20 Checking file: /home/manuel/workspaces/2026-07-18/go-go-wm/go-go-wm/pkg/pbui/scrape/logcopter.go
+[gosec] 2026/07/19 20:45:20 Checking file: /home/manuel/workspaces/2026-07-18/go-go-wm/go-go-wm/pkg/pbui/scrape/scrape.go
+[gosec] 2026/07/19 20:45:20 Import directory: /home/manuel/workspaces/2026-07-18/go-go-wm/go-go-wm/pkg/apps/demoapps
+[gosec] 2026/07/19 20:45:20 Import directory: /home/manuel/workspaces/2026-07-18/go-go-wm/go-go-wm/pkg/apps/xapp
+[gosec] 2026/07/19 20:45:20 Import directory: /home/manuel/workspaces/2026-07-18/go-go-wm/go-go-wm/pkg/jsmod/wmmod
+[gosec] 2026/07/19 20:45:20 Checking package: jsmod
+[gosec] 2026/07/19 20:45:20 Checking file: /home/manuel/workspaces/2026-07-18/go-go-wm/go-go-wm/pkg/jsmod/bridge.go
+[gosec] 2026/07/19 20:45:20 Checking file: /home/manuel/workspaces/2026-07-18/go-go-wm/go-go-wm/pkg/jsmod/errors.go
+[gosec] 2026/07/19 20:45:20 Checking file: /home/manuel/workspaces/2026-07-18/go-go-wm/go-go-wm/pkg/jsmod/eventfan.go
+[gosec] 2026/07/19 20:45:20 Checking file: /home/manuel/workspaces/2026-07-18/go-go-wm/go-go-wm/pkg/jsmod/logcopter.go
+[gosec] 2026/07/19 20:45:20 Checking file: /home/manuel/workspaces/2026-07-18/go-go-wm/go-go-wm/pkg/jsmod/queue.go
+[gosec] 2026/07/19 20:45:20 Import directory: /home/manuel/workspaces/2026-07-18/go-go-wm/go-go-wm/pkg/pbui/broker
+[gosec] 2026/07/19 20:45:20 Checking package: doc
+[gosec] 2026/07/19 20:45:20 Checking file: /home/manuel/workspaces/2026-07-18/go-go-wm/go-go-wm/pkg/doc/doc.go
+[gosec] 2026/07/19 20:45:20 Checking file: /home/manuel/workspaces/2026-07-18/go-go-wm/go-go-wm/pkg/doc/logcopter.go
+[gosec] 2026/07/19 20:45:20 Import directory: /home/manuel/workspaces/2026-07-18/go-go-wm/go-go-wm/pkg/xshm
+[gosec] 2026/07/19 20:45:21 Checking package: xapp
+[gosec] 2026/07/19 20:45:21 Checking file: /home/manuel/workspaces/2026-07-18/go-go-wm/go-go-wm/pkg/apps/xapp/logcopter.go
+[gosec] 2026/07/19 20:45:21 Checking file: /home/manuel/workspaces/2026-07-18/go-go-wm/go-go-wm/pkg/apps/xapp/xapp.go
+[gosec] 2026/07/19 20:45:21 Import directory: /home/manuel/workspaces/2026-07-18/go-go-wm/go-go-wm/pkg/apps/uispec
+[gosec] 2026/07/19 20:45:21 Checking package: broker
+[gosec] 2026/07/19 20:45:21 Checking file: /home/manuel/workspaces/2026-07-18/go-go-wm/go-go-wm/pkg/pbui/broker/broker.go
+[gosec] 2026/07/19 20:45:21 Checking file: /home/manuel/workspaces/2026-07-18/go-go-wm/go-go-wm/pkg/pbui/broker/json.go
+[gosec] 2026/07/19 20:45:21 Checking package: demoapps
+[gosec] 2026/07/19 20:45:21 Checking file: /home/manuel/workspaces/2026-07-18/go-go-wm/go-go-wm/pkg/pbui/broker/logcopter.go
+[gosec] 2026/07/19 20:45:21 Checking file: /home/manuel/workspaces/2026-07-18/go-go-wm/go-go-wm/pkg/apps/demoapps/colors.go
+[gosec] 2026/07/19 20:45:21 Checking file: /home/manuel/workspaces/2026-07-18/go-go-wm/go-go-wm/pkg/apps/demoapps/files.go
+[gosec] 2026/07/19 20:45:21 Checking file: /home/manuel/workspaces/2026-07-18/go-go-wm/go-go-wm/pkg/apps/demoapps/logcopter.go
+[gosec] 2026/07/19 20:45:21 Checking file: /home/manuel/workspaces/2026-07-18/go-go-wm/go-go-wm/pkg/apps/demoapps/markdown.go
+[gosec] 2026/07/19 20:45:21 Checking file: /home/manuel/workspaces/2026-07-18/go-go-wm/go-go-wm/pkg/apps/demoapps/notes.go
+[gosec] 2026/07/19 20:45:21 Checking file: /home/manuel/workspaces/2026-07-18/go-go-wm/go-go-wm/pkg/apps/demoapps/todo.go
+[gosec] 2026/07/19 20:45:21 Import directory: /home/manuel/workspaces/2026-07-18/go-go-wm/go-go-wm/pkg/draw
+[gosec] 2026/07/19 20:45:21 Import directory: /home/manuel/workspaces/2026-07-18/go-go-wm/go-go-wm/pkg/wmcore
+[gosec] 2026/07/19 20:45:21 Checking package: xshm
+[gosec] 2026/07/19 20:45:21 Checking file: /home/manuel/workspaces/2026-07-18/go-go-wm/go-go-wm/pkg/xshm/logcopter.go
+[gosec] 2026/07/19 20:45:21 Checking file: /home/manuel/workspaces/2026-07-18/go-go-wm/go-go-wm/pkg/xshm/xshm.go
+[gosec] 2026/07/19 20:45:21 Checking package: main
+[gosec] 2026/07/19 20:45:21 Checking file: /home/manuel/workspaces/2026-07-18/go-go-wm/go-go-wm/cmd/go-go-wm/main.go
+[gosec] 2026/07/19 20:45:21 Import directory: /home/manuel/workspaces/2026-07-18/go-go-wm/go-go-wm/pkg/xgojaprovider
+[gosec] 2026/07/19 20:45:21 Import directory: /home/manuel/workspaces/2026-07-18/go-go-wm/go-go-wm
+[gosec] 2026/07/19 20:45:21 Checking package: wmmod
+[gosec] 2026/07/19 20:45:21 Checking file: /home/manuel/workspaces/2026-07-18/go-go-wm/go-go-wm/pkg/jsmod/wmmod/backend.go
+[gosec] 2026/07/19 20:45:21 Checking file: /home/manuel/workspaces/2026-07-18/go-go-wm/go-go-wm/pkg/jsmod/wmmod/logcopter.go
+[gosec] 2026/07/19 20:45:21 Checking file: /home/manuel/workspaces/2026-07-18/go-go-wm/go-go-wm/pkg/jsmod/wmmod/module.go
+[gosec] 2026/07/19 20:45:21 Checking file: /home/manuel/workspaces/2026-07-18/go-go-wm/go-go-wm/pkg/jsmod/wmmod/rules.go
+[gosec] 2026/07/19 20:45:21 Checking file: /home/manuel/workspaces/2026-07-18/go-go-wm/go-go-wm/pkg/jsmod/wmmod/sugar.go
+[gosec] 2026/07/19 20:45:21 Checking package: gogowm
+[gosec] 2026/07/19 20:45:21 Checking file: /home/manuel/workspaces/2026-07-18/go-go-wm/go-go-wm/logcopter_generate.go
+[gosec] 2026/07/19 20:45:21 Import directory: /home/manuel/workspaces/2026-07-18/go-go-wm/go-go-wm/pkg/apps
+[gosec] 2026/07/19 20:45:21 Checking package: uispec
+[gosec] 2026/07/19 20:45:21 Checking file: /home/manuel/workspaces/2026-07-18/go-go-wm/go-go-wm/pkg/apps/uispec/logcopter.go
+[gosec] 2026/07/19 20:45:21 Import directory: /home/manuel/workspaces/2026-07-18/go-go-wm/go-go-wm/pkg
+[gosec] 2026/07/19 20:45:21 Checking file: /home/manuel/workspaces/2026-07-18/go-go-wm/go-go-wm/pkg/apps/uispec/uispec.go
+[gosec] 2026/07/19 20:45:21 Import directory: /home/manuel/workspaces/2026-07-18/go-go-wm/go-go-wm/pkg/jsmod/pbuimod
+[gosec] 2026/07/19 20:45:21 Checking package: wmx11
+[gosec] 2026/07/19 20:45:21 Checking file: /home/manuel/workspaces/2026-07-18/go-go-wm/go-go-wm/pkg/wmx11/bars.go
+[gosec] 2026/07/19 20:45:21 Checking file: /home/manuel/workspaces/2026-07-18/go-go-wm/go-go-wm/pkg/wmx11/builtin.go
+[gosec] 2026/07/19 20:45:21 Checking file: /home/manuel/workspaces/2026-07-18/go-go-wm/go-go-wm/pkg/wmx11/divider.go
+[gosec] 2026/07/19 20:45:21 Checking file: /home/manuel/workspaces/2026-07-18/go-go-wm/go-go-wm/pkg/wmx11/events.go
+[gosec] 2026/07/19 20:45:21 Checking file: /home/manuel/workspaces/2026-07-18/go-go-wm/go-go-wm/pkg/wmx11/ewmh.go
+[gosec] 2026/07/19 20:45:21 Checking file: /home/manuel/workspaces/2026-07-18/go-go-wm/go-go-wm/pkg/wmx11/float.go
+[gosec] 2026/07/19 20:45:21 Checking file: /home/manuel/workspaces/2026-07-18/go-go-wm/go-go-wm/pkg/wmx11/fullscreen.go
+[gosec] 2026/07/19 20:45:21 Checking file: /home/manuel/workspaces/2026-07-18/go-go-wm/go-go-wm/pkg/wmx11/input.go
+[gosec] 2026/07/19 20:45:21 Checking file: /home/manuel/workspaces/2026-07-18/go-go-wm/go-go-wm/pkg/wmx11/ipc.go
+[gosec] 2026/07/19 20:45:21 Checking file: /home/manuel/workspaces/2026-07-18/go-go-wm/go-go-wm/pkg/wmx11/launcher.go
+[gosec] 2026/07/19 20:45:21 Checking file: /home/manuel/workspaces/2026-07-18/go-go-wm/go-go-wm/pkg/wmx11/logcopter.go
+[gosec] 2026/07/19 20:45:21 Checking file: /home/manuel/workspaces/2026-07-18/go-go-wm/go-go-wm/pkg/wmx11/manage.go
+[gosec] 2026/07/19 20:45:21 Checking file: /home/manuel/workspaces/2026-07-18/go-go-wm/go-go-wm/pkg/wmx11/pbui.go
+[gosec] 2026/07/19 20:45:21 Checking file: /home/manuel/workspaces/2026-07-18/go-go-wm/go-go-wm/pkg/wmx11/scripting.go
+[gosec] 2026/07/19 20:45:21 Checking file: /home/manuel/workspaces/2026-07-18/go-go-wm/go-go-wm/pkg/wmx11/scripttiles.go
+[gosec] 2026/07/19 20:45:21 Checking file: /home/manuel/workspaces/2026-07-18/go-go-wm/go-go-wm/pkg/wmx11/theme.go
+[gosec] 2026/07/19 20:45:21 Checking file: /home/manuel/workspaces/2026-07-18/go-go-wm/go-go-wm/pkg/wmx11/util.go
+[gosec] 2026/07/19 20:45:21 Checking file: /home/manuel/workspaces/2026-07-18/go-go-wm/go-go-wm/pkg/wmx11/wm.go
+[gosec] 2026/07/19 20:45:21 Checking package: draw
+[gosec] 2026/07/19 20:45:21 Checking file: /home/manuel/workspaces/2026-07-18/go-go-wm/go-go-wm/pkg/draw/launcher.go
+[gosec] 2026/07/19 20:45:21 Checking file: /home/manuel/workspaces/2026-07-18/go-go-wm/go-go-wm/pkg/draw/logcopter.go
+[gosec] 2026/07/19 20:45:21 Checking file: /home/manuel/workspaces/2026-07-18/go-go-wm/go-go-wm/pkg/draw/plot.go
+[gosec] 2026/07/19 20:45:21 Checking file: /home/manuel/workspaces/2026-07-18/go-go-wm/go-go-wm/pkg/draw/theme.go
+[gosec] 2026/07/19 20:45:21 Checking package: wmcore
+[gosec] 2026/07/19 20:45:21 Checking file: /home/manuel/workspaces/2026-07-18/go-go-wm/go-go-wm/pkg/wmcore/desktop.go
+[gosec] 2026/07/19 20:45:21 Import directory: /home/manuel/workspaces/2026-07-18/go-go-wm/go-go-wm/pkg/jsmod/uimod
+[gosec] 2026/07/19 20:45:21 Checking file: /home/manuel/workspaces/2026-07-18/go-go-wm/go-go-wm/pkg/draw/widgets.go
+[gosec] 2026/07/19 20:45:21 Checking file: /home/manuel/workspaces/2026-07-18/go-go-wm/go-go-wm/pkg/wmcore/layout.go
+[gosec] 2026/07/19 20:45:21 Checking file: /home/manuel/workspaces/2026-07-18/go-go-wm/go-go-wm/pkg/wmcore/logcopter.go
+[gosec] 2026/07/19 20:45:21 Checking file: /home/manuel/workspaces/2026-07-18/go-go-wm/go-go-wm/pkg/wmcore/neighbor.go
+[gosec] 2026/07/19 20:45:21 Checking file: /home/manuel/workspaces/2026-07-18/go-go-wm/go-go-wm/pkg/wmcore/ops.go
+[gosec] 2026/07/19 20:45:21 Checking file: /home/manuel/workspaces/2026-07-18/go-go-wm/go-go-wm/pkg/wmcore/tree.go
+[gosec] 2026/07/19 20:45:21 Checking file: /home/manuel/workspaces/2026-07-18/go-go-wm/go-go-wm/pkg/draw/ximage.go
+[gosec] 2026/07/19 20:45:21 Import directory: /home/manuel/workspaces/2026-07-18/go-go-wm/go-go-wm/pkg/pbui/client
+[gosec] 2026/07/19 20:45:21 Checking package: apps
+[gosec] 2026/07/19 20:45:21 Checking file: /home/manuel/workspaces/2026-07-18/go-go-wm/go-go-wm/pkg/apps/apps.go
+[gosec] 2026/07/19 20:45:21 Checking file: /home/manuel/workspaces/2026-07-18/go-go-wm/go-go-wm/pkg/apps/builtin.go
+[gosec] 2026/07/19 20:45:21 Import directory: /home/manuel/workspaces/2026-07-18/go-go-wm/go-go-wm/pkg/pbui/present
+[gosec] 2026/07/19 20:45:21 Checking file: /home/manuel/workspaces/2026-07-18/go-go-wm/go-go-wm/pkg/apps/demo.go
+[gosec] 2026/07/19 20:45:21 Checking file: /home/manuel/workspaces/2026-07-18/go-go-wm/go-go-wm/pkg/apps/logcopter.go
+[gosec] 2026/07/19 20:45:22 Checking package: pkg
+[gosec] 2026/07/19 20:45:22 Checking file: /home/manuel/workspaces/2026-07-18/go-go-wm/go-go-wm/pkg/doc.go
+[gosec] 2026/07/19 20:45:22 Checking file: /home/manuel/workspaces/2026-07-18/go-go-wm/go-go-wm/pkg/logcopter.go
+[gosec] 2026/07/19 20:45:22 Checking package: cmds
+[gosec] 2026/07/19 20:45:22 Checking file: /home/manuel/workspaces/2026-07-18/go-go-wm/go-go-wm/pkg/cmds/accept.go
+[gosec] 2026/07/19 20:45:22 Checking file: /home/manuel/workspaces/2026-07-18/go-go-wm/go-go-wm/pkg/cmds/broker.go
+[gosec] 2026/07/19 20:45:22 Checking file: /home/manuel/workspaces/2026-07-18/go-go-wm/go-go-wm/pkg/cmds/demo.go
+[gosec] 2026/07/19 20:45:22 Checking file: /home/manuel/workspaces/2026-07-18/go-go-wm/go-go-wm/pkg/cmds/kitty_install.go
+[gosec] 2026/07/19 20:45:22 Checking file: /home/manuel/workspaces/2026-07-18/go-go-wm/go-go-wm/pkg/cmds/logcopter.go
+[gosec] 2026/07/19 20:45:22 Checking file: /home/manuel/workspaces/2026-07-18/go-go-wm/go-go-wm/pkg/cmds/present.go
+[gosec] 2026/07/19 20:45:22 Checking file: /home/manuel/workspaces/2026-07-18/go-go-wm/go-go-wm/pkg/cmds/query.go
+[gosec] 2026/07/19 20:45:22 Checking file: /home/manuel/workspaces/2026-07-18/go-go-wm/go-go-wm/pkg/cmds/query_wm.go
+[gosec] 2026/07/19 20:45:22 Checking file: /home/manuel/workspaces/2026-07-18/go-go-wm/go-go-wm/pkg/cmds/rc.go
+[gosec] 2026/07/19 20:45:22 Checking file: /home/manuel/workspaces/2026-07-18/go-go-wm/go-go-wm/pkg/cmds/repl.go
+[gosec] 2026/07/19 20:45:22 Checking file: /home/manuel/workspaces/2026-07-18/go-go-wm/go-go-wm/pkg/cmds/replui.go
+[gosec] 2026/07/19 20:45:22 Checking file: /home/manuel/workspaces/2026-07-18/go-go-wm/go-go-wm/pkg/cmds/run.go
+[gosec] 2026/07/19 20:45:22 Checking file: /home/manuel/workspaces/2026-07-18/go-go-wm/go-go-wm/pkg/cmds/scrape.go
+[gosec] 2026/07/19 20:45:22 Checking file: /home/manuel/workspaces/2026-07-18/go-go-wm/go-go-wm/pkg/cmds/testwin.go
+[gosec] 2026/07/19 20:45:22 Checking file: /home/manuel/workspaces/2026-07-18/go-go-wm/go-go-wm/pkg/cmds/wm.go
+[gosec] 2026/07/19 20:45:22 Checking package: present
+[gosec] 2026/07/19 20:45:22 Checking file: /home/manuel/workspaces/2026-07-18/go-go-wm/go-go-wm/pkg/pbui/present/logcopter.go
+[gosec] 2026/07/19 20:45:22 Checking file: /home/manuel/workspaces/2026-07-18/go-go-wm/go-go-wm/pkg/pbui/present/present.go
+[gosec] 2026/07/19 20:45:22 Checking package: client
+[gosec] 2026/07/19 20:45:22 Checking file: /home/manuel/workspaces/2026-07-18/go-go-wm/go-go-wm/pkg/pbui/client/client.go
+[gosec] 2026/07/19 20:45:22 Checking file: /home/manuel/workspaces/2026-07-18/go-go-wm/go-go-wm/pkg/pbui/client/json.go
+[gosec] 2026/07/19 20:45:22 Checking file: /home/manuel/workspaces/2026-07-18/go-go-wm/go-go-wm/pkg/pbui/client/logcopter.go
+[gosec] 2026/07/19 20:45:22 Checking package: pbuimod
+[gosec] 2026/07/19 20:45:22 Checking file: /home/manuel/workspaces/2026-07-18/go-go-wm/go-go-wm/pkg/jsmod/pbuimod/accept.go
+[gosec] 2026/07/19 20:45:22 Checking file: /home/manuel/workspaces/2026-07-18/go-go-wm/go-go-wm/pkg/jsmod/pbuimod/logcopter.go
+[gosec] 2026/07/19 20:45:22 Checking file: /home/manuel/workspaces/2026-07-18/go-go-wm/go-go-wm/pkg/jsmod/pbuimod/module.go
+[gosec] 2026/07/19 20:45:22 Checking file: /home/manuel/workspaces/2026-07-18/go-go-wm/go-go-wm/pkg/jsmod/pbuimod/verbs.go
+[gosec] 2026/07/19 20:45:22 Checking package: uimod
+[gosec] 2026/07/19 20:45:22 Checking file: /home/manuel/workspaces/2026-07-18/go-go-wm/go-go-wm/pkg/jsmod/uimod/app.go
+[gosec] 2026/07/19 20:45:22 Checking file: /home/manuel/workspaces/2026-07-18/go-go-wm/go-go-wm/pkg/jsmod/uimod/logcopter.go
+[gosec] 2026/07/19 20:45:22 Checking file: /home/manuel/workspaces/2026-07-18/go-go-wm/go-go-wm/pkg/jsmod/uimod/module.go
+[gosec] 2026/07/19 20:45:22 Checking package: xgojaprovider
+[gosec] 2026/07/19 20:45:22 Checking file: /home/manuel/workspaces/2026-07-18/go-go-wm/go-go-wm/pkg/xgojaprovider/logcopter.go
+[gosec] 2026/07/19 20:45:22 Checking file: /home/manuel/workspaces/2026-07-18/go-go-wm/go-go-wm/pkg/xgojaprovider/provider.go
+Results:
+
+
+[[97;41m/home/manuel/workspaces/2026-07-18/go-go-wm/go-go-wm/pkg/apps/uispec/uispec.go:491[0m] - G115 (CWE-190): integer overflow conversion int -> uint8 (Confidence: MEDIUM, Severity: HIGH)
+    490: 	_, _ = fmt.Sscanf(s[1:], "%02x%02x%02x", &r, &g, &b)
+  > 491: 	return color.RGBA{R: uint8(r), G: uint8(g), B: uint8(b), A: 255}
+    492: }
+
+Autofix: 
+
+[[97;41m/home/manuel/workspaces/2026-07-18/go-go-wm/go-go-wm/pkg/apps/uispec/uispec.go:491[0m] - G115 (CWE-190): integer overflow conversion int -> uint8 (Confidence: MEDIUM, Severity: HIGH)
+    490: 	_, _ = fmt.Sscanf(s[1:], "%02x%02x%02x", &r, &g, &b)
+  > 491: 	return color.RGBA{R: uint8(r), G: uint8(g), B: uint8(b), A: 255}
+    492: }
+
+Autofix: 
+
+[[97;41m/home/manuel/workspaces/2026-07-18/go-go-wm/go-go-wm/pkg/apps/uispec/uispec.go:491[0m] - G115 (CWE-190): integer overflow conversion int -> uint8 (Confidence: MEDIUM, Severity: HIGH)
+    490: 	_, _ = fmt.Sscanf(s[1:], "%02x%02x%02x", &r, &g, &b)
+  > 491: 	return color.RGBA{R: uint8(r), G: uint8(g), B: uint8(b), A: 255}
+    492: }
+
+Autofix: 
+
+[[97;41m/home/manuel/workspaces/2026-07-18/go-go-wm/go-go-wm/pkg/apps/apps.go:147[0m] - G115 (CWE-190): integer overflow conversion int -> uint8 (Confidence: MEDIUM, Severity: HIGH)
+    146: 		G: uint8(hex(s[3])<<4 | hex(s[4])),
+  > 147: 		B: uint8(hex(s[5])<<4 | hex(s[6])),
+    148: 		A: 0xff,
+
+Autofix: 
+
+[[97;41m/home/manuel/workspaces/2026-07-18/go-go-wm/go-go-wm/pkg/apps/apps.go:146[0m] - G115 (CWE-190): integer overflow conversion int -> uint8 (Confidence: MEDIUM, Severity: HIGH)
+    145: 		R: uint8(hex(s[1])<<4 | hex(s[2])),
+  > 146: 		G: uint8(hex(s[3])<<4 | hex(s[4])),
+    147: 		B: uint8(hex(s[5])<<4 | hex(s[6])),
+
+Autofix: 
+
+[[97;41m/home/manuel/workspaces/2026-07-18/go-go-wm/go-go-wm/pkg/apps/apps.go:145[0m] - G115 (CWE-190): integer overflow conversion int -> uint8 (Confidence: MEDIUM, Severity: HIGH)
+    144: 	return color.RGBA{
+  > 145: 		R: uint8(hex(s[1])<<4 | hex(s[2])),
+    146: 		G: uint8(hex(s[3])<<4 | hex(s[4])),
+
+Autofix: 
+
+[[97;41m/home/manuel/workspaces/2026-07-18/go-go-wm/go-go-wm/pkg/xshm/xshm.go:88[0m] - G115 (CWE-190): integer overflow conversion int -> uint32 (Confidence: MEDIUM, Severity: HIGH)
+    87: 	if err == nil {
+  > 88: 		err = shm.AttachChecked(X.Conn(), seg, uint32(shmid), false).Check()
+    89: 	}
+
+Autofix: 
+
+[[97;41m/home/manuel/workspaces/2026-07-18/go-go-wm/go-go-wm/pkg/wmx11/fullscreen.go:47[0m] - G115 (CWE-190): integer overflow conversion int -> uint32 (Confidence: MEDIUM, Severity: HIGH)
+    46: 				xproto.ConfigWindowWidth|xproto.ConfigWindowHeight,
+  > 47: 			[]uint32{0, 0, uint32(full.W), uint32(full.H)})
+    48: 	}
+
+Autofix: 
+
+[[97;41m/home/manuel/workspaces/2026-07-18/go-go-wm/go-go-wm/pkg/wmx11/fullscreen.go:47[0m] - G115 (CWE-190): integer overflow conversion int -> uint32 (Confidence: MEDIUM, Severity: HIGH)
+    46: 				xproto.ConfigWindowWidth|xproto.ConfigWindowHeight,
+  > 47: 			[]uint32{0, 0, uint32(full.W), uint32(full.H)})
+    48: 	}
+
+Autofix: 
+
+[[97;41m/home/manuel/workspaces/2026-07-18/go-go-wm/go-go-wm/pkg/xshm/xshm.go:103[0m] - G115 (CWE-190): integer overflow conversion int -> uint16 (Confidence: MEDIUM, Severity: HIGH)
+    102: 		err = shm.CreatePixmapChecked(X.Conn(), pid, drawable,
+  > 103: 			uint16(w), uint16(h), depth, seg, 0).Check()
+    104: 	}
+
+Autofix: 
+
+[[97;41m/home/manuel/workspaces/2026-07-18/go-go-wm/go-go-wm/pkg/xshm/xshm.go:103[0m] - G115 (CWE-190): integer overflow conversion int -> uint16 (Confidence: MEDIUM, Severity: HIGH)
+    102: 		err = shm.CreatePixmapChecked(X.Conn(), pid, drawable,
+  > 103: 			uint16(w), uint16(h), depth, seg, 0).Check()
+    104: 	}
+
+Autofix: 
+
+[[97;41m/home/manuel/workspaces/2026-07-18/go-go-wm/go-go-wm/pkg/apps/demoapps/colors.go:29[0m] - G404 (CWE-338): Use of weak random number generator (math/rand or math/rand/v2 instead of crypto/rand) (Confidence: MEDIUM, Severity: HIGH)
+    28: 		Swatches: []string{"#b0563f", "#d3b56a", "#9cb4c2", "#a9bda2", "#b3abc4", "#cfa08f"},
+  > 29: 		rng:      rand.New(rand.NewSource(20260718)),
+    30: 	}
+
+Autofix: 
+
+[[97;41m/home/manuel/workspaces/2026-07-18/go-go-wm/go-go-wm/pkg/cmds/wm.go:6[0m] - G108 (CWE-200): Profiling endpoint is automatically exposed on /debug/pprof (Confidence: HIGH, Severity: HIGH)
+    5: 	"net/http"
+  > 6: 	_ "net/http/pprof"
+    7: 	"os"
+
+Autofix: 
+
+[[97;41m/home/manuel/workspaces/2026-07-18/go-go-wm/go-go-wm/pkg/cmds/kitty_install.go:90[0m] - G703 (CWE-22): Path traversal via taint analysis (Confidence: HIGH, Severity: HIGH)
+    89: 	}
+  > 90: 	f, err := os.OpenFile(oa, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o644)
+    91: 	if err != nil {
+
+Autofix: 
+
+[[97;41m/home/manuel/workspaces/2026-07-18/go-go-wm/go-go-wm/pkg/cmds/kitty_install.go:85[0m] - G703 (CWE-22): Path traversal via taint analysis (Confidence: HIGH, Severity: HIGH)
+    84: 	oa := filepath.Join(dir, "open-actions.conf")
+  > 85: 	existing, _ := os.ReadFile(oa)
+    86: 	if containsMarker(string(existing)) {
+
+Autofix: 
+
+[[97;41m/home/manuel/workspaces/2026-07-18/go-go-wm/go-go-wm/pkg/cmds/kitty_install.go:79[0m] - G703 (CWE-22): Path traversal via taint analysis (Confidence: HIGH, Severity: HIGH)
+    78: 	}
+  > 79: 	if err := os.WriteFile(kitten, kittenSource, 0o644); err != nil {
+    80: 		return err
+
+Autofix: 
+
+[[97;41m/home/manuel/workspaces/2026-07-18/go-go-wm/go-go-wm/pkg/cmds/kitty_install.go:76[0m] - G703 (CWE-22): Path traversal via taint analysis (Confidence: HIGH, Severity: HIGH)
+    75: 	kitten := filepath.Join(dir, "pbui_accept.py")
+  > 76: 	if _, err := os.Stat(kitten); err == nil && !s.Force {
+    77: 		return fmt.Errorf("%s exists (use --force to overwrite)", kitten)
+
+Autofix: 
+
+[[97;41m/home/manuel/workspaces/2026-07-18/go-go-wm/go-go-wm/pkg/cmds/kitty_install.go:71[0m] - G703 (CWE-22): Path traversal via taint analysis (Confidence: HIGH, Severity: HIGH)
+    70: 	}
+  > 71: 	if err := os.MkdirAll(dir, 0o755); err != nil {
+    72: 		return err
+
+Autofix: 
+
+[[30;43m/home/manuel/workspaces/2026-07-18/go-go-wm/go-go-wm/pkg/cmds/wm.go:82[0m] - G114 (CWE-676): Use of net/http serve function that has no support for setting timeouts (Confidence: HIGH, Severity: MEDIUM)
+    81: 			log.Info().Str("addr", addr).Msg("pprof listening")
+  > 82: 			if err := http.ListenAndServe(addr, nil); err != nil {
+    83: 				log.Warn().Err(err).Msg("pprof server failed")
+
+Autofix: 
+
+[[30;43m/home/manuel/workspaces/2026-07-18/go-go-wm/go-go-wm/pkg/cmds/kitty_install.go:90[0m] - G302 (CWE-276): Expect file permissions to be 0600 or less (Confidence: HIGH, Severity: MEDIUM)
+    89: 	}
+  > 90: 	f, err := os.OpenFile(oa, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o644)
+    91: 	if err != nil {
+
+Autofix: 
+
+[1;36mSummary:[0m
+  Gosec  : dev
+  Files  : 108
+  Lines  : 16994
+  Nosec  : 0
+  Issues : [1;31m20[0m
+

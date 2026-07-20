@@ -22,6 +22,7 @@ type TitleStrip struct {
 	Color   color.RGBA
 	Focused bool
 	Width   int
+	Float   bool // floating windows: close button only (no split buttons)
 }
 
 // Button hit zones, right-aligned: [✕][⬍][⬌] from the right edge.
@@ -39,40 +40,46 @@ func TitleButtons(width int) (image.Rectangle, image.Rectangle, image.Rectangle,
 
 // Render draws the strip into a fresh image.
 func (t TitleStrip) Render() *image.RGBA {
+	pal := Current()
 	img := image.NewRGBA(image.Rect(0, 0, t.Width, TitleH))
 	bg := t.Color
 	Fill(img, img.Bounds(), bg)
 	// Bottom rule separating strip from client area.
-	Fill(img, image.Rect(0, TitleH-BorderW, t.Width, TitleH), Ink)
+	Fill(img, image.Rect(0, TitleH-BorderW, t.Width, TitleH), pal.Ink)
 
 	// ⠿ grip: a 3x2 dot matrix (glyph fallback-proof).
 	for row := 0; row < 3; row++ {
 		for col := 0; col < 2; col++ {
 			x, y := 7+col*4, 5+row*4
-			Fill(img, image.Rect(x, y, x+2, y+2), Ink)
+			Fill(img, image.Rect(x, y, x+2, y+2), pal.Ink)
 		}
 	}
 
 	title := t.Title
-	Text(img, 24, 15, upper(title), true, 11, Ink)
+	Text(img, 24, 15, upper(title), true, 11, pal.Ink)
 	if t.Focused {
 		// Focused tiles get an underline accent under the title.
 		w := TextWidth(upper(title), true, 11)
-		Fill(img, image.Rect(24, 17, 24+w, 18), Ink)
+		Fill(img, image.Rect(24, 17, 24+w, 18), pal.Ink)
 	}
 
-	// Buttons, right-aligned boxes with 1px borders.
+	// Buttons, right-aligned boxes with 1px borders. Floats get close
+	// only — splitting a dialog is meaningless.
 	_, sr, sd, cl := TitleButtons(t.Width)
-	for i, b := range []struct {
+	buttons := []struct {
 		r     image.Rectangle
 		label string
-	}{{sr, "|"}, {sd, "-"}, {cl, "x"}} {
+	}{{sr, "|"}, {sd, "-"}, {cl, "x"}}
+	if t.Float {
+		buttons = buttons[2:]
+	}
+	for i, b := range buttons {
 		_ = i
 		inner := image.Rect(b.r.Min.X+3, 3, b.r.Max.X-3, TitleH-5)
-		Fill(img, inner, PaneAlt)
-		Border(img, inner, 1, Ink)
+		Fill(img, inner, pal.PaneAlt)
+		Border(img, inner, 1, pal.Ink)
 		lw := TextWidth(b.label, true, 10)
-		Text(img, inner.Min.X+(inner.Dx()-lw)/2, inner.Max.Y-4, b.label, true, 10, Ink)
+		Text(img, inner.Min.X+(inner.Dx()-lw)/2, inner.Max.Y-4, b.label, true, 10, pal.Ink)
 	}
 	return img
 }
@@ -85,10 +92,11 @@ type Banner struct {
 }
 
 func (b Banner) Render() *image.RGBA {
+	pal := Current()
 	img := image.NewRGBA(image.Rect(0, 0, b.Width, BarH))
-	Fill(img, img.Bounds(), Red)
+	Fill(img, img.Bounds(), pal.Red)
 	label := "ACCEPTING <" + join(b.Ptypes, "|") + "> — " + b.Prompt + " — Esc cancels"
-	Text(img, 10, 16, label, true, 11, Paper)
+	Text(img, 10, 16, label, true, 11, pal.Paper)
 	return img
 }
 
@@ -102,15 +110,16 @@ type StatusLine struct {
 }
 
 func (s StatusLine) Render() *image.RGBA {
+	pal := Current()
 	img := image.NewRGBA(image.Rect(0, 0, s.Width, BarH))
-	Fill(img, img.Bounds(), Ink)
+	Fill(img, img.Bounds(), pal.Ink)
 	x := 10
-	x += Text(img, x, 16, s.Mode, true, 11, Mustard)
+	x += Text(img, x, 16, s.Mode, true, 11, pal.Mustard)
 	x += 16
-	Text(img, x, 16, s.Doc, false, 11, Paper)
+	Text(img, x, 16, s.Doc, false, 11, pal.Paper)
 	if s.Counts != "" {
 		w := TextWidth(s.Counts, false, 11)
-		Text(img, s.Width-w-10, 16, s.Counts, false, 11, Faint)
+		Text(img, s.Width-w-10, 16, s.Counts, false, 11, pal.Faint)
 	}
 	return img
 }
@@ -136,19 +145,20 @@ func (t TopBar) TopBarChips() []image.Rectangle {
 }
 
 func (t TopBar) Render() *image.RGBA {
+	pal := Current()
 	img := image.NewRGBA(image.Rect(0, 0, t.Width, BarH))
-	Fill(img, img.Bounds(), Paper)
-	Fill(img, image.Rect(0, BarH-1, t.Width, BarH), Ink)
-	Text(img, 10, 16, "WORKSPACES", true, 10, Ink)
+	Fill(img, img.Bounds(), pal.Paper)
+	Fill(img, image.Rect(0, BarH-1, t.Width, BarH), pal.Ink)
+	Text(img, 10, 16, "WORKSPACES", true, 10, pal.Ink)
 	for i, r := range t.TopBarChips() {
-		bg := PaneAlt
+		bg := pal.PaneAlt
 		bold := false
 		if i == t.Current {
-			bg, bold = Sel, true
+			bg, bold = pal.Sel, true
 		}
 		Fill(img, r, bg)
-		Border(img, r, 2, Ink)
-		Text(img, r.Min.X+9, 17, t.Workspaces[i], bold, 11, Ink)
+		Border(img, r, 2, pal.Ink)
+		Text(img, r.Min.X+9, 17, t.Workspaces[i], bold, 11, pal.Ink)
 	}
 	return img
 }
@@ -190,30 +200,31 @@ func (m Menu) MenuItemAt(x, y int) int {
 }
 
 func (m Menu) Render() *image.RGBA {
+	pal := Current()
 	w, h := m.MenuSize()
 	img := image.NewRGBA(image.Rect(0, 0, w, h))
 	// Hard shadow: offset ink rect under the panel.
-	Fill(img, image.Rect(4, 4, w, h), Ink)
+	Fill(img, image.Rect(4, 4, w, h), pal.Ink)
 	panel := image.Rect(0, 0, w-4, h-4)
-	Fill(img, panel, Pane)
-	Border(img, panel, BorderW, Ink)
+	Fill(img, panel, pal.Pane)
+	Border(img, panel, BorderW, pal.Ink)
 	// Header band.
 	hdr := image.Rect(BorderW, BorderW, panel.Max.X-BorderW, 18)
-	Fill(img, hdr, Ink)
-	Text(img, 8, 14, m.Header, true, 10, Paper)
+	Fill(img, hdr, pal.Ink)
+	Text(img, 8, 14, m.Header, true, 10, pal.Paper)
 	y := 18 + BorderW
 	for i, it := range m.Items {
 		row := image.Rect(BorderW, y, panel.Max.X-BorderW, y+MenuRowH)
 		if i == m.Hover {
-			Fill(img, row, Sel)
+			Fill(img, row, pal.Sel)
 		}
 		if i > 0 {
 			// Dotted separator.
 			for x := row.Min.X + 4; x < row.Max.X-4; x += 4 {
-				Fill(img, image.Rect(x, y, x+2, y+1), Faint)
+				Fill(img, image.Rect(x, y, x+2, y+1), pal.Faint)
 			}
 		}
-		Text(img, 12, y+15, it, false, 11, Ink)
+		Text(img, 12, y+15, it, false, 11, pal.Ink)
 		y += MenuRowH
 	}
 	return img
@@ -227,15 +238,16 @@ type DropPreview struct {
 }
 
 func (d DropPreview) Render() *image.RGBA {
+	pal := Current()
 	img := image.NewRGBA(image.Rect(0, 0, d.W, d.H))
-	Stipple(img, img.Bounds(), Red)
-	DashedBorder(img, img.Bounds(), 3, 6, Red)
+	Stipple(img, img.Bounds(), pal.Red)
+	DashedBorder(img, img.Bounds(), 3, 6, pal.Red)
 	lw := TextWidth(d.Label, true, 10) + 16
 	chip := image.Rect((d.W-lw)/2, d.H/2-10, (d.W+lw)/2, d.H/2+10)
-	Fill(img, image.Rect(chip.Min.X+2, chip.Min.Y+2, chip.Max.X+2, chip.Max.Y+2), Ink)
-	Fill(img, chip, Pane)
-	Border(img, chip, 2, Ink)
-	Text(img, chip.Min.X+8, chip.Max.Y-6, d.Label, true, 10, Ink)
+	Fill(img, image.Rect(chip.Min.X+2, chip.Min.Y+2, chip.Max.X+2, chip.Max.Y+2), pal.Ink)
+	Fill(img, chip, pal.Pane)
+	Border(img, chip, 2, pal.Ink)
+	Text(img, chip.Min.X+8, chip.Max.Y-6, d.Label, true, 10, pal.Ink)
 	return img
 }
 
@@ -264,15 +276,16 @@ func join(ss []string, sep string) string {
 // DividerColor maps a divider interaction mode to its fill (idle → paper,
 // hot → paneAlt, dragging → sage, snapped → mustard; pbui-shell.jsx:192).
 func DividerColor(mode int) color.RGBA {
+	pal := Current()
 	switch mode {
 	case 1:
-		return PaneAlt
+		return pal.PaneAlt
 	case 2:
-		return Sage
+		return pal.Sage
 	case 3:
-		return Mustard
+		return pal.Mustard
 	default:
-		return Paper
+		return pal.Paper
 	}
 }
 

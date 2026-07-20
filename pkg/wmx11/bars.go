@@ -22,7 +22,7 @@ func (w *WM) setupBars() error {
 		}
 		err = win.CreateChecked(w.X.RootWin(), x, y, width, height,
 			xproto.CwBackPixel|xproto.CwOverrideRedirect|xproto.CwEventMask,
-			uint32(pixel(draw.Paper)), 1,
+			uint32(pixel(draw.Current().Paper)), 1,
 			xproto.EventMaskExposure|xproto.EventMaskButtonPress)
 		if err != nil {
 			return nil, err
@@ -94,14 +94,42 @@ func (w *WM) paintBars() {
 	w.blit(w.bottomBar, bottom)
 }
 
-// blit paints an RGBA image onto a window.
+// blit paints an RGBA image onto a window. The two bar windows are
+// painted on every op, so their X images are cached (the same buffer
+// discipline as frames, GGWM-005/006); transient windows (menus,
+// dividers, overlay) keep the allocate-and-destroy path.
 func (w *WM) blit(win *xwindow.Window, img *image.RGBA) {
-	ximg := xgraphics.NewConvert(w.X, img)
+	if w.topBar != nil && win.Id == w.topBar.Id {
+		w.blitCached(&w.topBarImg, win, img)
+		return
+	}
+	if w.bottomBar != nil && win.Id == w.bottomBar.Id {
+		w.blitCached(&w.bottomBarImg, win, img)
+		return
+	}
+	ximg := draw.ToXImage(w.X, img)
 	if err := ximg.XSurfaceSet(win.Id); err == nil {
 		ximg.XDraw()
 		ximg.XPaint(win.Id)
 	}
 	ximg.Destroy()
+}
+
+func (w *WM) blitCached(slot **xgraphics.Image, win *xwindow.Window, img *image.RGBA) {
+	if *slot == nil || (*slot).Bounds() != img.Bounds() {
+		if *slot != nil {
+			(*slot).Destroy()
+		}
+		*slot = xgraphics.New(w.X, img.Bounds())
+		if err := (*slot).XSurfaceSet(win.Id); err != nil {
+			(*slot).Destroy()
+			*slot = nil
+			return
+		}
+	}
+	draw.CopyToXImage(*slot, img)
+	(*slot).XDraw()
+	(*slot).XPaint(win.Id)
 }
 
 // --- drop preview ----------------------------------------------------------
@@ -119,7 +147,7 @@ func (w *WM) showDropPreview(tile wmcore.Rect, zone wmcore.Zone) {
 		}
 		err = win.CreateChecked(w.X.RootWin(), r.X, r.Y, r.W, r.H,
 			xproto.CwBackPixel|xproto.CwOverrideRedirect,
-			uint32(pixel(draw.Paper)), 1)
+			uint32(pixel(draw.Current().Paper)), 1)
 		if err != nil {
 			return
 		}

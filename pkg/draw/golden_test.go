@@ -40,8 +40,24 @@ func checkGolden(t *testing.T, name string, img *image.RGBA) {
 }
 
 func TestGoldenTitleStrip(t *testing.T) {
-	checkGolden(t, "title-strip", TitleStrip{Title: "color lab", Color: Rose, Width: 420}.Render())
-	checkGolden(t, "title-strip-focused", TitleStrip{Title: "listener", Color: Mint, Focused: true, Width: 420}.Render())
+	pal := Current()
+	checkGolden(t, "title-strip", TitleStrip{Title: "color lab", Color: pal.Rose, Width: 420}.Render())
+	checkGolden(t, "title-strip-focused", TitleStrip{Title: "listener", Color: pal.Mint, Focused: true, Width: 420}.Render())
+	checkGolden(t, "title-strip-float", TitleStrip{Title: "save as", Color: pal.Blue, Float: true, Width: 420}.Render())
+	checkGolden(t, "launcher-panel", LauncherPanel{
+		Query: "fire", Selected: 0, Width: 640, Height: 240,
+		Rows: []LauncherRow{
+			{Label: "Firefox", Doc: "Browse the web", Tag: "app", Tone: pal.Rose},
+			{Label: "firewall config", Doc: "gufw", Tag: "app", Tone: pal.Blue},
+			{Label: "trace", Doc: "open the trace tile", Tag: "builtin", Tone: pal.Sage},
+		},
+	}.Render())
+	checkGolden(t, "launcher-panel-empty", LauncherPanel{
+		Prompt: "run — type to filter", Width: 400, Height: 120, Compact: true,
+	}.Render())
+	checkGolden(t, "sparkline", Sparkline([]float64{1, 4, 2, 8, 5, 7, 3}, 200, 48))
+	checkGolden(t, "sparkline-flat", Sparkline([]float64{3, 3, 3}, 120, 32))
+	checkGolden(t, "bar-strip", BarStrip([]float64{2, -1, 4, 3, -2, 5}, 200, 48))
 }
 
 func TestGoldenBanner(t *testing.T) {

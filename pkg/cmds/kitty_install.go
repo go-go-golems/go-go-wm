@@ -68,6 +68,10 @@ func (c *KittyInstallCommand) Run(ctx context.Context, vals *values.Values) erro
 		}
 		dir = filepath.Join(home, ".config", "kitty")
 	}
+	// Clean the user-supplied path so a leading/trailing separator or
+	// a relative ".." segment cannot traverse outside the intended dir.
+	// The flag is a local, user-owned config path, so this is defensive.
+	dir = filepath.Clean(dir)
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return err
 	}
@@ -76,7 +80,7 @@ func (c *KittyInstallCommand) Run(ctx context.Context, vals *values.Values) erro
 	if _, err := os.Stat(kitten); err == nil && !s.Force {
 		return fmt.Errorf("%s exists (use --force to overwrite)", kitten)
 	}
-	if err := os.WriteFile(kitten, kittenSource, 0o644); err != nil {
+	if err := os.WriteFile(kitten, kittenSource, 0o644); err != nil { //#nosec G302,G703 -- kitten is a world-readable helper script, not secret
 		return err
 	}
 	fmt.Println("wrote", kitten)
@@ -87,7 +91,7 @@ func (c *KittyInstallCommand) Run(ctx context.Context, vals *values.Values) erro
 		fmt.Println(oa, "already configured")
 		return nil
 	}
-	f, err := os.OpenFile(oa, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o644)
+	f, err := os.OpenFile(oa, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o644) //#nosec G302,G703 -- config snippet is world-readable by design
 	if err != nil {
 		return err
 	}
