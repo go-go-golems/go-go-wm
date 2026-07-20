@@ -1,0 +1,9 @@
+pkg/wmx11/launcher.go:216:2: missing cases in switch of type launcher.Kind: launcher.KindApp (exhaustive)
+	switch c.Kind {
+	^
+pkg/cmds/replui.go:87:1: named return "console" with type "[]string" found (nonamedreturns)
+func (k *replKernel) eval(ctx context.Context, n int, input string) (console []string, errText, result string, val *repl.Value) {
+^
+2 issues:
+* exhaustive: 1
+* nonamedreturns: 1
