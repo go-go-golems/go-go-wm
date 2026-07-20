@@ -83,3 +83,64 @@ Five of the 16 Codex comments on PR #1 were all symptoms of the same root cause:
 - Ticket: `GGWM-011-FOCUS-FS` at `ttmp/2026/07/20/GGWM-011-FOCUS-FS--...`.
 - Source under analysis: `pkg/wmx11/{wm,fullscreen,manage,float,theme,input,ipc}.go`.
 - This is design-only: no source files were modified.
+
+## Step 2: Implemented Phase 0 (regression tests) + Phase 1 (fullscreenState read helpers)
+
+The user asked to implement Phase 0 and Phase 1. Phase 0 needed a test
+harness; the design doc flagged that pkg/wmx11 has almost no tests and the
+WM logic is hard to test without an X server. I resolved this by extracting
+the pure, display-free decision logic behind the RC fixes into testable
+helpers (matching the existing floatDecision pattern), then wiring the
+production code to call them — so the tests exercise the live logic.
+
+### Prompt Context
+
+**User prompt (verbatim):** "phase 0 + 1"
+
+**Assistant interpretation:** Implement Phase 0 (regression tests for RC-5/6/7/12/13) and Phase 1 (extract read-only fullscreenState helpers) of the GGWM-011 design.
+
+**Inferred user intent:** Start the structural refactor: lock in current behavior with tests, then begin the encapsulation by routing all fullscreen reads through one type.
+
+### What I did
+- **Phase 0 (commit `f`-prefixed, then `2e16ddd` parent):** created `pkg/wmx11/focus_state.go` with three pure decision helpers — `computeFocusDecision` (RC-5/7/13), `shouldHonorFloatConfigure` (RC-12), `shouldExitFullscreenOnSwitch` (RC-6). Wired `focus()`, `handleConfigureRequest()`, and `ApplyBatch()` to consult them. Added `focus_state_test.go` with 6 tests covering all five scenarios + a no-fullscreen cross-check. Checked off task `x3yh`.
+- **Phase 1 (commit `2e16ddd`):** introduced the `fullscreenState` type with read-only methods (`Active`, `Owns`, `OwnsGeometry`, `OwnsFocus`, `FocusTarget`). Added an `fs fullscreenState` field to `WM` (back-referenced to `w` in the constructor). Migrated every `w.fullscreen` read in `fullscreen.go`, `manage.go`, `theme.go`, and `focus_state.go` to route through `w.fs.*`. Added `newTestWM()` to wire the back-reference in tests. Checked off task `cet6`.
+
+### Why
+The decision-helper extraction (Phase 0) is the lowest-risk way to bridge the test-harness gap: it doesn't require Xvfb or a mock seam, it matches the existing `floatDecision` test style, and it makes the RC invariants unit-testable. Phase 1 then builds on that by making `fullscreenState` the single reader of `w.fullscreen`, so future code can't re-derive the fullscreen invariant wrong.
+
+### What worked
+- All 6 Phase 0 tests pass under `-race`; they would fail against the pre-fix code (the decisions encode the fixed behavior).
+- The `fullscreenState` back-pointer pattern is clean for production (initialized once in the constructor); tests use `newTestWM()`.
+- The grep audit confirms zero bare `w.fullscreen` reads remain outside `fullscreenState` itself.
+
+### What didn't work
+- First Phase 1 build: the Phase 0 tests constructed bare `&WM{}` without setting `w.fs.wm = w`, so `computeFocusDecision` → `w.fs.FocusTarget()` nil-deref'd. Fixed by adding `newTestWM()` and migrating the test constructors.
+- First lint run after Phase 0: the `switch dec.kind` in `focus()` was non-exhaustive (missing `focusNone`/`focusTile`/`focusFloat`). Fixed by adding explicit cases.
+
+### What I learned
+- The `floatDecision` test pattern (bare `&WM{}` + pure function) is the established way to test wmx11 logic without a display — the decision-helper extraction fits it naturally.
+- A back-pointer (`fs.wm = w`) is the cleanest way to give a value-type helper access to the WM without changing every call site to pass `w`.
+
+### What was tricky to build
+- Making the `focus()` switch exhaustive without changing behavior: `focusNone`/`focusFloat` are unreachable from `computeFocusDecision` but must be handled (as no-ops falling through to the tiled path) to satisfy `exhaustive`.
+- The RC-13 test asserts a *negative* contract (the decision must not carry a leaf that would clobber the preserved tile) plus the positive (w.focused stays intact) — because the preservation is implemented by the caller not assigning, not by the decision returning a value.
+
+### What warrants a second pair of eyes
+- The `focusNone`/`focusFloat` no-op fall-through in `focus()`: confirm these are genuinely unreachable from `computeFocusDecision` (they are — no fullscreen → `focusTile`; fullscreen → a `focusFullscreen*` kind), so the fall-through is just exhaustiveness hygiene.
+- The back-pointer: confirm no production path constructs a `WM` outside `NewWM` (only `NewWM` and `newTestWM` do, both set `fs.wm`).
+
+### What should be done in the future
+- Phase 2: move the fullscreen mutators (`enter/exit/clear/toggle`) into `fullscreenState` methods.
+- Phase 3: simplify `focus()` now that `FocusTarget()` centralizes the float-vs-tile distinction.
+- Add an Xvfb-based smoke test for the full keypress path (the decision tests cover the logic but not the X wiring).
+
+### Code review instructions
+- Review commits: Phase 0 (`focus_state.go` + `focus_state_test.go` + wiring in `manage.go`/`wm.go`) and Phase 1 (`2e16ddd`).
+- Validate: `env GOTOOLCHAIN=go1.26.5 go test ./... -race`, `golangci-lint run ./...`, `gosec -exclude=G101,G304,G301,G306,G204 ./...`.
+- Grep audit: `grep -rn 'w\.fullscreen\b' pkg/wmx11/*.go | grep -v '_test\|//\|fullscreenEventData\|w\.fullscreen =\|fs\.wm\.fullscreen'` → empty.
+
+### Technical details
+- Phase 0 commit: `focus_state.go` + `focus_state_test.go` + wiring (manage.go, wm.go).
+- Phase 1 commit: `2e16ddd`.
+- Verification: build OK, 15+ packages pass `-race`, lint 0 issues, gosec 0 issues (3 justified `#nosec`).
+- Tasks checked: `x3yh` (Phase 0), `cet6` (Phase 1).

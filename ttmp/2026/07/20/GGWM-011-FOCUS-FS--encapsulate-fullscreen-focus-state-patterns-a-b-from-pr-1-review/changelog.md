@@ -22,3 +22,13 @@ Replaced coarse Phase 4/5 with detailed Option B task breakdown (B1-B13): define
 
 - /home/manuel/workspaces/2026-07-18/go-go-wm/go-go-wm/ttmp/2026/07/20/GGWM-011-FOCUS-FS--encapsulate-fullscreen-focus-state-patterns-a-b-from-pr-1-review/tasks.md — Option B task breakdown B1-B13
 
+
+## 2026-07-20
+
+Implemented Phase 0 (regression tests for RC-5/6/7/12/13 via pure decision helpers) + Phase 1 (read-only fullscreenState: Active/Owns/OwnsGeometry/OwnsFocus/FocusTarget; all w.fullscreen reads routed through it). Build OK, tests pass -race, lint/gosec clean. Tasks x3yh + cet6 checked.
+
+### Related Files
+
+- /home/manuel/workspaces/2026-07-18/go-go-wm/go-go-wm/pkg/wmx11/focus_state.go — Phase 0 decision helpers + Phase 1 fullscreenState read methods
+- /home/manuel/workspaces/2026-07-18/go-go-wm/go-go-wm/pkg/wmx11/focus_state_test.go — RC-5/6/7/12/13 regression tests
+
