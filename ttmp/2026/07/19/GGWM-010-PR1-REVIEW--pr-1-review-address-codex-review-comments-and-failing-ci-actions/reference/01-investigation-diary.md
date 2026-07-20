@@ -267,3 +267,96 @@ GitHub Actions ran on the pushed branch. Of the 4 originally-failing checks:
 - ⚠️ **Dependency Review** — still fails, but NOT a code problem.
 
 The Dependency Review job logs show: `Dependency review is not supported on this repository. Please ensure that Dependency graph is enabled, see https://github.com/go-go-golems/go-go-wm/settings/security_analysis`. This is a **repository settings issue**: the repo's "Dependency graph" feature (Settings → Code security → Dependency graph) is not enabled, so the `dependency-review-action` cannot run. It requires a repo admin to toggle that setting — it cannot be fixed by code changes. This resolves the open question in the design doc (Part 6.2 / 9.3): the failure was never about a specific vulnerable third-party package; it was the missing repository feature.
+
+## Step 4: New Codex review on commit ad7570b3 — 5 more P2 comments (RC-6..RC-10)
+
+After the fixes landed, Codex re-reviewed the PR (commit `ad7570b3`) and left
+five more inline comments, all P2. They are a fresh batch: two are
+fullscreen/focus edge cases that my RC-5 fix exposed, and three are
+data-persistence/caching correctness issues in the launcher and ui module.
+Captured them to `scripts/07-pr-review-comments-new.md` and analyzed each
+against the source before fixing.
+
+### Prompt Context
+
+**User prompt (verbatim):** "Continue addressing the new code review comments: https://github.com/go-go-golems/go-go-wm/pull/1"
+
+**Assistant interpretation:** Fetch the latest Codex review on the PR and address its new inline comments.
+
+**Inferred user intent:** Close the loop on the Codex review — the first batch (RC-1..RC-5) was fixed, now handle whatever Codex found on the updated code.
+
+### What I did
+- Fetched all PR review comments via `gh api`; identified 5 new ones dated 2026-07-20T02:53 on commit `ad7570b3`.
+- Captured them to `scripts/07-pr-review-comments-new.md`.
+- Read each affected site: `pkg/wmx11/wm.go` (ApplyBatch/afterOp/refocusCurrent), `pkg/wmx11/manage.go` (focus), `pkg/launcher/desktop.go`+`registry.go` (scanDesktopDirs/Refresh), `pkg/launcher/frecency.go` (bump/save), `pkg/jsmod/uimod/app.go` (jsAppState.redraw, show/tile).
+
+### Why
+Two of the new comments (RC-6, RC-7) are regressions/edge cases that my RC-5
+focus-pinning fix surfaced: pinning focus to the fullscreen leaf is correct
+for tiled windows, but a *floating* fullscreen frame has an empty `leaf`, and
+`ApplyBatch` (the batch path) doesn't exit fullscreen like `afterOp` does.
+The other three (RC-8/9/10) are pre-existing correctness gaps in caching,
+persistence, and per-surface redraw hooks.
+
+### What I learned
+- RC-5's fix was incomplete: it assumed `w.fullscreen.leaf` is always set,
+but floating fullscreen frames have `leaf == ""` (floats aren't tree leaves).
+Pin-on-empty-leaf quietly corrupted the focused state.
+- The frecency debounce is a classic "drop the last timer" bug: within 5s of a
+prior save, `bump` returns without scheduling any future write, so a burst
+right before shutdown loses all its counts.
+- The desktop-entry scanner only checks directory mtime, which is stable when
+a file's *contents* change — a real staleness gap.
+
+### What was tricky to build
+- RC-7 (float fullscreen focus): the fix must distinguish a floating
+fullscreen frame (track via `focusedFloat`, not `leaf`) from a tiled one. The
+cleanest approach is: in `focus()`, only pin to `w.fullscreen` when it is the
+focused float or a real leaf, and don't clobber `focusedFloat`.
+- RC-10 (per-surface redraw): `setRedraw` stores a single callback, so
+`show()` + `tile()` on the same app overwrite each other. Need a per-surface
+map of redraw hooks.
+
+### What warrants a second pair of eyes
+- RC-7: changing focus pinning for floats — verify a floating fullscreen
+window keeps focus through navigation and that close/float/fullscreen verbs
+still target it.
+- RC-9: the frecency flush on shutdown — confirm the registry has a shutdown
+hook to call into, or whether a timer-based delayed flush is safer.
+
+### What should be done in the future
+- Add regression tests for the launcher scan (file content change triggers
+rescan) and frecency (burst-before-shutdown persists).
+- Re-request Codex review after pushing.
+
+### Code review instructions
+- Read `scripts/07-pr-review-comments-new.md` for the verbatim comments.
+- Cross-check each fix against the matching section below.
+
+### Technical details
+- Commit under review: `ad7570b3` (latest pushed).
+- New comments: RC-6 (`wm.go:387`), RC-7 (`manage.go:513`), RC-8 (`desktop.go:65`), RC-9 (`frecency.go:50`), RC-10 (`uimod/app.go:199`).
+
+### Fixes applied (commit `8127f27`)
+- **RC-6** (`pkg/wmx11/wm.go`): `ApplyBatch` now calls `w.exitFullscreen()` before `refocusCurrent()` on a workspace switch, mirroring `afterOp`. The old fullscreen frame is unmapped by `relayout`, so leaving `w.fullscreen` set caused `refocusCurrent -> focus` to pin focus back to the old leaf, stranding the new workspace.
+- **RC-7** (`pkg/wmx11/manage.go`): in `focus()`, a *floating* fullscreen frame (empty `leaf`) is now kept tracked through `focusedFloat` (its client) instead of setting `leaf` to empty and clearing `focusedFloat`. Navigation keeps focus on the visible fullscreen float, so close/float/fullscreen verbs still target it.
+- **RC-8** (`pkg/launcher/desktop.go`): `scanDesktopDirs` now stats each `.desktop` file's mtime in addition to the directory mtime, so a content edit to an existing entry (which doesn't bump the dir mtime) invalidates the cache.
+- **RC-9** (`pkg/launcher/frecency.go` + `registry.go` + `wm.go`): replaced the "5s since lastSave" check with a resettable `time.AfterFunc` that (re)arms on every `bump` — guaranteeing a write 5s after the LAST launch. Added `Flush()` and call it from `WM.Shutdown` so a pre-quit burst persists. Regression test `TestFrecencyBurstFlushedOnShutdown`.
+- **RC-10** (`pkg/jsmod/uimod/app.go`): the single `redraw func()` slot is now a per-surface `map[string]func()` keyed by surface (`"xapp"`, `"tile"`); `postRedraw` invokes every live surface, so a `ui.app` exposed through both `show()` and `tile()` repaints both.
+
+### What worked
+- All 5 fixes compile, all tests pass under `-race`, golangci-lint 0 issues, gosec 0 issues.
+- The RC-9 regression test reproduces the old bug shape (no file before Flush) and confirms the burst persists.
+
+### What didn't work
+- First frecency rewrite had a tangled timer-arming branch; simplified to `time.AfterFunc` + `Reset`.
+- Adding a `removeRedraw` cleanup method would have triggered the `unused` linter (the xapp App interface has no Stop hook), so I kept the per-surface map keyed to overwrite safely on re-Start instead.
+
+### Code review instructions
+- Review commit `8127f27`.
+- Key risk sites: RC-7 float focus (verify a floating fullscreen window keeps focus through Mod4-space and that verbs still target it), RC-9 shutdown flush (verify a burst before `Mod4-Shift-q` persists).
+
+### What should be done in the future
+- Add a regression test for RC-8 (edit a .desktop file's contents -> Refresh returns the new Name/Exec).
+- Add a launcher hook to drop the `"xapp"` redraw key when a jsXApp window closes (needs a Stop hook on the xapp App interface).
+- Re-request Codex review after pushing.
