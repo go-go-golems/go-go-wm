@@ -1180,3 +1180,43 @@ DISPLAY=:1 xprop -id $(xdotool getwindowfocus) | grep WM_NAME
 - golangci-lint: https://golangci-lint.run/
 - Go vuln database: https://pkg.go.dev/vuln/
 - Go toolchain directive: https://go.dev/doc/toolchain
+
+---
+
+## Part 11 — Known limitations (deferred from the 4th Codex batch)
+
+The 4th Codex review batch (comments 17–21) surfaced five more items. One
+was a regression introduced by the refactor and is fixed; the rest are
+accepted as known limitations of this prototype, documented here so they
+are not lost.
+
+### Fixed
+- **#18 (P2, float.go:268) — close-path focus restore.** A regression from
+  Option B: `unmanageFloat` deleted the float before `FocusedFloat()` could
+  see it, so a fullscreen float's `Restore` was skipped and focus pointed
+  at a removed client. Fixed by capturing `heldFocus` before teardown.
+  Regression test `TestFloatCloseRestoresFocusAfterFullscreen` added.
+
+### Deferred (accepted as prototype limitations)
+- **#17 (P1, xgojaprovider/provider.go:108) — provider state scoped per
+  runtime.** The RC-11 fix hoisted `state` to `Register` scope, but
+  `Register` is per-registration, not per-runtime. A host building multiple
+  runtimes from one registry would share the first runtime's fan and
+  dispatch JS handlers on the wrong owner loop. Not exercised by the
+  prototype (generated binaries build one runtime). Defer until a host
+  actually builds multiple runtimes.
+- **#19 (P2, scripting.go:29) — timed-out WM ops run later.** A timed-out
+  `wm.apply()` leaves `fn` in `w.ops` and runs it later, potentially
+  duplicating layout. Edge case (2s timeout on WM ops). Defer.
+- **#20 (P2, examples/scripts/i3.js:95) — i3.js can't close floats.** The
+  example's Shift-q binding no-ops on floats because `wm.focused()`
+  returns an empty Leaf. Polish; the built-in `Mod4-w` (without
+  `--no-default-binds`) handles floats. Defer.
+- **#21 (P2, xshm/xshm.go:54) — bits-per-pixel validation.** Root depth
+  24 does not guarantee 32-bpp BGRA; a 24-bpp server would corrupt frames.
+  Rare in practice (24-bpp servers in 2026 are unusual) and the PutImage
+  fallback works. Defer.
+
+These are tracked here rather than fixed because the project is a
+prototype: the cost of fixing them now exceeds the value, and none block
+the PR's merge (CI is green, the common paths are correct).

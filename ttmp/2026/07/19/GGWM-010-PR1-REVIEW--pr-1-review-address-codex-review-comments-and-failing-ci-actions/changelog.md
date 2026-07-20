@@ -60,3 +60,8 @@ Third Codex batch (RC-11..RC-16) addressed. Systemic: immutable palette via atom
 - /home/manuel/workspaces/2026-07-18/go-go-wm/go-go-wm/pkg/draw/theme.go — RC-14 immutable Palette via atomic.Pointer + Current()
 - /home/manuel/workspaces/2026-07-18/go-go-wm/go-go-wm/pkg/xgojaprovider/provider.go — RC-11 shared runtimeState across pbui+wm factories
 
+
+## 2026-07-20
+
+4th Codex batch (comments 17-21): fixed #18 (unmanageFloat focus-restore regression from Option B, with test). Deferred #17/#19/#20/#21 as documented prototype limitations (provider state per-runtime, timed-out WM ops, i3.js float close, xshm bpp validation) — none block merge.
+

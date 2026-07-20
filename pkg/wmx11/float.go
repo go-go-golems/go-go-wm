@@ -256,6 +256,12 @@ func (w *WM) manageFloat(clientWin xproto.Window, title, class, instance string,
 // tiles (detach, drop buffers, destroy), plus focus handoff back to the
 // tiled world.
 func (w *WM) unmanageFloat(f *frame) {
+	// Capture whether this float holds focus BEFORE teardown: clearFullscreenFor
+	// and the float-map deletes below would make FocusedFloat() return 0 for a
+	// fullscreen float (its map entry is gone), skipping Restore and leaving
+	// focus pointing at the removed client (Codex review #18).
+	heldFocus := w.fstate.FocusedFloat() == f.client ||
+		(w.fs.Owns(f) && f.floating)
 	w.clearFullscreenFor(f)
 	delete(w.floats, f.client)
 	delete(w.byClient, f.client)
@@ -265,9 +271,9 @@ func (w *WM) unmanageFloat(f *frame) {
 	f.dropBuffers()
 	f.win.Destroy()
 
-	if w.fstate.FocusedFloat() == f.client {
+	if heldFocus {
 		// Route through focusState (Option B B6): Restore returns focus to
-		// the preserved tile, replacing the implicit w.fstate.FocusedLeaf() convention.
+		// the preserved tile, replacing the implicit w.focused convention.
 		w.fstate.Restore()
 		if w.frames[w.fstate.FocusedLeaf()] != nil {
 			w.focus(w.fstate.FocusedLeaf())

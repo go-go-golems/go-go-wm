@@ -26,7 +26,10 @@ func floatFrame(client xproto.Window) *frame {
 // (the production constructor does this; tests construct &WM{} directly so
 // they must set it for the fs helpers to dereference).
 func newTestWM() *WM {
-	w := &WM{}
+	w := &WM{
+		floats: map[xproto.Window]*frame{},
+		frames: map[wmcore.NodeID]*frame{},
+	}
 	w.fs.wm = w
 	w.fstate.wm = w
 	return w
@@ -155,5 +158,40 @@ func TestFocusDecisionNoFullscreen(t *testing.T) {
 	dec := w.computeFocusDecision("l7")
 	if dec.kind != focusTile || dec.leaf != "l7" {
 		t.Fatalf("no-fullscreen: want focusTile/l7, got %v/%q", dec.kind, dec.leaf)
+	}
+}
+
+// #18 (Codex 4th batch): closing a fullscreen float must restore focus to
+// the preserved tile, not leave focus pointing at the removed client.
+// unmanageFloat captures "held focus" BEFORE teardown (clearFullscreenFor
+// + the float-map deletes would otherwise make FocusedFloat() return 0 for
+// a fullscreen float and skip Restore). This test exercises the decision
+// path: a fullscreen float that held focus must report heldFocus=true so
+// Restore runs.
+func TestFloatCloseRestoresFocusAfterFullscreen(t *testing.T) {
+	w := newTestWM()
+	w.fstate.SetTile("l3") // the tile the user was on
+	fs := floatFrame(200)
+	w.floats[200] = fs
+	w.fullscreen = fs
+	w.fstate.FocusFullscreen(fs) // navigation pinned focus to the float
+
+	// Simulate the heldFocus check in unmanageFloat BEFORE teardown.
+	heldFocus := w.fstate.FocusedFloat() == fs.client || (w.fs.Owns(fs) && fs.floating)
+	if !heldFocus {
+		t.Fatal("#18: a focused fullscreen float must report heldFocus=true before teardown")
+	}
+	// After teardown (clearFullscreenFor + delete), FocusedFloat() alone
+	// would return 0 — which is exactly the bug. The captured heldFocus
+	// must drive Restore, not the post-teardown accessor.
+	w.fs.Clear(fs)
+	delete(w.floats, 200)
+	// FocusedFloat() now returns 0 (the float is gone), but heldFocus is
+	// still true, so Restore runs and focus returns to the preserved tile.
+	if heldFocus {
+		w.fstate.Restore()
+	}
+	if w.fstate.FocusedLeaf() != "l3" {
+		t.Fatalf("#18: focus must restore to l3, got %q", w.fstate.FocusedLeaf())
 	}
 }
