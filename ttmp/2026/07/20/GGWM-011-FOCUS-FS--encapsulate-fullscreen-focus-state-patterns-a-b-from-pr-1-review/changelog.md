@@ -42,3 +42,12 @@ Implemented Phase 2 (fullscreen mutators moved into fullscreenState: Toggle/Ente
 - /home/manuel/workspaces/2026-07-18/go-go-wm/go-go-wm/pkg/wmx11/focus_state.go — Phase 2 fullscreenState mutators (Toggle/Enter/Exit/Clear)
 - /home/manuel/workspaces/2026-07-18/go-go-wm/go-go-wm/pkg/wmx11/manage.go — Phase 3 simplified focus() via computeFocusDecision
 
+
+## 2026-07-20
+
+Implemented Option B (B1-B13): unified focusState. Deleted the focused + focusedFloat fields; focusState is the single source of truth for the exactly-one-of-{tile,float,fullscreen} invariant (single enum, not three coordinated fields). Routed focus/focusFloat/unmanageFloat through focusState; replaced frameFocused with focusState.Focused; migrated all read sites; coordinated with fullscreenState; audited threading (no mutex needed — single WM loop). Build OK, tests pass -race, lint/gosec clean, Phase 0 tests pass. All 13 B-tasks checked.
+
+### Related Files
+
+- /home/manuel/workspaces/2026-07-18/go-go-wm/go-go-wm/pkg/wmx11/focus_state.go — focusState type (Current/Focused/FocusTile/FocusFloat/FocusFullscreen/Restore/ClearTile/ClearFloat/SetTile)
+

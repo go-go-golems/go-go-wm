@@ -200,3 +200,65 @@ Phase 2 makes fullscreenState own both reads and writes, so no call site can pok
 - Phase 2 commit: `6cf2884`. Phase 3 commit: `c80e5fe`.
 - Verification: build OK, all tests pass under `-race`, lint 0 issues, gosec 0 issues (3 justified `#nosec`), Phase 0 tests pass unchanged.
 - Tasks checked: `cn83` (Phase 2), `evg2` (Phase 3).
+
+## Step 4: Implemented Option B (B1-B13) — unified focusState
+
+The user asked for Option B. This is the full unification: replace the
+coupled focus trio (focused + focusedFloat + fullscreen-owns-focus) with a
+single focusState that owns the exactly-one invariant as a single enum
+value, so a new call site cannot clear the wrong field (the root cause of
+RC-7 and RC-13).
+
+### Prompt Context
+
+**User prompt (verbatim):** "option B"
+
+**Assistant interpretation:** Implement the full B1-B13 sequence from the design doc: define focusState, shadow the old fields, route the production paths, migrate all read sites, delete the old fields, coordinate with fullscreenState, audit threading, verify.
+
+**Inferred user intent:** Complete the structural fix for Pattern B so the focus invariant is encoded in the data model, not re-derived at every call site.
+
+### What I did
+- **B1-B3 (commit 2e38657):** defined focusTarget/focusKind (focusNone/Tile/Float/Fullscreen) + focusState with read methods Current()/Focused() and mutators FocusTile/FocusFloat/FocusFullscreen/Restore. Added focusState to WM alongside the old fields (shadow); back-referenced in the constructor + newTestWM(). Mutators updated both target and the old fields (shadow sync).
+- **B4-B7 (commit 624f6ff):** routed focus() through focusState.FocusFullscreen/FocusTile; focusFloat() through FocusFloat; unmanageFloat() restoration through Restore; deleted frameFocused() (replaced by focusState.Focused).
+- **B8-B9 (commit 4e40b5e):** migrated every w.focused read to w.fstate.FocusedLeaf() and every w.focusedFloat read to w.fstate.FocusedFloat() across 9 files. Added the FocusedLeaf()/FocusedFloat() accessors.
+- **B10-B11 (commit c17c172):** deleted the focused + focusedFloat fields. Current() now reads from target; mutators no longer write the old fields. Added ClearTile/ClearFloat/SetTile for the write sites that previously poked the fields. focusState coordinated with fullscreenState (Current consults FocusTarget). Updated the RC-13 test to the focusState API.
+- **B12-B13 (commit e56f57b):** audited the threading model — focusState needs no mutex (all focus mutations on the single WM loop goroutine via xevent.MainPing + w.ops). Documented in the doc comment. Verified: build OK, all tests pass -race, lint 0, gosec 0.
+
+### Why
+The exactly-one invariant is now structural (a single enum value), not a convention re-derived at 7 files' worth of call sites. A new focus-touching feature can't accidentally clear the wrong field — there's only one field. preservedTile makes the restoration contract explicit (RC-13's bug was that the contract was implicit and focus() violated it).
+
+### What worked
+- The shadow-then-migrate-then-delete ordering (B2->B8/B9->B10) kept the WM green at every commit — each step was independently verifiable.
+- The Phase 0 tests passed unchanged through B10 (the RC-13 test needed a one-line update to use the focusState API, but the behavior it asserts is identical).
+- The back-pointer pattern (fstate.wm = w) gave focusState clean access to WM internals without changing call sites.
+
+### What didn't work
+- First field name "focus" collided with the focus() method (Go disallows field/method name clash); renamed to "fstate".
+- The B8/B9 sed missed == comparison reads (w.focused == "", w.focusedFloat == f.client); caught them in the build and migrated manually.
+- B10 surfaced write sites outside focus_state.go (tile->float clear, sink, drag-swap, workspace switch) that poked the fields directly; added ClearTile/ClearFloat/SetTile mutators and routed them.
+
+### What I learned
+- The WM is single-threaded for focus mutations: Run() selects between X-event handlers and posted functions, both inline on the loop goroutine. Broker/IPC goroutines post back via w.Post. So focusState is lock-free — a mutex would be dead weight.
+- frameFocused (the old predicate) was the seed of the right design (Option B promotes it to the data model); deleting it and replacing with focusState.Focused is the closure of that idea.
+
+### What was tricky to build
+- B10's field deletion required routing every remaining direct write first; the write sites were scattered (float.go, input.go, manage.go, wm.go) and each needed a semantically-correct mutator (clear vs. set vs. restore).
+- Coordinating focusState with fullscreenState: Current() must consult fullscreenState.FocusTarget() so fullscreen active -> focusState target is the fullscreen frame, without focusState owning fullscreen geometry (that's fullscreenState's job).
+
+### What warrants a second pair of eyes
+- The ClearTile/ClearFloat/SetTile mutators: confirm each maps to the exact semantics of the field-poke it replaced (e.g. SetTile in the drag-swap must preserve the preservedTile, not just the target).
+- The Focused() predicate's float branch: it accepts both focusKindFloat and focusKindFullscreen (a fullscreen float is focused); confirm this matches the old frameFocused for all callers.
+
+### What should be done in the future
+- Add Xvfb-based smoke tests for the full keypress path (the decision tests cover the logic, not the X wiring).
+- Consider closing the ticket (all tasks complete).
+
+### Code review instructions
+- Review commits 2e38657 (B1-B3), 624f6ff (B4-B7), 4e40b5e (B8-B9), c17c172 (B10-B11), e56f57b (B12-B13).
+- Validate: env GOTOOLCHAIN=go1.26.5 go test ./... -race, golangci-lint run ./..., gosec -exclude=G101,G304,G301,G306,G204 ./....
+- Grep audits: no w.focused/w.focusedFloat fields or reads outside focus_state.go; frameFocused gone.
+
+### Technical details
+- Commits: 2e38657, 624f6ff, 4e40b5e, c17c172, e56f57b.
+- Verification: build OK, all tests pass -race, lint 0 issues, gosec 0 issues (3 justified #nosec), Phase 0 tests pass.
+- All 13 B-tasks checked off; ticket reports "All tasks complete!"
