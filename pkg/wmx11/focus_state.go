@@ -240,6 +240,22 @@ const (
 	focusKindFullscreen
 )
 
+// FocusedLeaf returns the currently-focused tiled leaf (the leaf under a
+// float/fullscreen, or the focused tile itself). Convenience for the many
+// call sites that read w.focused to index w.frames or query the tree.
+func (fs *focusState) FocusedLeaf() wmcore.NodeID { return fs.Current().leaf }
+
+// FocusedFloat returns the currently-focused float's client window, or 0
+// if no float holds focus. Convenience for call sites that read
+// w.focusedFloat.
+func (fs *focusState) FocusedFloat() xproto.Window {
+	cur := fs.Current()
+	if cur.kind == focusKindFloat || cur.kind == focusKindFullscreen && cur.client != 0 && fs.wm.floats[cur.client] != nil {
+		return cur.client
+	}
+	return 0
+}
+
 // Current returns the active focus target. During the shadow phase it
 // derives the target from the old fields (the source of truth); after B10
 // it returns target directly.

@@ -267,10 +267,10 @@ func (w *WM) unmanageFloat(f *frame) {
 
 	if w.focusedFloat == f.client {
 		// Route through focusState (Option B B6): Restore returns focus to
-		// the preserved tile, replacing the implicit w.focused convention.
+		// the preserved tile, replacing the implicit w.fstate.FocusedLeaf() convention.
 		w.fstate.Restore()
-		if w.frames[w.focused] != nil {
-			w.focus(w.focused)
+		if w.frames[w.fstate.FocusedLeaf()] != nil {
+			w.focus(w.fstate.FocusedLeaf())
 		}
 	}
 	w.emitEvent("window.float-closed", map[string]interface{}{
@@ -281,10 +281,10 @@ func (w *WM) unmanageFloat(f *frame) {
 }
 
 // focusFloat gives a float the keyboard and the top of the float band.
-// w.focused (the tile register) is preserved — dismissing the float
+// w.fstate.FocusedLeaf() (the tile register) is preserved — dismissing the float
 // returns focus to it.
 func (w *WM) focusFloat(f *frame) {
-	prevFloat := w.focusedFloat
+	prevFloat := w.fstate.FocusedFloat()
 	// Route through focusState (Option B B5): FocusFloat preserves the
 	// current tile in preservedTile for restoration (RC-13's contract, now
 	// explicit) and keeps the shadow fields in sync.
@@ -296,8 +296,8 @@ func (w *WM) focusFloat(f *frame) {
 	if pf := w.floats[prevFloat]; pf != nil && prevFloat != f.client {
 		w.paintFrame(pf)
 	}
-	// The focused tile keeps w.focused but loses its highlight.
-	if tf := w.frames[w.focused]; tf != nil {
+	// The focused tile keeps w.fstate.FocusedLeaf() but loses its highlight.
+	if tf := w.frames[w.fstate.FocusedLeaf()]; tf != nil {
 		w.paintFrame(tf)
 	}
 	w.paintFrame(f)
@@ -386,10 +386,10 @@ func (w *WM) configureFloat(f *frame, ev xevent.ConfigureRequestEvent) {
 // toggleFloat flips the focused window between the tiled and floating
 // worlds (T4). Returns the resulting floating state.
 func (w *WM) toggleFloat() (bool, error) {
-	if pf := w.floats[w.focusedFloat]; pf != nil {
+	if pf := w.floats[w.fstate.FocusedFloat()]; pf != nil {
 		return false, w.sinkFloat(pf)
 	}
-	f := w.frames[w.focused]
+	f := w.frames[w.fstate.FocusedLeaf()]
 	if f == nil || f.client == 0 {
 		return false, fmt.Errorf("no floatable window focused (builtin tiles cannot float)")
 	}

@@ -164,11 +164,11 @@ func (w *WM) closeLauncher() {
 // restoreInputFocus gives the keyboard back to whatever holds the
 // focus registers (used when a popup that stole focus closes).
 func (w *WM) restoreInputFocus() {
-	if pf := w.floats[w.focusedFloat]; pf != nil {
+	if pf := w.floats[w.fstate.FocusedFloat()]; pf != nil {
 		xwindow.New(w.X, pf.client).Focus()
 		return
 	}
-	if f := w.frames[w.focused]; f != nil {
+	if f := w.frames[w.fstate.FocusedLeaf()]; f != nil {
 		if f.client != 0 {
 			xwindow.New(w.X, f.client).Focus()
 		} else {
@@ -732,7 +732,7 @@ type LauncherTileInfo struct {
 }
 
 func (w *WM) launcherTileInfo() LauncherTileInfo {
-	f := w.frames[w.focused]
+	f := w.frames[w.fstate.FocusedLeaf()]
 	if f == nil || f.client != 0 || w.builtinAppOf(f) != apps.AppLauncher {
 		return LauncherTileInfo{}
 	}

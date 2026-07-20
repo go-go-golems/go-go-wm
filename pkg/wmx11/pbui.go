@@ -139,9 +139,9 @@ func (w *WM) cancelAccept() {
 	}
 	if w.accepting == nil || w.broker == nil {
 		// No modal state: Escape clears the focused launcher tile's query.
-		if st := w.launcherTiles[w.focused]; st != nil && st.query != "" {
+		if st := w.launcherTiles[w.fstate.FocusedLeaf()]; st != nil && st.query != "" {
 			st.query, st.sel = "", 0
-			if f := w.frames[w.focused]; f != nil {
+			if f := w.frames[w.fstate.FocusedLeaf()]; f != nil {
 				w.paintFrame(f)
 			}
 		}

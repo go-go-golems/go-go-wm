@@ -92,7 +92,7 @@ func (w *WM) focusTarget(target string) error {
 		if w.focused == "" {
 			return nil
 		}
-		if n := wmcore.NeighborLeaf(ws.Root, w.area, Gap, w.focused, target); n != "" {
+		if n := wmcore.NeighborLeaf(ws.Root, w.area, Gap, w.fstate.FocusedLeaf(), target); n != "" {
 			w.focus(n)
 		}
 		return nil
@@ -106,7 +106,7 @@ func (w *WM) focusTarget(target string) error {
 		}
 		prev := leaves[len(leaves)-1].ID
 		for i, l := range leaves {
-			if l.ID == w.focused && i > 0 {
+			if l.ID == w.fstate.FocusedLeaf() && i > 0 {
 				prev = leaves[i-1].ID
 				break
 			}
@@ -138,10 +138,10 @@ func (w *WM) moveDir(dir string) error {
 	default:
 		return fmt.Errorf("move: dir must be left|right|up|down, got %q", dir)
 	}
-	n := wmcore.NeighborLeaf(ws.Root, w.area, Gap, w.focused, dir)
+	n := wmcore.NeighborLeaf(ws.Root, w.area, Gap, w.fstate.FocusedLeaf(), dir)
 	if n == "" {
 		return nil // at the workspace edge: i3 would cross outputs; we stop
 	}
-	w.swapFrames(w.focused, n)
+	w.swapFrames(w.fstate.FocusedLeaf(), n)
 	return nil
 }

@@ -163,10 +163,10 @@ func (w *WM) wireClient(f *frame) {
 		xproto.WindowNone, xproto.CursorNone, xproto.ButtonIndexAny, xproto.ModMaskAny)
 	xevent.ButtonPressFun(func(_ *xgbutil.XUtil, ev xevent.ButtonPressEvent) {
 		if f.floating {
-			if w.focusedFloat != f.client {
+			if w.fstate.FocusedFloat() != f.client {
 				w.focusFloat(f)
 			}
-		} else if w.focused != f.leaf || w.focusedFloat != 0 {
+		} else if w.fstate.FocusedLeaf() != f.leaf || w.fstate.FocusedFloat() != 0 {
 			w.focus(f.leaf)
 		}
 		xproto.AllowEvents(w.X.Conn(), xproto.AllowReplayPointer, ev.Time)
@@ -192,7 +192,7 @@ func (w *WM) placementLeaf() wmcore.NodeID {
 		}
 	}
 	// Otherwise split the focused leaf (or the first).
-	at := w.focused
+	at := w.fstate.FocusedLeaf()
 	if at == "" || ws.Root.FindLeaf(at) == nil {
 		at = ws.Root.Leaves()[0].ID
 	}
@@ -518,7 +518,7 @@ func (w *WM) focus(leaf wmcore.NodeID) {
 			xwindow.New(w.X, dec.client).Focus()
 			_ = ewmh.ActiveWindowSet(w.X, dec.client)
 		}
-		if pf := w.frames[w.focused]; pf != nil && pf.leaf != "" {
+		if pf := w.frames[w.fstate.FocusedLeaf()]; pf != nil && pf.leaf != "" {
 			w.paintFrame(pf)
 		}
 		return
@@ -527,11 +527,11 @@ func (w *WM) focus(leaf wmcore.NodeID) {
 		// Tiled fullscreen: pin to the fullscreen frame's leaf (RC-5).
 		leaf = dec.leaf
 	}
-	prev := w.focused
+	prev := w.fstate.FocusedLeaf()
 	// A navigation or tile click means "back to the tiled world": the
 	// float band keeps its windows but loses the keyboard.
 	w.fstate.FocusTile(leaf)
-	if pf := w.floats[w.focusedFloat]; pf != nil {
+	if pf := w.floats[w.fstate.FocusedFloat()]; pf != nil {
 		w.paintFrame(pf)
 	}
 	if f := w.frames[leaf]; f != nil {

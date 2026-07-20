@@ -105,12 +105,12 @@ func (w *WM) splitFocused(dir wmcore.Dir) {
 	if w.focused == "" {
 		return
 	}
-	_, _ = w.Apply(wmcore.Op{Op: wmcore.OpSplitLeaf, Node: w.focused, Dir: dir, App: ""})
+	_, _ = w.Apply(wmcore.Op{Op: wmcore.OpSplitLeaf, Node: w.fstate.FocusedLeaf(), Dir: dir, App: ""})
 }
 
 func (w *WM) closeFocused() {
-	f := w.frames[w.focused]
-	if pf := w.floats[w.focusedFloat]; pf != nil {
+	f := w.frames[w.fstate.FocusedLeaf()]
+	if pf := w.floats[w.fstate.FocusedFloat()]; pf != nil {
 		f = pf // the float band holds focus; Mod4-w closes the float
 	}
 	if f == nil {
@@ -127,7 +127,7 @@ func (w *WM) focusNext() {
 	}
 	next := leaves[0].ID
 	for i, l := range leaves {
-		if l.ID == w.focused && i+1 < len(leaves) {
+		if l.ID == w.fstate.FocusedLeaf() && i+1 < len(leaves) {
 			next = leaves[i+1].ID
 			break
 		}
@@ -415,7 +415,7 @@ func (w *WM) swapFrames(a, b wmcore.NodeID) {
 		fb.leaf = a
 		w.frames[a] = fb
 	}
-	switch w.focused {
+	switch w.fstate.FocusedLeaf() {
 	case a:
 		w.focused = b
 	case b:

@@ -149,13 +149,13 @@ func (w *WM) dispatchIPC(req ipcRequest) ipcResponse {
 				done <- ipcResponse{OK: false, Error: err.Error()}
 				return
 			}
-			done <- ipcResponse{OK: true, Data: string(w.focused)}
+			done <- ipcResponse{OK: true, Data: string(w.fstate.FocusedLeaf())}
 		case "move":
 			if err := w.moveDir(req.Dir); err != nil {
 				done <- ipcResponse{OK: false, Error: err.Error()}
 				return
 			}
-			done <- ipcResponse{OK: true, Data: string(w.focused)}
+			done <- ipcResponse{OK: true, Data: string(w.fstate.FocusedLeaf())}
 		case "set-float-rules":
 			if err := w.SetFloatRules(req.FloatRules); err != nil {
 				done <- ipcResponse{OK: false, Error: err.Error()}

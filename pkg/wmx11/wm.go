@@ -436,13 +436,13 @@ func (w *WM) refocusCurrent() {
 	}
 	// A workspace switch can leave focusedFloat pointing at a float that
 	// is now hidden; keyboard input would go to an unmapped window.
-	if pf := w.floats[w.focusedFloat]; pf != nil && pf.ws != w.desktop.Current {
+	if pf := w.floats[w.fstate.FocusedFloat()]; pf != nil && pf.ws != w.desktop.Current {
 		w.focusedFloat = 0
-		if w.frames[w.focused] != nil {
-			w.focus(w.focused)
+		if w.frames[w.fstate.FocusedLeaf()] != nil {
+			w.focus(w.fstate.FocusedLeaf())
 		}
 	}
-	if ws.Root.FindLeaf(w.focused) != nil {
+	if ws.Root.FindLeaf(w.fstate.FocusedLeaf()) != nil {
 		return
 	}
 	for _, l := range ws.Root.Leaves() {
