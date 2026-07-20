@@ -1,0 +1,15 @@
+# Changelog
+
+## 2026-07-20
+
+- Initial workspace created
+
+
+## 2026-07-20
+
+Created ticket for the fullscreen/focus encapsulation refactor (Patterns A & B from GGWM-010 Step 5). Design-only: system primer, pattern diagnosis mapping 5 Codex comments to invariant violations, two design options (fullscreenState helper + unified focusState), phased behavior-preserving migration, testing strategy, risk register. No implementation.
+
+### Related Files
+
+- /home/manuel/workspaces/2026-07-18/go-go-wm/go-go-wm/ttmp/2026/07/20/GGWM-011-FOCUS-FS--encapsulate-fullscreen-focus-state-patterns-a-b-from-pr-1-review/design-doc/01-fullscreen-focus-state-encapsulation-analysis-and-intern-implementation-guide.md — Primary analysis/design guide
+
