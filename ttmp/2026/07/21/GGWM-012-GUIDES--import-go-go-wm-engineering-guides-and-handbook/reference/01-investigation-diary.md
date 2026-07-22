@@ -1397,3 +1397,18 @@ The correct approach would have been to dump one `{"q":"tree"}` response and rea
   ```
 - **Look at** `images/scen-09-workspace-1-back.png` (builtin tile, full render), `scen-06-float-on.png` (float chrome), and `scen-10-theme-dark.png` (theme swap).
 - The fill change is one branch at the top of `paintFrame`, guarded by the same `chromeRects` call as the upload.
+
+### Step 13b: harness defect fixed, remaining scenarios validated
+
+The two scenario families Step 13 reported as undriven are now driven. The cause was not the schema after all: `ggwm-xephyr-scenarios.sh`'s `ipc` helper truncated every response to 200 characters (`[:200]`), so `leaf_of` received a clipped JSON document, failed to parse, and returned an empty string. The tree schema I had assumed — `workspaces[].root`, `node.kind` as the string `"leaf"`, children under `a`/`b` — was correct all along, as `pkg/wmcore/desktop.go:10-18` and `tree.go:45-55` confirm.
+
+Truncation was added for readable logging and silently broke the only consumer that parsed the output. Moved to the call sites that echo, leaving the helper's output intact.
+
+Also replaced the assumed workspace identifiers with ones read from the running system: they are `ws1` and `ws2`, not `ws-1` and `ws-2`. The display names in the bar are `ws-1`/`ws-2`, which is where the wrong guess came from.
+
+**Both families now validate clean:**
+
+- **Focus** (`{"ok":true,"data":"n2"}`) drives and the chrome repaints correctly on both frames.
+- **Workspace switch away and back** restores both clients with correct chrome and no stale pixels (`scen2-09-workspace-1-back.png`). This exercises the `frame.mapped` mirror added in Step 7 across exactly the transition flagged there as needing review — workspace switches intentionally unmap frames, and a missed transition would leave windows invisible. It does not.
+
+That closes the review item from Step 7 and the two open families from Step 13.

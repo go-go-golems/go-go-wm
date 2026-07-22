@@ -43,7 +43,7 @@ s=socket.socket(socket.AF_UNIX,socket.SOCK_STREAM)
 s.settimeout(5)
 try:
     s.connect(sys.argv[1]); s.sendall((sys.argv[2]+"\n").encode())
-    print(s.makefile().readline().strip()[:200])
+    print(s.makefile().readline().strip())
 except Exception as e:
     print('{"ok":false,"error":"%s"}' % e)
 PY
@@ -96,7 +96,7 @@ echo "-- scenario 1: two tiled clients"; shot 01-two-tiles
 # --- 2. focus change (repaints two panes' chrome) -----------------------
 leaves=$(leaf_of); a=$(echo "$leaves"|awk '{print $1}'); b=$(echo "$leaves"|awk '{print $2}')
 echo "-- scenario 2: focus $b then $a"
-[ -n "$b" ] && ipc "{\"q\":\"focus\",\"target\":\"$b\"}" >/dev/null
+[ -n "$b" ] && ipc "{\"q\":\"focus\",\"target\":\"$b\"}" | head -c 120
 shot 02-focus-b
 [ -n "$a" ] && ipc "{\"q\":\"focus\",\"target\":\"$a\"}" >/dev/null
 shot 03-focus-a
@@ -113,10 +113,20 @@ ipc '{"q":"float"}' >/dev/null; shot 07-float-off
 
 # --- 5. workspace switch away and back ----------------------------------
 echo "-- scenario 5: workspace switch"
+ws_ids() {
+  ipc '{"q":"tree"}' | python3 -c '
+import sys,json
+try: d=(json.loads(sys.stdin.read()).get("data") or {})
+except Exception: raise SystemExit
+print(" ".join(w.get("id","") for w in (d.get("workspaces") or [])))
+'
+}
 ipc '{"q":"op","op":{"op":"add-workspace","app":""}}' >/dev/null
-ipc '{"q":"op","op":{"op":"switch-workspace","workspace":"ws-2"}}' >/dev/null
+all_ws=$(ws_ids); w1=$(echo "$all_ws"|awk '{print $1}'); w2=$(echo "$all_ws"|awk '{print $2}')
+echo "   workspaces: [$all_ws]"
+[ -n "$w2" ] && ipc "{\"q\":\"op\",\"op\":{\"op\":\"switch-workspace\",\"workspace\":\"$w2\"}}" | head -c 120
 shot 08-workspace-2
-ipc '{"q":"op","op":{"op":"switch-workspace","workspace":"ws-1"}}' >/dev/null
+[ -n "$w1" ] && ipc "{\"q\":\"op\",\"op\":{\"op\":\"switch-workspace\",\"workspace\":\"$w1\"}}" | head -c 120
 shot 09-workspace-1-back
 
 # --- 6. theme swap (invalidates every cached surface) -------------------
