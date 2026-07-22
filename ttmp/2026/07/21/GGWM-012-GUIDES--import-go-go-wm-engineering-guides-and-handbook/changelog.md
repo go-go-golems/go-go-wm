@@ -77,3 +77,8 @@ Swept backing-store granularity and raised the default to 128px. Cumulative resu
 
 WITHDRAWN: the claim that this machine lacks shared-pixmap support. A probe reports SharedPixmaps=true; the false reading came from GO_GO_WM_NO_SHM=0 being non-empty and thus disabling shm in the harness's 'enabled' arm. Fixed in xshm.Available with envDisabled + test. The machine takes the MIT-SHM path and gets the 4.8x, not 3.5x.
 
+
+## 2026-07-22
+
+Consolidated all optimization findings: 5.31 -> 0.32 ms/paint in the harness (16.6x), with a catalogue of what was built and rejected (sub-image transfer, sync barrier, allocating index, bucket 64, Stick shrink, hysteresis) and the measurements that changed direction.
+

@@ -1832,3 +1832,83 @@ $S dbuf                                  # default: double buffered
 GO_GO_WM_NO_DOUBLE_BUFFER=1 $S dbuf-off  # control
 GO_GO_WM_SHM_SYNC=1         $S sync      # barrier; expect ~5x worse
 ```
+
+## Step 21: Consolidated findings — every optimization, measured
+
+A synthesis step. Steps 7 through 20 each recorded one change; this collects them, with what each was worth, and — as importantly — what was built, measured, and rejected.
+
+### Prompt Context
+
+**User prompt (verbatim):** "Write a detailed diary on all your optimization findings and work. Then write a detailed project report for the obsidian vault as a deep dive technical analysis blog post using a textbook writing style (no analogies, see skill). Commit and push the bsidian vault when done (go-go-parc vault). The report ist also about about all your performance work"
+
+**Assistant interpretation:** Consolidate the optimization work into one diary entry, then write a technical deep-dive article for the vault covering the whole performance effort, and push it.
+
+### Where the time went, before and after
+
+Per paint, MIT-SHM path, Xephyr, one scripted three-sweep drag:
+
+| Component | baseline | shipped | |
+|---|---:|---:|---|
+| compose | 0.85 ms | 0.06 ms | fill + title into the scratch |
+| surface management | 2.99 ms | 0.01 ms | pixmap create/destroy |
+| convert | 1.44 ms | 0.14 ms | RGBA → BGRA |
+| transfer | 0.03 ms | 0.03 ms | server blit |
+| **total** | **5.31 ms** | **0.32 ms** | **16.6x** |
+
+WM-loop work for one drag: **2852 ms → ~250 ms**.
+
+These are nested-server numbers. Real hardware differs and is discussed below.
+
+### What landed, and what each was worth
+
+**1. Glyph-run cache** (Step 8). `draw.Text` was 72% of a title render, and the string does not change while a pane resizes. Cached as an *alpha mask* rather than coloured pixels, so a focus change or theme swap reuses the entry and only recolours. **53.9 µs → 7.46 µs, 7.2x.** Cost: one LSB of difference where antialiased glyphs overlap, 14 px of 179,200, bounded by a test.
+
+**2. Chrome-only composition, conversion and upload** (Step 12). A reparented client covers the frame interior, so the WM's visible pixels are the title strip and border: ~20k of ~422k for a 636×664 pane. Restricting all three stages dropped the fallback's transfer **3.22 ms → 0.38 ms, 8.5x**. This is the saving the planned chrome/content window split was for, obtained without creating any windows.
+
+**3. Capacity-sized, grow-only backing stores** (Steps 11, 17). Dimensions change every tick during a drag, invalidating the RGBA scratch, the shared pixmap and the fallback XImage. Bucketing to 128 px plus grow-only took shm creations from **528 to 1** per drag.
+
+**4. Double buffering** (Step 20). Render into the buffer the server is not compositing from, then swap the background pixmap. Removes the tear at **no measurable cost** — 207.6 ms against 215.6 ms single-buffered.
+
+**5. Reconciliation work** (Step 7). Divider paint guard (66% of divider paints skipped), map-state mirrors (700 requests suppressed per drag), split-rect cached for the gesture (two layouts per tick → one), synthetic `ConfigureNotify` instead of a whole-workspace relayout on a client-driven path, `gripMotion` throttled with a release replay.
+
+**6. Interaction fixes.** Snap-on-release removed a 52 px dead zone (Step 18). Full initialisation of fresh buffers removed black blocks (Step 19). Coalesced repair replaced four `ClearArea` calls with one (Step 20).
+
+### What was built, measured, and rejected
+
+Recording these matters more than the successes, because each is a plausible idea that a future reader would otherwise re-derive.
+
+| Idea | Why it seemed right | Measured | Verdict |
+|---|---|---|---|
+| Sub-image transfer of the viewport | Send fewer pixels | 5.79 vs 4.09 ms/paint | **Rejected.** `xdraw` allocates a contiguous copy per call; costs more than the ~7% surplus avoided. Wins for the chrome (22 rows), loses for the viewport (660). |
+| Barrier for shm synchronisation | Eliminates the residual tear | 1.24 ms per round trip; paint 207 → 1042 ms | **Rejected**, off by default. 5x cost to close a case double buffering already makes rare. |
+| Allocating node index | Removes an O(n²) loop | 6.2x slower at 2 leaves, 1.6x at 8 | **Reworked.** A fresh map costs more than the scans until ~24 leaves. Scratch-reuse moved the crossover to ~10 and it is kept as scaling insurance, not a speedup. |
+| Bucket 64 rather than 128 | Less surplus memory | Identical resident bytes, 1.5x slower | **Rejected.** The estimate said 128 costs ~10% more memory. Measured, it costs nothing at this geometry. |
+| Shrinking `Stick` to fix the dead zone | Narrower snap bands | Broke `TestSnap` | **Rejected.** 0.32 snapping to ⅓ is specified behaviour. Fixed by snap-on-release instead. |
+| Hysteresis on snapping | The instinctive fix | Reasoned, not built | **Rejected.** Differing capture and release radii either release instantly or widen the dead zone. |
+| MIT-SHM completion events | The user's suggestion, and correct in general | Not applicable | The server emits them for `ShmPutImage`; this design uses a background pixmap, which is what makes Expose repair free. |
+| Suppressing paint during drag | Isolates paint cost | `relayout_ms` 2595 → 13.8 ms | **Valid as measurement, invalid as design.** The paints relocate to Expose; the window's background is stale at the new size. |
+
+### The measurements that changed direction
+
+**Reconciliation is 1.8% of a relayout.** With paint suppressed, `relayout_ms_total` fell 2595 → 13.8 ms. Every algorithmic optimization in item 5 above targets that 1.8%. They remove real waste and cannot be felt.
+
+**Fill and text are ~2% of a paint.** `draw.Fill` runs at 32 GB/s and is memory-bandwidth bound; there is nothing left there. The other 98% was conversion and upload, which is what items 2 and 3 attack.
+
+**Shared-pixmap creation costs 15.4 ms on glamor, 2.6 ms on Xephyr.** A 6x difference between harness and target. Against an accelerated driver the server must produce CPU-mappable memory for an object it would rather keep in GPU memory. This is why grow-only mattered far more on real hardware than the harness suggested, and why the Step 9 conclusion that MIT-SHM is 15% faster than PutImage does not transfer.
+
+**The harness lied for six steps.** `xshm.Available` gated on a bare non-empty environment test, so the harness's `GO_GO_WM_NO_SHM=0` — written to mean *enabled* — disabled shared memory. The resulting `shared_pixmaps: false` was recorded as a hardware property in six diary steps, three design-doc sections and the published article. A probe against the live session reports `true`.
+
+### What is still open
+
+- **Real hardware is at 9.16 ms/paint**, against 0.32 in the harness. The strongest lead is that leaf `n2` in the live session is the **builtin launcher tile**, not a terminal: `chromeRects` returns nil for it and `renderLauncherTile` re-runs `registry.Match` over the whole command registry on every paint. `compose_ms` was 3.94 ms/paint against 0.39 in the harness, where both panes were xterms. Unconfirmed — the experiment is to drag with two terminals and compare.
+- **Grow-only reduced creations 64 → 1 in Xephyr but only to 36 on real hardware.** Unexplained.
+- **The covering invariant is unenforced.** `chromeRects` assumes the client covers exactly the frame interior. Established at reparent time, maintained by reconciliation, and nothing would fail if a future change broke it except the pixels.
+- **The residual tearing window.** With two buffers the server must fall more than a frame behind to be read from the buffer being written. A third buffer would widen the margin; nobody has measured whether it is ever hit.
+
+### What I learned across the whole effort
+
+**Every level of evidence refuted the level above it.** Three review documents were refuted by reading the code; the reading was refuted by an A/B; the A/B's *inference* was refuted by decomposition; and the decomposition's premise was refuted by a probe that found the harness misconfigured. The only thing that terminated the regress was measuring the specific quantity in question, in the environment that matters.
+
+**Instrumentation does not measure feel.** A 52 px dead zone at every snap point was invisible to every counter in the ticket and immediately obvious to the person using the window manager. Two of the four user-reported problems — the sticky points and the black blocks — were interaction defects that no performance metric would ever have surfaced.
+
+**Predicting a defect is not the same as preventing it.** Step 13 wrote down the black-block failure mode, wrote down why the screenshot harness could not see it, and shipped it anyway.
