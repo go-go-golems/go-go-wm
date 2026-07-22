@@ -82,3 +82,12 @@ WITHDRAWN: the claim that this machine lacks shared-pixmap support. A probe repo
 
 Consolidated all optimization findings: 5.31 -> 0.32 ms/paint in the harness (16.6x), with a catalogue of what was built and rejected (sub-image transfer, sync barrier, allocating index, bucket 64, Stick shrink, hysteresis) and the measurements that changed direction.
 
+
+## 2026-07-22
+
+Step 22: fresh-eyes code review of the performance work — design-doc 02 with 13 ranked findings (R1 bare env test survives in perf.go, R2 bufferBytes omits back buffer, R3 stale bucketSizeFor comment, R13 paintFrame state machine), design-level critique, reviewer checklist
+
+### Related Files
+
+- /home/manuel/workspaces/2026-07-21/go-go-wm-goja/go-go-wm/ttmp/2026/07/21/GGWM-012-GUIDES--import-go-go-wm-engineering-guides-and-handbook/design-doc/02-code-review-guide-the-ggwm-012-performance-work-reviewed-for-a-new-intern.md — The review guide
+

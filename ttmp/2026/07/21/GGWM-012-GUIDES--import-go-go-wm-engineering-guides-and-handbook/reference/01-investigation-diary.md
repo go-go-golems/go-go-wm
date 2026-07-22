@@ -1912,3 +1912,67 @@ Recording these matters more than the successes, because each is a plausible ide
 **Instrumentation does not measure feel.** A 52 px dead zone at every snap point was invisible to every counter in the ticket and immediately obvious to the person using the window manager. Two of the four user-reported problems — the sticky points and the black blocks — were interaction defects that no performance metric would ever have surfaced.
 
 **Predicting a defect is not the same as preventing it.** Step 13 wrote down the black-block failure mode, wrote down why the screenshot harness could not see it, and shipped it anyway.
+
+## Step 22: A fresh-eyes code review of the whole performance effort
+
+The user asked for the performance work to be reviewed as if it were a colleague's — read the design docs, the two vault articles, the code and the commits, and produce a detailed code review guide for a new intern. The review was done from the current tree rather than from the narrative: every file the ticket touched was re-read cold, comments were treated as claims and checked against the code, and the commit history was consulted where the two disagreed. That found four defects/hazards the narrative does not mention, including one instance of the exact bug class this ticket fixed and published a rule about.
+
+### Prompt Context
+
+**User prompt (verbatim):** "Ok, our colleague had quite  abit of toruble finding the right way to tackle performance, and I don't think they also did it in a systematic architectural manner. Please review their performanec work (read the design docs, the articles in the obsidian vault in ~/code/wesen/go-go-golems/go-go-parc/Projects/2026/07/21|22 , the code and commits that they did recently, and write a detailed code review guide for an intern." Followed mid-turn by: "Create  a detailed analysis / design / implementation review that is for a new intern, explaining all the parts of the system needed to understand what it is, with prose paragraphs and bullet point sand pseudocode and diagrams and api references and file references. It should be very clear and technical. Store in the ticket and the nupload to remarkable."
+
+**Assistant interpretation:** Review the GGWM-012 performance work critically — including its process — and write an intern-oriented code review guide: system primer, concrete findings with file/line references, a design-level critique of the (un)systematic approach, and a reusable checklist. Store it as a ticket design doc and upload to reMarkable.
+
+**Inferred user intent:** Convert the messy real history of this ticket into teaching material — both "here is how to review performance work" and "here is what our process should have been" — and surface anything the author's own narrative missed.
+
+**Commit (docs):** see changelog entry for this step.
+
+### What I did
+
+- Re-read the current tree cold: `pkg/wmx11/{perf,manage,input,divider,events}.go`, `pkg/xshm/xshm.go`, `pkg/draw/textcache.go`, `pkg/wmcore/{layout,snap_test}.go`, plus both vault articles and the commit log `190e10c..faa610b`.
+- Used `git log -L :bucketSizeFor:pkg/wmx11/manage.go` to confirm the path-conditional bucketing added in `4f04364` was silently removed in `a82eabd` while its justifying comment survived.
+- Wrote `design-doc/02-code-review-guide-the-ggwm-012-performance-work-reviewed-for-a-new-intern.md`: system primer, commit map, six review questions, file-by-file walkthrough with thirteen ranked findings (R1–R13), a design-level critique, open experiments, verification commands, and a twelve-point reviewer checklist.
+
+### Why
+
+- The user's framing ("not systematic, architectural") deserved a direct answer, not a defense. The review concedes the point precisely: the largest win (chrome-only upload) was derivable from a pixel-ownership audit on day one, needed no profiler, and arrived after four wrong diagnoses.
+- A review document grounded in the diffs is more durable teaching material than the success narrative alone.
+
+### What worked
+
+- Reading comments as claims and checking them found most of the real defects: the stale `bucketSizeFor` comment (R3), the misattached `snapOnRelease` doc comment (R5), and the atomic-load-without-atomic-store contract (R4) all fell out of "believe the comment long enough to test it."
+- The class-grep the ticket never ran — `grep -rn 'os.Getenv' | grep '!= ""'` — took one command and found R1 immediately: `suppressResizePaint` in `perf.go:15` is a bare non-empty test, so `GO_GO_WM_NO_RESIZE_PAINT=0` *enables* paint suppression. Same bug class as the six-step harness fiasco, in the same ticket's own diff.
+- Cross-referencing feature commits against instrumentation commits found R2: `bufferBytes()` (added in `1eac1a8`) never learned about `f.back` (added in `faa610b`), so resident paint memory is under-reported by roughly the size of every front surface on the default double-buffered path.
+
+### What didn't work
+
+- N/A — this step was analysis and writing; no experiments failed. The behavioral half of R3 (builtin tiles on the PutImage fallback transferring bucket surplus) is argued but not yet measured; it is listed as an open experiment rather than asserted.
+
+### What I learned
+
+- The two shipped defects of the ticket (black blocks, tearing) were both *composition* bugs between individually-correct flags (`freshBuffer` × chrome-only; grow-only × double-buffer), not component bugs. That is the argument for the proposed `paintPlan` extraction: make the eight-state truth table a unit test.
+- The safety of the `MarkDirtyAll`-only-on-size-change condition rests on a three-legged argument (chrome hugs edges; client covers interior; surplus is clipped) that appears nowhere in the code. Correct-for-unwritten-reasons is a finding even with no wrong behavior.
+
+### What was tricky to build
+
+- Reviewing with severity discipline. Almost everything in the tree is defensible in isolation; the review had to separate "wrong today" (R1, R2) from "correct today, fragile tomorrow" (R3, R6, R13) from "misleading" (R4, R5, R9) without inflating any of them. The fix was to define the severity ladder up front and force each finding to state its trigger condition.
+
+### What warrants a second pair of eyes
+
+- R6's covered-or-clipped staleness argument. I convinced myself stale back-buffer chrome is always either client-covered or clipped after a same-bucket viewport change, but the argument has three legs and one of them is the unenforced covering invariant. Someone should try to construct a counterexample (floats? fullscreen exit? `ph <= t+b` degenerate frames?).
+- Whether the IPC perf query really executes on the WM loop (R4's resolution depends on it).
+
+### What should be done in the future
+
+- Land R1 + R2 + R5 + the comment half of R3 immediately (minutes each, regression tests available).
+- Follow-up ticket: env parsing package (R9), `paintPlan` extraction (R13), covering-invariant assertion in the scenario harness.
+- Run the four open experiments in Part VII of the review before calling GGWM-012 done — especially the two-xterm drag on real hardware.
+
+### Code review instructions
+
+- Start with `design-doc/02-code-review-guide-...md` Part V (ranked findings), then verify each with the commands in Part VIII.
+- Every finding is checkable without an X server except the harness runs.
+
+### Technical details
+
+- Findings index: R1 `wmx11/perf.go:15` bare env test; R2 `wmx11/manage.go:935` meter omits `f.back`; R3 `wmx11/manage.go:878` stale comment + fallback surplus; R4 `wmx11/perf.go:161` atomics without atomic writers; R5 `wmx11/perf.go:17` misattached comment; R6 `wmx11/manage.go:581` unwritten staleness argument; R7 attempts-vs-successes counting; R8 two-writer snapshot; R9 four env parsers; R10 per-paint mutex in `xshm.Available`; R11 mutable env globals; R12 drop-vs-latch throttle; R13 `paintFrame` state machine.
