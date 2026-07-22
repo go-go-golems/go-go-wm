@@ -421,6 +421,7 @@ func (w *WM) paintFrame(f *frame) {
 		log.Debug().Dur("ms", d).Str("leaf", string(f.leaf)).
 			Int("w", f.rect.W).Int("h", f.rect.H).Msg("paintFrame")
 	}(time.Now())
+	composeStart := time.Now()
 	if f.img == nil || f.img.Bounds().Dx() != f.rect.W || f.img.Bounds().Dy() != f.rect.H {
 		f.img = image.NewRGBA(image.Rect(0, 0, f.rect.W, f.rect.H))
 	}
@@ -455,6 +456,9 @@ func (w *WM) paintFrame(f *frame) {
 	}
 	draw.Border(img, img.Bounds(), draw.BorderW, draw.Current().Ink)
 
+	w.perf.composeNanos += uint64(time.Since(composeStart).Nanoseconds())
+	uploadStart := time.Now()
+	defer func() { w.perf.uploadNanos += uint64(time.Since(uploadStart).Nanoseconds()) }()
 	// Upload. Preferred path (GGWM-006): a MIT-SHM shared pixmap set as
 	// the window background — WriteRGBA is the only pixel pass, and
 	// ClearAll makes the server blit it. Fallback: the cached

@@ -50,9 +50,14 @@ type perfCounters struct {
 	motionAdmitted        uint64 // ticks that actually did work
 	resizePaintSuppressed uint64
 
-	// Wall clock
+	// Wall clock. The paint breakdown exists because measurement showed
+	// ~98% of a paintFrame is neither fill nor text: it is colour
+	// conversion plus upload, and until these are separated they cannot be
+	// told apart (GGWM-012).
 	paintNanos    uint64
 	relayoutNanos uint64
+	composeNanos  uint64 // fill + title + border into the RGBA scratch
+	uploadNanos   uint64 // convert + surface create/attach + X blit
 }
 
 // perfSnapshot is the JSON shape returned by the "perf" IPC query. It is a
@@ -77,6 +82,8 @@ type perfSnapshot struct {
 	MotionCoalesced       uint64  `json:"motion_coalesced"`
 	ResizePaintSuppressed uint64  `json:"resize_paint_suppressed"`
 	PaintMillis           float64 `json:"paint_ms_total"`
+	ComposeMillis         float64 `json:"compose_ms_total"`
+	UploadMillis          float64 `json:"upload_ms_total"`
 	RelayoutMillis        float64 `json:"relayout_ms_total"`
 	SharedPixmaps         bool    `json:"shared_pixmaps"`
 }
@@ -105,6 +112,8 @@ func (p *perfCounters) snapshot(sharedPixmaps bool) perfSnapshot {
 		MotionCoalesced:       coalesced,
 		ResizePaintSuppressed: p.resizePaintSuppressed,
 		PaintMillis:           float64(p.paintNanos) / 1e6,
+		ComposeMillis:         float64(p.composeNanos) / 1e6,
+		UploadMillis:          float64(p.uploadNanos) / 1e6,
 		RelayoutMillis:        float64(p.relayoutNanos) / 1e6,
 		SharedPixmaps:         sharedPixmaps,
 	}
