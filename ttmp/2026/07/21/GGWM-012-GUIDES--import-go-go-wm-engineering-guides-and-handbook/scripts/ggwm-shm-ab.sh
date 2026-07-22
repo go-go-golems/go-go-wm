@@ -13,13 +13,20 @@
 # Produces two JSON logs under $OUT for offline comparison.
 set -uo pipefail
 
-GO_GO_WM="${GO_GO_WM:-$HOME/.local/bin/go-go-wm}"
+# Capture everything this script says. The first run of this harness ended
+# with the X session closing and no explanation, because xterm -e swallows
+# stdout/stderr and xinit tears the server down as soon as its client exits.
 OUT="${OUT:-$HOME/ggwm-shm-ab}"
+mkdir -p "$OUT"
+exec > >(tee -a "$OUT/harness.log") 2>&1
+echo "=== harness start $(date -Is) DISPLAY=${DISPLAY:-unset} ==="
+trap 'echo "=== harness EXIT rc=$? at line $LINENO ==="; echo "(window stays open; press Enter)"; read -r _ || true' EXIT
+set -x
+
+GO_GO_WM="${GO_GO_WM:-$HOME/.local/bin/go-go-wm}"
 SOCK="$XDG_RUNTIME_DIR/go-go-wm.sock"
 PBUI_SOCK="$XDG_RUNTIME_DIR/pbui.sock"
 REPS="${REPS:-3}"        # drag sweeps per condition
-mkdir -p "$OUT"
-
 # Screen is 1280x800 (see ~/.xorg.go-go-wm.conf "Virtual 1280 800"), so a single
 # vertical split at ratio 0.5 puts the divider at x~640. Sweep across it.
 DIVX=640; DIVY=400
@@ -95,6 +102,9 @@ run_condition() {
   echo "{\"__marker\":\"drag_end\",\"cond\":\"$label\"}" >> "$log"
   echo "-- marker: drag ends"
 
+  # Bounded aggregate counters (GGWM-012 perf IPC query) before shutdown.
+  ipc '{"q":"perf"}' > "$OUT/$label.perf.json" 2>/dev/null || true
+  echo "-- perf: $(cat "$OUT/$label.perf.json" 2>/dev/null | head -c 400)"
   sleep 1
   kill $wmpid 2>/dev/null; wait $wmpid 2>/dev/null
   sleep 1

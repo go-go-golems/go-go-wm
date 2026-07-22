@@ -564,3 +564,270 @@ Nothing, but there is a real hazard worth naming: **`--force` deletes the existi
   ```bash
   remarquee cloud ls /ai/2026/07/21/GGWM-012-GUIDES --long --non-interactive
   ```
+
+## Step 7: Implementing Phase 0 and Phase 1 — and being wrong about the index
+
+This step turns the guide from a document into code. The VT2 experiment had already produced its first real finding before the harness even completed a run — `shared_pixmaps: false`, meaning this machine never takes the MIT-SHM path at all — so the work here covers both the instrumentation needed to settle the remaining questions and the Phase 1 changes that are safe to make without waiting for numbers.
+
+The most useful thing that happened was being wrong in public. I implemented the tree index that the design doc recommends for removing an O(n²) loop, benchmarked it, and found it made the common case *slower*. Rather than quietly keep it, I measured a second variant and kept the change only once it was defensible — and the guide now has to be corrected, because it presented that item as an unambiguous win.
+
+### Prompt Context
+
+**User prompt (verbatim):** "ok, update the tasks and then work on all of this and make it faster, by yourself"
+
+**Assistant interpretation:** Add the implementation work to the ticket's task list, then autonomously carry out the Phase 0 instrumentation and Phase 1 optimizations described in the design doc, verifying as I go.
+
+**Inferred user intent:** Stop planning and start making the window manager measurably faster, with the ticket kept up to date so the work is reviewable.
+
+**Follow-up user prompt (verbatim):** "Keep a detailed diary as you work, use the skill for the format"
+
+**Assistant interpretation:** Maintain the investigation diary continuously through the implementation, in the `diary` skill's format.
+
+**Inferred user intent:** Preserve the reasoning trail — especially the failures — so the implementation can be reviewed and continued by someone else.
+
+### What I did
+
+Added twelve tasks (`zps3`…`e4yb`) splitting the work into P0 measurement and P1 optimization, then implemented:
+
+**Measurement (P0)**
+- `pkg/wmx11/perf.go` — a `perfCounters` struct covering reconciliation, upload-path churn, drag scheduling, and wall clock, plus a `perfSnapshot` JSON shape.
+- Counters wired into `relayoutPaint`, `paintFrame`, `dividerMotion`, `gripMotion`, `syncDividers`, and both upload branches. The ones that matter most: `shm_creates`/`shm_destroys` and `ximg_creates`/`ximg_destroys` — these are what settle the central hypothesis — plus `motion_events` vs `motion_admitted` to expose coalescing.
+- `perf` and `perf-reset` IPC queries returning bounded aggregates.
+- `GO_GO_WM_NO_RESIZE_PAINT=1`, which suppresses decoration paint during a divider drag while still committing geometry. This measures the upper bound of paint removal directly, without first restructuring frames into chrome + content.
+- Benchmarks in `pkg/wmcore/layout_bench_test.go` and `pkg/draw/paint_bench_test.go`. The repository previously had **zero**.
+
+**Optimization (P1)**
+- `wmcore.Index` / `BuildIndex` / `BuildIndexInto` plus `index_test.go`, replacing the `Root.Find`-per-layout-item loops in `relayoutPaint` and `syncDividers`.
+- Divider paint key: `dividerWin` now records the `(mode, dir, w, h)` it last painted and skips `paintDivider` when nothing visible changed.
+- Divider map mirror: `d.mapped` stops a `MapWindow` request per divider per relayout.
+- Frame map mirror: `frame.mapped` as a tri-state (`mapUnknown`/`mapMapped`/`mapUnmapped`) so Map/Unmap is issued only on a visibility transition.
+- `handleConfigureRequest` now sends a synthetic `ConfigureNotify` instead of calling `relayout()`.
+- Split-rect caching in `dragState`, halving the layout passes per drag tick.
+- `gripMotion` given the same 16 ms admission control as `dividerMotion`.
+
+### Why
+
+The ordering was deliberate: instrumentation first, then only those optimizations that are provably safe without a display. Everything implemented here is verifiable by `go test` and `go test -bench`; nothing needed a running X server. That matters because the X-dependent parts of the plan (Phase 2's capacity buffers, Phase 4's chrome split) are exactly the risky ones, and they should not be attempted until the counters can show whether they helped.
+
+The `GO_GO_WM_NO_RESIZE_PAINT` flag is a measurement tool rather than a feature. The design doc's Phase 2 asks for "a resize path that configures geometry without calling `paintFrame` … to quantify the upper bound of paint removal before restructuring chrome". An env-gated branch is the cheapest honest way to get that number.
+
+### What worked
+
+- **The synthetic `ConfigureNotify` fix was almost free.** The existing code carried the comment *"Re-assert our geometry (send a synthetic ConfigureNotify)"* directly above a call to `w.relayout()` — the comment described the correct behaviour and the code did something else, roughly a thousand times more expensive. Writing what the comment already said removed a whole-workspace relayout from a client-driven path with no rate limit.
+- **The split-rect cache is exactly right by construction.** Changing a split's ratio moves its descendants' rectangles but never its own, so the rect captured at `beginDividerDrag` stays valid for the entire gesture. That removes one of the two full-tree layouts per tick without any approximation.
+- **All 15 packages pass** after every change, including the existing `focus_state_test.go` and `float_test.go` regression suites.
+- The divider paint guard is the change I expect to matter most on this machine, because `paintDivider` allocates an image *and* creates and frees a server pixmap through the uncached blit path, and it was firing once per divider per motion tick.
+
+### What didn't work
+
+**The tree index made the common case slower, and I nearly shipped it.**
+
+The design doc lists "remove the O(n²) `Find`-in-loop" as a Phase 1 win. The first implementation allocated a fresh map per pass. Benchmarked (3 runs, 1 s each, ns/op):
+
+| leaves | `Find` (old) | `BuildIndex` (new) | verdict |
+|---:|---:|---:|---|
+| 2 | 85 | 531 | **6.2× slower** |
+| 4 | 230 | 690 | **3.0× slower** |
+| 8 | 722 | 1179 | **1.6× slower** |
+| 16 | 2732 | 3509 | **1.3× slower** |
+| 32 | 11 896 | 8 014 | 1.5× faster |
+
+A fresh `map[NodeID]*Node` costs more than the depth-first scans it replaces until roughly 24 leaves — and a real workspace holds two to eight tiles. The "obvious" algorithmic win was a regression across the entire realistic range.
+
+The fix was `BuildIndexInto`, which refills one scratch map owned by the WM:
+
+| leaves | `Find` | `BuildIndexInto` | verdict |
+|---:|---:|---:|---|
+| 2 | 85 | 178 | 2.1× slower (−93 ns) |
+| 4 | 230 | 329 | 1.4× slower |
+| 8 | 722 | 791 | 1.1× slower (−69 ns) |
+| 16 | 2732 | 1540 | **1.8× faster** |
+| 32 | 11 896 | 3212 | **3.7× faster** |
+
+Crossover moves to ~10 leaves and the small-tree penalty becomes about 70 ns per pass — noise beside a `paintFrame` that the live log timed at **3.1 ms**. I kept it on those terms: it is insurance against pathological trees, not a win at typical sizes.
+
+### What I learned
+
+- **`draw.Text` is the dominant cost in title rendering.** New benchmarks: `TitleStrip.Render` at width 1272 takes **73.7 µs** and allocates 115 KB, of which `draw.Text` alone is **52.8 µs** (72%). Since the title string does not change while a pane is being resized — only its width does — this is cacheable, and it is a bigger single win than anything in the Phase 1 list.
+- **`draw.Fill` is already optimal.** 108 µs for 1272×664 at **31 GB/s** is memory-bandwidth bound. GGWM-005's row-pattern fill left nothing on the table; do not revisit it.
+- Putting those together: the measured cost of one `paintFrame` is ~182 µs of fill plus title, against the ~3.1 ms the live log recorded. **Roughly 94% of a frame paint is therefore neither fill nor title rendering** — it is BGRA conversion, upload, and X. That is a much sharper statement of where to look next than the design doc currently makes.
+- Throttling `gripMotion` introduced a correctness obligation I nearly missed: unlike the divider path, grip release did **not** replay the final pointer position, so `d.over`/`d.zone` could be up to one frame stale and the drop would land on the wrong target. Added the same release-replay the divider path has had since GGWM-005.
+
+### What was tricky to build
+
+Two things.
+
+**The divider paint key needed an escape hatch.** Appearance is a pure function of `(mode, dir, w, h)` *for a given palette*, and a theme swap changes the pixels without changing any of those. Worse, an `Expose` means the server has thrown the contents away, so the key describes something that is no longer on screen. Both needed explicit `invalidate()` calls — in `setTheme`'s divider loop and in the `Expose` handler. Caching keyed on a partial description of the output is exactly the kind of change that works in testing and produces stale pixels in the field weeks later; the two invalidation points are the whole correctness argument.
+
+**The map mirror had to be a tri-state, not a bool.** A `bool` would default to "unmapped", which is wrong for frames adopted at startup by `manageExisting` — the WM has told the server nothing about them, and skipping the first Map because the field happens to read `false` would leave windows invisible. `mapUnknown` as the zero value forces the first pass to issue the request and makes the state machine honest about what it does and does not know.
+
+### What warrants a second pair of eyes
+
+- **`frame.mapped` versus workspace switching.** Workspace switches intentionally unmap frames, and `UnmapNotify` for a WM-initiated unmap must not be mistaken for client withdrawal. I updated the two sites that map frames (`handleMapRequest`, `manage`) but a reviewer should check whether any other path changes map state behind the mirror's back.
+- **The divider `Expose` invalidation.** Dividers are created with `CwBackPixel`, so the server repaints the background itself; the grip mark is what needs redrawing. If the background pixel alone is ever deemed sufficient, the invalidate becomes unnecessary — but leaving it costs one paint per expose and is the safe direction.
+- **The synthetic `ConfigureNotify` field values.** Root-relative X/Y are computed as `f.rect.X + BorderW` / `f.rect.Y + TitleH`. That matches how `relayoutPaint` configures the client child, but it deserves a protocol-level test against a real client rather than my reading.
+- **Sharing one `idxScratch` between `relayoutPaint` and `gripMotion`.** Safe today because both run on the WM loop and never nest, but it is an invariant that is not enforced by anything.
+
+### What should be done in the future
+
+- **Cache the title text rendering.** 52.8 µs per paint, and the text is invariant during a resize. This is the next change I would make.
+- Correct the design doc: Part IV lists the O(n²) removal as a straightforward win, and Part VI Phase 1 repeats it. Both need the benchmark table and the "only above ~10 leaves" caveat.
+- Record the `shared_pixmaps: false` finding in the guide — on this host GGWM-006's shared-pixmap path never executes, so the Tier-1 hypothesis needs restating in terms of the `ximg` fallback.
+- `wmcore.Layout` still allocates a fresh map per call (2.4 µs at 8 leaves). The same scratch-reuse trick applies but changes a public signature.
+
+### Code review instructions
+
+- **Start at** `pkg/wmx11/perf.go` to see what is now measurable, then `pkg/wmx11/manage.go:relayoutPaint` for the index, the move/resize split, and the map diff.
+- **The behavioural changes to scrutinise** are `divider.go:paintDivider` (the cache guard and its two invalidation points), `input.go:handleRelease` (the new grip replay), and `manage.go:sendSyntheticConfigureNotify`.
+- **Validate:**
+  ```bash
+  go build ./... && go test ./... -count=1
+  go test ./pkg/wmcore/ -run XXX -bench 'FindAll|IndexReuseAll' -benchtime=1s -count=3
+  go test ./pkg/draw/   -run XXX -bench 'Fill|TitleStrip|BenchmarkText' -benchtime=300ms
+  ```
+- **Observe the effect at runtime** — start the WM, drag a divider, then:
+  ```bash
+  echo '{"q":"perf-reset"}' | socat - UNIX-CONNECT:$XDG_RUNTIME_DIR/go-go-wm.sock
+  # ... drag ...
+  echo '{"q":"perf"}'       | socat - UNIX-CONNECT:$XDG_RUNTIME_DIR/go-go-wm.sock
+  ```
+  Expect `divider_paint_skipped` to dominate `divider_painted`, `motion_coalesced` to be large, and `map_requests_skipped` to be non-zero. `shm_creates` will be 0 on this host because `shared_pixmaps` is false; watch `ximg_creates` instead — it should equal the number of size changes.
+
+### Technical details
+
+Measured per-paint costs (this machine, `go test -bench`):
+
+| Operation | 1272×664 | 1920×1080 | Allocations |
+|---|---:|---:|---|
+| `draw.Fill` | 108 µs | 373 µs | 0 |
+| `TitleStrip.Render` | 73.7 µs (w=1272) | 91.6 µs (w=1920) | 12 / 115 KB |
+| └ of which `draw.Text` | 52.8 µs | — | 2 |
+| `draw.TextWidth` | 1.8 µs | — | 0 |
+| Observed `paintFrame` (live log) | ~3.1 ms | — | — |
+
+## Step 8: The biggest win was not on the plan — caching glyph runs
+
+The benchmarks written in Step 7 immediately pointed somewhere the design doc never looks. `draw.Text` was 72% of a title-strip render, and a window's title does not change while its pane is being resized — only the pane's width does. Caching the rasterized run made it **7.2× faster**, which is a larger single improvement than every Phase 1 item combined, and it was invisible until there were benchmarks.
+
+The cost was a real, measurable change in rendering output: 14 pixels out of 179,200 at one part in 255. Most of this step was deciding whether that was acceptable and making sure it could never quietly get worse.
+
+### Prompt Context
+
+**User prompt (verbatim):** (see Step 7 — "work on all of this and make it faster, by yourself")
+
+**Assistant interpretation:** Continue the autonomous optimization work, following the evidence the benchmarks produce rather than only the pre-written plan.
+
+**Inferred user intent:** Real, measured speedups — not just execution of a checklist.
+
+**Commit (code):** `190e10c` — "perf(wmx11,wmcore,draw): instrument the resize path and cut per-paint work"
+
+### What I did
+
+- Added `pkg/draw/textcache.go`: a bounded cache (512 entries, wholesale clear on overflow) keyed by `(string, bold, size)`, storing each run as an **alpha mask** plus its baseline offset and advance.
+- Rewired `draw.Text` to composite the cached mask through `image/draw.DrawMask` with a uniform colour source.
+- Quantified the resulting golden-test failures rather than guessing at them, via a temporary Go diff harness (stdlib PNG decoding — the machine has no PIL).
+- Replaced the throwaway probe with three real tests: `TestTextCacheMatchesDirect` (tolerance 1/255 against the original implementation, which is retained in the test file as the reference), `TestTextCacheAdvanceMatches`, and `TestTextCacheEviction`.
+- Regenerated the two affected goldens with `go test ./pkg/apps -update`.
+- Kept the diff harness as `pkg/apps/golden_delta_test.go`, a diagnostic that sizes any future golden failure instead of just reporting "differs".
+
+### Why
+
+Storing an **alpha mask** rather than coloured pixels was the key decision. The alternative — caching the rendered RGBA — would have keyed on colour too, so a focus change or a theme swap would miss the cache and re-rasterize. With a mask, geometry work happens once per `(string, bold, size)` and colour is applied at blit time. Focus changes recolour the same title constantly, so this matters in practice, not just in theory.
+
+The bound exists because titles are unbounded input: windows come and go, and each new title is a new key. A wholesale clear at 512 entries is cruder than an LRU but the working set is one entry per visible title plus a handful of button glyphs, so the eviction path should essentially never run — and simple code that cannot leak beats clever code that might.
+
+### What worked
+
+| Benchmark | Before | After | Change |
+|---|---:|---:|---|
+| `draw.Text` (24-char title) | 53.9 µs | 7.46 µs | **7.2× faster** |
+| `TitleStrip.Render` w=1272 | 73.7 µs | 38.8 µs | **1.9× faster** |
+| `TitleStrip.Render` w=1920 | 91.6 µs | 50.7 µs | **1.8× faster** |
+
+`pkg/draw`'s own golden tests — title strips, banners, menus, status lines, drop previews — passed **unchanged**, which was the first evidence the change was faithful.
+
+### What didn't work
+
+`pkg/apps` golden tests failed: `builtin-about` and `demo-colors`. Two of nine.
+
+My first fidelity probe compared five representative strings and reported `maxdelta=0, bytesdiff=0` — pixel-identical — which contradicted the failures and briefly made me think the two suites disagreed. They did not; my probe simply had not hit the case that differs.
+
+The actual measurement, once I wrote a proper PNG differ:
+
+```
+builtin-about   diff=14/179200 px (0.0078%)  maxdelta=1  bbox=(20,14)-(80,204)
+demo-colors     diff=4/179200 px  (0.0022%)  maxdelta=1  bbox=(18,107)-(162,110)
+```
+
+**Cause.** `font.Drawer` blends each glyph onto the destination in turn:
+`dst = over(over(dst, g₁), g₂)`. The cache blends glyphs into one mask and applies it once: `dst = over(dst, over(g₁, g₂))`. Those are algebraically identical for non-overlapping glyphs, and differ by one least-significant bit where antialiased glyphs overlap, because the alpha arithmetic rounds at a different point. Only certain kerned pairs at certain sizes overlap at all, which is why 7 of 9 goldens and all 5 of my probe strings were unaffected.
+
+### What I learned
+
+- **A "pixel-identical" spot check proves very little.** Five hand-picked strings all reported zero delta while a real corpus disagreed. The lesson generalizes: when a change *can* alter output, measure the whole corpus, don't sample it.
+- The absolute cost is now clearer than the design doc states. One `paintFrame` at 1272×664 is roughly 105 µs of `Fill` plus 39 µs of title = **~144 µs**, against the **~3.1 ms** the live WM log recorded. So **over 95% of a frame paint is neither fill nor text** — it is BGRA conversion, upload, and X. That is a much sharper target than "rendering is slow", and it is where the next work belongs.
+- `draw.Fill` at 32 GB/s is memory-bandwidth bound. GGWM-005 finished that job; there is nothing left there.
+
+### What was tricky to build
+
+The judgement call, not the code.
+
+A 1/255 delta on 18 pixels across two images is invisible — but goldens exist precisely to catch unintended changes, and silently regenerating them is how a codebase loses its safety net one small justification at a time. Simply accepting the diff would have set a bad precedent even though this particular diff is harmless.
+
+What made it acceptable was making the tolerance **explicit and enforced**: `TestTextCacheMatchesDirect` keeps the original implementation as a reference and fails if any channel drifts by more than 1. So the trade is no longer "we accepted a rendering change once" but "we accepted a bounded rendering change, and the bound is a test". A future change to the cache that costs 5/255 instead of 1/255 now fails loudly rather than quietly regenerating more goldens.
+
+The second sharp edge was the mask's baseline. The mask stores glyphs with the baseline at `metrics.Ascent.Ceil()` from its top, and the blit places it at `y - originY`. Getting that rounding wrong shifts every glyph by a pixel — which would *not* have been a 1/255 difference, it would have been obvious. The `TextWidth` advance test guards the horizontal equivalent, since callers position subsequent runs from the returned advance.
+
+### What warrants a second pair of eyes
+
+- **The tolerance of 1.** It is a judgement, not a law. If the project would rather be bit-exact, revert `draw.Text` to the direct path and keep the cache for the title strip only — the speedup mostly survives, since the title is the expensive run.
+- **Mask padding.** `rasterizeText` pads the mask width by `int(size)+2` for glyphs that overhang their advance. A face with extreme overhang could clip. The fidelity test would catch it for the strings it covers; it is not a proof.
+- **Cache eviction under adversarial input.** A script that renames a window in a loop generates unbounded keys. The wholesale clear bounds memory, but the clear itself is O(n) on the WM loop. It has never fired in practice; worth knowing it exists.
+
+### What should be done in the future
+
+- **Follow the 95%.** Fill and text are now ~144 µs of a ~3.1 ms paint. Instrument `ConvertRows` and the upload separately — that is where the remaining time is, and the counters added in Step 7 do not yet break it down.
+- Cache the whole title strip, not just its text, keyed by `TitleRenderKey` including width. During a resize the width changes every tick so it would miss — which is exactly the argument for the capacity-buffer approach in the design doc §5.5.
+- Consider hoisting `image.NewUniform` out of the blit; it is a small allocation per call.
+
+### Code review instructions
+
+- **Start at** `pkg/draw/textcache.go`, then read `pkg/draw/textcache_test.go` — the reference implementation and the tolerance argument are both there.
+- **The two regenerated goldens** are `pkg/apps/testdata/{builtin-about,demo-colors}.png`. To re-derive the delta yourself:
+  ```bash
+  git stash && go test ./pkg/apps/ -count=1        # regenerate .got.png against old goldens
+  git stash pop
+  go test ./pkg/apps/ -run TestGoldenDelta -v      # prints diff px, max delta, bbox
+  ```
+- **Validate:**
+  ```bash
+  go test ./... -count=1                            # 15 packages
+  go test ./pkg/draw/ -run TestTextCache -v -count=1
+  go test ./pkg/draw/ -run XXX -bench 'BenchmarkText$|TitleStrip' -benchtime=400ms
+  ```
+
+### Technical details
+
+Cache entry shape:
+
+```go
+type textKey struct { s string; bold bool; size float64 }
+
+type textMask struct {
+    mask    *image.Alpha // coverage; colour applied at blit time
+    originY int          // baseline offset within the mask
+    advance int          // pen advance, must equal TextWidth
+}
+```
+
+Paint-path cost after this step, 1272×664 pane:
+
+```
+draw.Fill            ~105 us   (32 GB/s — memory-bandwidth bound, done)
+TitleStrip.Render     ~39 us   (was 73.7 us)
+                     --------
+subtotal             ~144 us
+observed paintFrame  ~3100 us  (live WM debug log)
+                     --------
+unaccounted          ~2956 us  ->  BGRA conversion + upload + X
+```

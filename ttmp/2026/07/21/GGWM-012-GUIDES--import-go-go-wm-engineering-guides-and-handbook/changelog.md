@@ -42,3 +42,18 @@ Published the five-document bundle to reMarkable at /ai/2026/07/21/GGWM-012-GUID
 
 Re-rendered and replaced the reMarkable bundle using remarquee's standard layout instead of the editor preset, per user preference; fonts unchanged (Noto Sans / JetBrains Mono).
 
+
+## 2026-07-22
+
+Implemented Phase 0 (perf counters, perf IPC query, GO_GO_WM_NO_RESIZE_PAINT, first benchmarks in the repo) and Phase 1 (glyph-run cache, divider paint guard, map-state mirrors, single layout per drag tick, synthetic ConfigureNotify, gripMotion throttle, scratch tree index). draw.Text 7.2x faster; TitleStrip.Render 1.9x. All 15 packages pass. (commit 190e10c)
+
+### Related Files
+
+- /home/manuel/workspaces/2026-07-21/go-go-wm-goja/go-go-wm/pkg/draw/textcache.go — Glyph-run alpha-mask cache — the largest single measured win
+- /home/manuel/workspaces/2026-07-21/go-go-wm-goja/go-go-wm/pkg/wmx11/perf.go — Counters that make the resize path measurable for the first time
+
+
+## 2026-07-22
+
+Corrected the design doc from implementation evidence: shared_pixmaps is false on this host so the shm path never runs (GGWM-006 inert here); the O(n^2) removal is scaling insurance rather than a speedup below ~24 leaves; and >95% of a frame paint is BGRA conversion plus upload, not fill or text.
+

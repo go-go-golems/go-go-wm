@@ -869,6 +869,73 @@ This is the part that saves you weeks. The three source guides were written agai
 | Handbook Appendix C "contains three ADRs" | It contains **seven** (ADR-1 … ADR-7) | `sources/local/go-go-wm_engineering_handbook.md` |
 | Proposed backlog assigns **GGWM-012** to "Divider gesture preview and latest-motion scheduler" | **Numbering collision:** GGWM-012 is this ticket. Renumber before adopting GGWM-013…029 | ibid. §44 |
 
+## 4.2b Corrections from implementation (added after Phase 0/1 landed)
+
+Three claims in this document were tested by implementing them. Two survived; one did not.
+
+### The MIT-SHM path does not execute on every host
+
+**OBSERVED**, from a live run on this machine's Xorg (`modesetting`, `Virtual 1280 800`):
+
+```json
+{"shared_pixmaps": false, "message": "frame upload path"}
+```
+
+`xshm.Available` requires `rep.SharedPixmaps && RootDepth == 24` (`xshm.go:53`). The server here reports no shared-pixmap support, so go-go-wm **always takes the `ximg` PutImage fallback**, and `GO_GO_WM_NO_SHM=1` changes nothing.
+
+Consequences:
+
+1. The Tier-1 hypothesis in §3.2 — two checked round trips per resized pane per tick from `xshm.New` — **cannot apply on this host**, because that code never runs. It remains the correct analysis wherever shared pixmaps *are* available.
+2. **GGWM-006's shared-pixmap optimization is inert in this configuration.** Nothing logged it above `Info` and nobody was looking.
+3. The *shape* of the problem survives on the fallback: `f.ximg` is destroyed and recreated whenever bounds change (`manage.go:441-450`) — every tick during a drag — each recreation doing `xgraphics.New` plus `XSurfaceSet` (CreatePixmap + ChangeWindowAttributes), and `XDraw` then pushes the whole surface through the socket via PutImage on **every** paint.
+
+So the priority stands, but state it in terms of **per-tick surface recreation**, not specifically shm. The `ximg_creates` counter added in Phase 0 measures it directly.
+
+### The O(n²) removal is not a win at realistic tree sizes
+
+§4.3 item 6 and Phase 1 present removing the `Find`-in-loop as a straightforward improvement. Benchmarked (`pkg/wmcore/layout_bench_test.go`, ns/op):
+
+| leaves | `Find` (old) | `BuildIndex` (allocating) | `BuildIndexInto` (shipped) |
+|---:|---:|---:|---:|
+| 2 | 92 | 531 | 179 |
+| 4 | 240 | 690 | 341 |
+| 8 | 710 | 1179 | 800 |
+| 16 | 2651 | 3509 | **1579** |
+| 32 | 11213 | 8014 | **3309** |
+
+A fresh `map[NodeID]*Node` costs more than the depth-first scans it replaces until roughly 24 leaves; a real workspace holds two to eight tiles. Reusing one scratch map moves the crossover to ~10 leaves and leaves a ~70 ns penalty below it — noise against a `paintFrame` measured at ~3.1 ms.
+
+**Keep it as scaling insurance, not as a speedup.** Do not cite it as a performance win.
+
+### The largest single win was not in this plan
+
+Benchmarking the paint path found that `draw.Text` was **72%** of a title-strip render, and a title does not change while its pane resizes. Caching glyph runs as alpha masks:
+
+| Benchmark | Before | After |
+|---|---:|---:|
+| `draw.Text` (24 chars) | 53.9 µs | **7.46 µs** |
+| `TitleStrip.Render` w=1272 | 73.7 µs | **38.8 µs** |
+
+This cost a bounded rendering change — compositing a run into one mask differs from per-glyph blending by one LSB where antialiased glyphs overlap, measured at 14 of 179,200 pixels — pinned by `TestTextCacheMatchesDirect` at a tolerance of 1/255.
+
+**The general lesson matters more than the specific fix:** the plan in Part VI was derived from reading code, and the first hour of *measuring* it surfaced a bigger win than anything on the list. Phase 0 is not bureaucracy.
+
+### Revised statement of where a frame paint goes
+
+Measured, 1272×664 pane:
+
+```
+draw.Fill            ~105 us    32 GB/s, memory-bandwidth bound — finished work
+TitleStrip.Render     ~39 us    after the glyph cache (was 74 us)
+                     --------
+subtotal             ~144 us
+observed paintFrame ~3100 us    live WM debug log
+                     --------
+unaccounted         ~2956 us    BGRA conversion + upload + X
+```
+
+**Over 95% of a frame paint is conversion, upload, and X** — not fill, not text. Instrument `ConvertRows` and the upload separately before optimizing either.
+
 ## 4.3 Open, evidence-backed work
 
 Ordered by impact-to-risk ratio. This ordering *is* the roadmap in Part VI.
