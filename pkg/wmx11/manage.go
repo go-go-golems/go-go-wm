@@ -354,6 +354,14 @@ func (w *WM) relayoutPaint(paintAll bool) {
 			w.perf.framesMoved++
 			if sizeChanged {
 				w.perf.framesResized++
+				// From this MoveResize until paintFrame's repair, the server
+				// shows the frame at its new size filled from a background
+				// pixmap that still holds the old chrome (bit gravity is
+				// Forget, so a resize repaints the whole window from the
+				// background). Stamp the commit so the repair can measure how
+				// long that stale-chrome window actually is (GGWM-012 Step 23).
+				f.resizedAt = time.Now()
+				f.prevW, f.prevH = f.rect.W, f.rect.H
 			}
 			f.rect = r
 			f.win.MoveResize(r.X, r.Y, r.W, r.H)
@@ -585,6 +593,7 @@ func (w *WM) paintFrame(f *frame) {
 			// One repair, not four. Four ClearAreas let a repaint arrive in
 			// visible pieces; the bounding box of the chrome is a single
 			// server-side blit (GGWM-012 Step 20).
+			w.noteRepair(f)
 			if rects != nil {
 				bb := rects[0]
 				for _, r := range rects[1:] {
@@ -647,10 +656,12 @@ func (w *WM) paintFrame(f *frame) {
 				sub.XDraw()
 			}
 		}
+		w.noteRepair(f)
 		f.ximg.XPaintRects(f.win.Id, rects...)
 		return
 	}
 	f.ximg.XDraw()
+	w.noteRepair(f)
 	f.ximg.XPaint(f.win.Id)
 }
 
@@ -925,6 +936,37 @@ func (w *WM) chromeRects(f *frame) []image.Rectangle {
 		image.Rect(0, ph-b, pw, ph),   // bottom border
 		image.Rect(0, t, b, ph-b),     // left border
 		image.Rect(pw-b, t, pw, ph-b), // right border
+	}
+}
+
+// repairDelayMs artificially widens the MoveResize→repair window so the
+// stale-chrome artifact can be screenshotted instead of inferred: with the
+// delay set, a mid-drag capture shows the frame at its new size wearing the
+// previous tick's title strip. Measurement tool only (GGWM-012 Step 23).
+var repairDelayMs = envInt("GO_GO_WM_REPAIR_DELAY_MS", 0)
+
+// noteRepair closes the stale-chrome window opened by relayoutPaint's
+// MoveResize: it records how long the server has been displaying the frame at
+// its new size with the previous chrome, then (optionally) holds the window
+// open longer for visual confirmation. Called immediately before the repair
+// request (ClearArea / ClearAll / XPaint) is issued.
+func (w *WM) noteRepair(f *frame) {
+	if !f.resizedAt.IsZero() {
+		gap := time.Since(f.resizedAt)
+		g := uint64(gap.Nanoseconds())
+		w.perf.repairGaps++
+		w.perf.repairGapNanos += g
+		if g > w.perf.repairGapMaxNanos {
+			w.perf.repairGapMaxNanos = g
+		}
+		log.Debug().Str("leaf", string(f.leaf)).Dur("gap", gap).
+			Int("oldW", f.prevW).Int("oldH", f.prevH).
+			Int("newW", f.rect.W).Int("newH", f.rect.H).
+			Msg("staleChromeGap")
+		f.resizedAt = time.Time{}
+	}
+	if repairDelayMs > 0 {
+		time.Sleep(time.Duration(repairDelayMs) * time.Millisecond)
 	}
 }
 

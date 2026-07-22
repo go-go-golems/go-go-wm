@@ -91,3 +91,12 @@ Step 22: fresh-eyes code review of the performance work — design-doc 02 with 1
 
 - /home/manuel/workspaces/2026-07-21/go-go-wm-goja/go-go-wm/ttmp/2026/07/21/GGWM-012-GUIDES--import-go-go-wm-engineering-guides-and-handbook/design-doc/02-code-review-guide-the-ggwm-012-performance-work-reviewed-for-a-new-intern.md — The review guide
 
+
+## 2026-07-22
+
+Step 23: confirmed the chrome-bounce artifact — MoveResize precedes the repair by the full paint cost, so the server repaints the resized frame from the stale background pixmap; instrumented (stale_chrome_gap_* counters, staleChromeGap log), measured (663/663 resizes, p50 0.3ms harness / ~9ms real hw), photographed (gap-delay-*.png)
+
+### Related Files
+
+- /home/manuel/workspaces/2026-07-21/go-go-wm-goja/go-go-wm/pkg/wmx11/manage.go — resizedAt stamp + noteRepair + repair delay switch
+

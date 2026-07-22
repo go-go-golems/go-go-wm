@@ -112,6 +112,15 @@ type frame struct {
 	// "unknown", which forces the first pass to issue the request — the
 	// safe default for a frame adopted at startup (GGWM-012).
 	mapped mapState
+
+	// resizedAt is set when relayout commits a size change (MoveResize) and
+	// cleared when paintFrame issues the matching repair. Between those two
+	// moments the server displays the frame at its NEW size filled from a
+	// background pixmap still holding the PREVIOUS chrome — title buttons at
+	// the old right edge. The gap is the duration of that visible artifact
+	// (GGWM-012 Step 23); prevW/prevH make the log line self-describing.
+	resizedAt    time.Time
+	prevW, prevH int
 }
 
 // mapState is a tri-state so that "never told the server anything" is

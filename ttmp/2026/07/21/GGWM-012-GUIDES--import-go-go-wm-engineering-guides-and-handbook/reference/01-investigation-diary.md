@@ -1976,3 +1976,64 @@ The user asked for the performance work to be reviewed as if it were a colleague
 ### Technical details
 
 - Findings index: R1 `wmx11/perf.go:15` bare env test; R2 `wmx11/manage.go:935` meter omits `f.back`; R3 `wmx11/manage.go:878` stale comment + fallback surplus; R4 `wmx11/perf.go:161` atomics without atomic writers; R5 `wmx11/perf.go:17` misattached comment; R6 `wmx11/manage.go:581` unwritten staleness argument; R7 attempts-vs-successes counting; R8 two-writer snapshot; R9 four env parsers; R10 per-paint mutex in `xshm.Available`; R11 mutable env globals; R12 drop-vs-latch throttle; R13 `paintFrame` state machine.
+
+## Step 23: The chrome bounce — logged, measured, photographed
+
+The user reported that during drags the window chrome itself jumps: the title-strip buttons at the top right "bounce to the left and back", as if the frame were drawn at its previous size and then updated. This step confirms that reading is exactly right, instruments the mechanism, and photographs it.
+
+### Prompt Context
+
+**User prompt (verbatim):** "i still have jumps, and more interestingly, the window chrome jumps, as if the window was drawn with its previous size and then have the size update, which causes say the tiling / close buttons on the top right to bounce to the left and back . would that make sense? is that something you can log and confirm?"
+
+**Assistant interpretation:** Assess whether the described stale-size chrome flash is mechanistically plausible, and add logging/measurement to confirm or refute it.
+
+**Inferred user intent:** Understand the remaining drag artifact well enough to fix it; get evidence, not a guess.
+
+### What I did
+
+- Traced the per-tick request order: `relayoutPaint` issues `f.win.MoveResize` (manage.go) first, then composes/converts the new chrome (**~9 ms of CPU on the real machine**), and only then swaps the background pixmap and issues the repair. The frame window's bit gravity is the default (Forget), so the server repaints the whole frame from its background pixmap **the moment it resizes** — and that pixmap still holds the previous tick's chrome, with buttons at the old right edge.
+- Instrumented the window: `frame.resizedAt` stamped at the MoveResize commit, closed by `noteRepair()` just before the repair request; counters `stale_chrome_gaps`, `stale_chrome_gap_ms_avg`, `stale_chrome_gap_ms_max` in the perf snapshot; a `staleChromeGap` debug log line with old/new geometry per event.
+- Added `GO_GO_WM_REPAIR_DELAY_MS` (via `envInt`, not a bare test) to hold the window open for photography.
+- Ran the Xephyr drag harness: **663 resize commits, 663 gaps — every size change opens the window.** Distribution: p50 0.297 ms, p90 0.426 ms, p99 1.96 ms, max 16.78 ms.
+- Ran a delayed-repair drag (250 ms) and screenshotted mid-drag: `images/gap-delay-3.png` and `gap-delay-5.png` show a pane at its new width wearing the previous width's title strip — buttons inboard of the true right edge, an unchromed sliver before the divider. The user's described artifact, frozen.
+
+### Why
+
+- The bounce could have had other causes (double-buffer swap ordering, Expose racing the drag). Measuring the specific gap and photographing it pins the mechanism before any fix is attempted — the ticket's own rule.
+
+### What worked
+
+- The 1:1 ratio `stale_chrome_gaps == frames_resized` proves coverage: no resize path escapes the instrument.
+- Screenshot-via-artificial-delay turned a sub-frame race into a still image on the first attempt.
+
+### What didn't work
+
+- N/A — first run of both the measurement and the photo harness succeeded.
+
+### What I learned
+
+- The artifact is **structural, not a regression**: it predates every GGWM-012 change. Double buffering made it *crisper* (the old pixmap now survives intact until the swap, so the stale frame is a clean previous-chrome frame rather than a torn one), and the 9 ms real-hardware compose makes it long enough to see. Harness p50 is 0.3 ms — invisible — which is why no harness screenshot ever caught it unaided.
+- The magnitude of the visible artifact equals the paint cost. The two open problems (9.16 ms/paint on real hardware; the chrome bounce) are one problem seen through two instruments.
+
+### What was tricky to build
+
+- Deciding where "the window closes". The honest endpoint is when the server *processes* the repair, which the client cannot observe without a round trip; measuring to repair *issuance* undercounts by the request's server latency. Documented as a known floor rather than adding a per-paint round trip to measure it.
+
+### What warrants a second pair of eyes
+
+- The proposed fix ordering (compose → write back buffer → swap background pixmap → MoveResize → repair) shows the *new* chrome at the *old* size for the instant between swap and resize. Those are adjacent requests with no client work between them, so the exposure is server-side microseconds — but someone should confirm no flush boundary can separate them.
+
+### What should be done in the future
+
+- Implement the reorder so the background pixmap already holds the new chrome when the resize arrives; then the server's resize-time repaint IS the repair. This eliminates the artifact regardless of paint cost.
+- Independently, cutting the 9 ms real-hardware compose (launcher-tile hypothesis, Step 21) shrinks the window even without the reorder.
+
+### Code review instructions
+
+- `pkg/wmx11/wm.go` (frame.resizedAt/prevW/prevH), `pkg/wmx11/manage.go` (stamp in relayoutPaint; `noteRepair`; `repairDelayMs`), `pkg/wmx11/perf.go` (counters + snapshot fields).
+- Validate: `go test ./pkg/... -count=1`; harness run shows `stale_chrome_gaps == frames_resized`.
+
+### Technical details
+
+- Sample log line: `{"leaf":"n1","gap":1.959063,"oldW":1272,"newW":632,...,"message":"staleChromeGap"}`
+- Photos: `images/gap-delay-{1..6}.png`, taken with `GO_GO_WM_REPAIR_DELAY_MS=250`.

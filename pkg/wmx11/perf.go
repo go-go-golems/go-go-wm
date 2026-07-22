@@ -108,6 +108,15 @@ type perfCounters struct {
 	syncNanos     uint64 // barrier round trips (GO_GO_WM_SHM_SYNC)
 	syncWaits     uint64
 	surfaceNanos  uint64 // surface destroy/create (the checked round trips)
+
+	// Stale-chrome window: time between committing a frame's new size
+	// (MoveResize) and issuing the repair that gives it matching chrome.
+	// For that whole interval the server displays the new geometry filled
+	// from the old background pixmap — title buttons at the previous right
+	// edge (GGWM-012 Step 23).
+	repairGaps        uint64
+	repairGapNanos    uint64
+	repairGapMaxNanos uint64
 }
 
 // perfSnapshot is the JSON shape returned by the "perf" IPC query. It is a
@@ -139,6 +148,9 @@ type perfSnapshot struct {
 	SyncMillis            float64 `json:"sync_ms_total"`
 	SyncWaits             uint64  `json:"sync_waits"`
 	RelayoutMillis        float64 `json:"relayout_ms_total"`
+	RepairGaps            uint64  `json:"stale_chrome_gaps"`
+	RepairGapAvgMillis    float64 `json:"stale_chrome_gap_ms_avg"`
+	RepairGapMaxMillis    float64 `json:"stale_chrome_gap_ms_max"`
 	SharedPixmaps         bool    `json:"shared_pixmaps"`
 	BufferBytes           int64   `json:"buffer_bytes"`
 	BufferFrames          int     `json:"buffer_frames"`
@@ -148,6 +160,10 @@ func (p *perfCounters) snapshot(sharedPixmaps bool) perfSnapshot {
 	coalesced := uint64(0)
 	if p.motionEvents > p.motionAdmitted {
 		coalesced = p.motionEvents - p.motionAdmitted
+	}
+	gapAvg := 0.0
+	if p.repairGaps > 0 {
+		gapAvg = float64(p.repairGapNanos) / float64(p.repairGaps) / 1e6
 	}
 	return perfSnapshot{
 		Relayouts:             p.relayouts,
@@ -175,6 +191,9 @@ func (p *perfCounters) snapshot(sharedPixmaps bool) perfSnapshot {
 		SyncMillis:            float64(p.syncNanos) / 1e6,
 		SyncWaits:             p.syncWaits,
 		RelayoutMillis:        float64(p.relayoutNanos) / 1e6,
+		RepairGaps:            p.repairGaps,
+		RepairGapAvgMillis:    gapAvg,
+		RepairGapMaxMillis:    float64(p.repairGapMaxNanos) / 1e6,
 		SharedPixmaps:         sharedPixmaps,
 	}
 }
