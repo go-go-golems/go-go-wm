@@ -33,6 +33,11 @@ type dragState struct {
 	// release applies the final pointer position (GGWM-005).
 	lastPaint time.Time
 
+	// finalizing marks the replay that handleRelease performs with the
+	// release coordinates, so the committed ratio snaps even when the
+	// preview did not.
+	finalizing bool
+
 	// splitRect is the split node's own rectangle, captured once when the
 	// gesture begins. Changing a split's ratio moves its descendants'
 	// rectangles but not its own, so the pointer-to-ratio conversion does
@@ -375,9 +380,21 @@ func (w *WM) dividerMotion(d *dragState, x, y int) {
 		}
 		splitRect, dir = item.Rect, n.Dir
 	}
-	f := wmcore.RatioForPointer(splitRect, dir, x, y)
-	f, snapped := wmcore.Snap(f)
+	raw := wmcore.RatioForPointer(splitRect, dir, x, y)
+	snappedRatio, snapped := wmcore.Snap(raw)
 	d.snapped = snapped
+	// Snapping freezes the divider for 2*Stick of pointer travel — 56px on a
+	// 1272px split — because the band is entered on one side and must be
+	// crossed to escape. That reads as the drag having broken rather than as
+	// stickiness (GGWM-012 Step 18).
+	//
+	// In snap-on-release mode the divider tracks the pointer continuously and
+	// the snap is applied once, at commit. `snapped` still drives the
+	// divider's colour, so the affordance survives without the dead zone.
+	f := snappedRatio
+	if snapOnRelease && !d.finalizing {
+		f = raw
+	}
 	_, _ = wmcore.Apply(w.desktop, wmcore.Op{Op: wmcore.OpSetRatio, Node: d.split, Ratio: f})
 	w.relayoutResized()
 	w.dividerDragFeedback(d.split, snapped)
@@ -450,6 +467,7 @@ func (w *WM) handleRelease(x, y int) {
 		// Final position: the throttle above may have dropped the last
 		// few motion events.
 		d.lastPaint = time.Time{}
+		d.finalizing = true
 		w.dividerMotion(d, x, y)
 		w.dividerDragEnd(d.split)
 		w.emitEvent("move_split_ratio", map[string]interface{}{"split": string(d.split), "snapped": d.snapped})

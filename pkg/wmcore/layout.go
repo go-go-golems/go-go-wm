@@ -1,6 +1,10 @@
 package wmcore
 
-import "fmt"
+import (
+	"fmt"
+	"os"
+	"strconv"
+)
 
 // Rect is a pixel rectangle (X11 convention: origin top-left).
 type Rect struct {
@@ -18,7 +22,26 @@ func (r Rect) Contains(x, y int) bool {
 // Blender-style (ports SNAPS/STICK/snapFrac, pbui-shell.jsx:166-169).
 var Snaps = []float64{0.25, 1.0 / 3.0, 0.5, 2.0 / 3.0, 0.75}
 
-const Stick = 0.022
+// Stick is the half-width, in ratio units, of the band around each snap
+// point in which the divider holds still.
+//
+// The dead zone a user feels is TWICE this, because the band is entered from
+// one side and must be crossed to escape. At 0.022 on a 1272px split that was
+// 56px of pointer travel with the divider frozen, followed by a 28px jump —
+// which reads as the drag having stopped working rather than as stickiness
+// (GGWM-012 Step 18). Measured, not guessed: see TestSnapDeadZone.
+//
+// Tunable so feel can be dialled without a rebuild.
+var Stick = envFloat("GO_GO_WM_SNAP_STICK", 0.022)
+
+func envFloat(name string, def float64) float64 {
+	if v := os.Getenv(name); v != "" {
+		if f, err := strconv.ParseFloat(v, 64); err == nil && f >= 0 {
+			return f
+		}
+	}
+	return def
+}
 
 // Snap returns the (possibly snapped) fraction and whether it snapped.
 func Snap(f float64) (float64, bool) {

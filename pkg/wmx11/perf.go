@@ -2,6 +2,7 @@ package wmx11
 
 import (
 	"os"
+	"strings"
 	"sync/atomic"
 	"time"
 )
@@ -12,6 +13,20 @@ import (
 // question the chrome/content split (GGWM-012 Phase 4) exists to answer
 // structurally. Panes keep their old pixels until the drag releases.
 var suppressResizePaint = os.Getenv("GO_GO_WM_NO_RESIZE_PAINT") != ""
+
+// snapOnRelease makes a divider track the pointer during the drag and apply
+// the snap once, on release, instead of freezing inside each snap band.
+// Default on: the frozen band was the behaviour users reported as the drag
+// stopping (GGWM-012 Step 18). Set GO_GO_WM_SNAP_ON_RELEASE=0 for the old
+// live-snapping feel.
+var snapOnRelease = func() bool {
+	switch strings.ToLower(strings.TrimSpace(os.Getenv("GO_GO_WM_SNAP_ON_RELEASE"))) {
+	case "0", "false", "no", "off":
+		return false
+	default:
+		return true
+	}
+}()
 
 // perfCounters records the work the reconciler and paint path actually do.
 //
