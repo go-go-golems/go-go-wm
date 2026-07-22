@@ -118,7 +118,12 @@ func (w *WM) dispatchIPC(req ipcRequest) ipcResponse {
 		case "perf":
 			// Bounded aggregates only — a debug endpoint must never stream
 			// an unbounded trace (GGWM-012).
-			done <- ipcResponse{OK: true, Data: w.perf.snapshot(xshm.Available(w.X))}
+			snap := w.perf.snapshot(xshm.Available(w.X))
+			// Capacity sizing trades surplus memory for fewer resource
+			// recreations; report the memory side so the trade is measured
+			// rather than estimated (GGWM-012 Step 14).
+			snap.BufferBytes, snap.BufferFrames = w.bufferBytes()
+			done <- ipcResponse{OK: true, Data: snap}
 		case "perf-reset":
 			w.perf.reset()
 			done <- ipcResponse{OK: true}

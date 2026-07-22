@@ -1491,3 +1491,19 @@ This is an argument for keeping tuning constants cheap to sweep rather than reas
   S=ttmp/2026/07/21/GGWM-012-GUIDES--*/scripts/ggwm-xephyr-validate.sh
   for b in 16 32 64 128 256; do GO_GO_WM_SIZE_BUCKET=$b $S "bucket$b"; done
   ```
+
+### Step 14b: measuring the memory side of the bucket trade
+
+Step 14 chose 128 over 256 on an *estimate* of surplus memory, which is exactly the kind of reasoning the rest of this ticket has been correcting. Added `buffer_bytes` and `buffer_frames` to the perf snapshot — the resident total of `f.img`, `f.surf` and `f.ximg` across frames and floats — and re-ran the sweep:
+
+| bucket | buffer_bytes (2 frames) | ms/paint |
+|---:|---:|---:|
+| 64 | 7.86 MB | 1.70 |
+| 128 | **7.86 MB** | **1.10** |
+| 256 | 9.44 MB | 0.70 |
+
+**128 costs exactly the same memory as 64 at this geometry and is 1.5x faster.** A 636×664 pane rounds to 640×704 at bucket 64 and 640×768 at bucket 128; the width bucket is identical and only the height differs, and the height rounding lands in the same allocation class. The conservative default was not buying anything.
+
+256 is a genuine trade: +20% memory for another 1.57x. Left at 128, but now the choice rests on two measured columns instead of one measured and one estimated.
+
+The general point, again: the estimate said 64 → 128 costs ~10% more memory. It costs zero at this geometry. Estimating a quantity you can cheaply measure is a habit worth breaking even when the estimate is directionally reasonable.

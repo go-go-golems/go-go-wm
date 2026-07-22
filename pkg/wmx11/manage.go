@@ -852,3 +852,37 @@ func (w *WM) chromeRects(f *frame) []image.Rectangle {
 		image.Rect(pw-b, t, pw, ph-b), // right border
 	}
 }
+
+// bufferBytes totals the paint buffers currently held by frames and floats,
+// and how many frames hold any. Backing stores are rounded up to a bucket and
+// released only when a frame goes off-screen, so this is the resident cost of
+// the capacity-sizing trade.
+func (w *WM) bufferBytes() (int64, int) {
+	var total int64
+	var n int
+	count := func(f *frame) {
+		var b int64
+		if f.img != nil {
+			r := f.img.Bounds()
+			b += int64(r.Dx()) * int64(r.Dy()) * 4
+		}
+		if f.surf != nil {
+			b += int64(f.surf.W) * int64(f.surf.H) * 4
+		}
+		if f.ximg != nil {
+			r := f.ximg.Bounds()
+			b += int64(r.Dx()) * int64(r.Dy()) * 4
+		}
+		if b > 0 {
+			total += b
+			n++
+		}
+	}
+	for _, f := range w.frames {
+		count(f)
+	}
+	for _, f := range w.floats {
+		count(f)
+	}
+	return total, n
+}

@@ -90,6 +90,8 @@ type perfSnapshot struct {
 	SurfaceMillis         float64 `json:"surface_ms_total"`
 	RelayoutMillis        float64 `json:"relayout_ms_total"`
 	SharedPixmaps         bool    `json:"shared_pixmaps"`
+	BufferBytes           int64   `json:"buffer_bytes"`
+	BufferFrames          int     `json:"buffer_frames"`
 }
 
 func (p *perfCounters) snapshot(sharedPixmaps bool) perfSnapshot {
