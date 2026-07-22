@@ -350,20 +350,39 @@ func (w *WM) relayoutPaint(paintAll bool) {
 		// invalidates the paint buffers. Tracking them separately lets the
 		// resize path skip paint for moves (GGWM-012).
 		sizeChanged := f.rect.W != r.W || f.rect.H != r.H
+		// GO_GO_WM_NO_RESIZE_PAINT measures the upper bound of removing
+		// decoration paint from the drag path: geometry still commits,
+		// pixels keep their old contents until release (GGWM-012 Phase 2).
+		suppressed := suppressResizePaint && w.drag != nil && w.drag.kind == "divider" && !paintAll
 		if resized {
 			w.perf.framesMoved++
 			if sizeChanged {
 				w.perf.framesResized++
-				// From this MoveResize until paintFrame's repair, the server
-				// shows the frame at its new size filled from a background
-				// pixmap that still holds the old chrome (bit gravity is
-				// Forget, so a resize repaints the whole window from the
-				// background). Stamp the commit so the repair can measure how
-				// long that stale-chrome window actually is (GGWM-012 Step 23).
-				f.resizedAt = time.Now()
 				f.prevW, f.prevH = f.rect.W, f.rect.H
 			}
 			f.rect = r
+		}
+		// Upload BEFORE the geometry commit. The server repaints a resized
+		// window from its background pixmap immediately (bit gravity is
+		// Forget), so the pixmap must already hold the new-size chrome when
+		// the MoveResize arrives. The old order — MoveResize, then ~a paint's
+		// worth of compose/convert, then repair — displayed the new geometry
+		// wearing the previous tick's title strip for that whole window: the
+		// "chrome bounce", measured at roughly the paint cost per resize
+		// (GGWM-012 Steps 23-24). paintFrameContent changes nothing on
+		// screen; only repairFrame below does.
+		var plan repairPlan
+		painted := false
+		if (paintAll || resized) && !suppressed {
+			plan, painted = w.paintFrameContent(f)
+		}
+		if resized {
+			if sizeChanged {
+				// The stale-chrome window now opens at the commit and closes
+				// at repairFrame, a few requests later with no client-side
+				// work between (GGWM-012 Step 23).
+				f.resizedAt = time.Now()
+			}
 			f.win.MoveResize(r.X, r.Y, r.W, r.H)
 			// Inner client area: inside the 2px border, below the strip.
 			cw := r.W - 2*draw.BorderW
@@ -381,17 +400,10 @@ func (w *WM) relayoutPaint(paintAll bool) {
 					[]uint32{uint32(draw.BorderW), uint32(draw.TitleH), uint32(cw), uint32(ch)})
 			}
 		}
-		if paintAll || resized {
-			// GO_GO_WM_NO_RESIZE_PAINT measures the upper bound of removing
-			// decoration paint from the drag path: geometry still commits,
-			// pixels keep their old contents until release. It answers "how
-			// much of the drag cost is paint?" without restructuring the
-			// frame into chrome + content first (GGWM-012 Phase 2).
-			if suppressResizePaint && w.drag != nil && w.drag.kind == "divider" && !paintAll {
-				w.perf.resizePaintSuppressed++
-			} else {
-				w.paintFrame(f)
-			}
+		if painted {
+			w.repairFrame(f, plan)
+		} else if (paintAll || resized) && suppressed {
+			w.perf.resizePaintSuppressed++
 		}
 	}
 	// Hide everything not on this workspace. Issue the request only on a
@@ -419,10 +431,34 @@ func (w *WM) relayoutPaint(paintAll bool) {
 }
 
 // paintFrame draws the title strip + border for a frame (and, for builtin
-// tiles, the WM-rendered app content).
+// tiles, the WM-rendered app content), then repairs the window so the new
+// pixels show. relayoutPaint calls the two halves separately so the geometry
+// commit can sit between upload and repair (GGWM-012 Step 24); every other
+// caller wants them back-to-back.
 func (w *WM) paintFrame(f *frame) {
+	if plan, ok := w.paintFrameContent(f); ok {
+		w.repairFrame(f, plan)
+	}
+}
+
+// repairPlan records how repairFrame must make freshly uploaded pixels
+// visible: which rectangles were written (nil = the whole window) and which
+// upload path wrote them.
+type repairPlan struct {
+	rects []image.Rectangle // nil: full-window repair
+	shm   bool              // true: ClearArea/ClearAll; false: XPaintRects/XPaint
+}
+
+// paintFrameContent composes the frame's chrome and uploads it into the
+// window's background pixmap WITHOUT making anything visible: the shm path
+// writes the spare buffer and swaps the background attribute, the fallback
+// PutImages into the background pixmap. The screen changes only at
+// repairFrame — which is what lets relayoutPaint order upload → MoveResize →
+// repair, so a resized window is filled from new-size chrome by the server's
+// own resize repaint instead of wearing the previous tick's title strip.
+func (w *WM) paintFrameContent(f *frame) (repairPlan, bool) {
 	if f.rect.W < 4 || f.rect.H < 4 {
-		return
+		return repairPlan{}, false
 	}
 	w.perf.framesPainted++
 	defer func(t0 time.Time) {
@@ -590,31 +626,7 @@ func (w *WM) paintFrame(f *frame) {
 					f.back.MarkDirtyAll()
 				}
 			}
-			// One repair, not four. Four ClearAreas let a repaint arrive in
-			// visible pieces; the bounding box of the chrome is a single
-			// server-side blit (GGWM-012 Step 20).
-			w.noteRepair(f)
-			if rects != nil {
-				bb := rects[0]
-				for _, r := range rects[1:] {
-					bb = bb.Union(r)
-				}
-				xproto.ClearArea(w.X.Conn(), false, f.win.Id,
-					int16(bb.Min.X), int16(bb.Min.Y),
-					uint16(bb.Dx()), uint16(bb.Dy()))
-			} else {
-				f.win.ClearAll()
-			}
-			if shmSync {
-				// Barrier: the reply cannot arrive until the server has
-				// processed the repair above, so the next paint cannot
-				// overwrite a buffer it is still reading.
-				syncStart := time.Now()
-				_, _ = xproto.GetInputFocus(w.X.Conn()).Reply()
-				w.perf.syncNanos += uint64(time.Since(syncStart).Nanoseconds())
-				w.perf.syncWaits++
-			}
-			return
+			return repairPlan{rects: rects, shm: true}, true
 		}
 	}
 	// XSurfaceSet only when the pixmap is (re)created, XDraw+XPaint
@@ -636,7 +648,7 @@ func (w *WM) paintFrame(f *frame) {
 		f.ximg = xgraphics.New(w.X, img.Bounds())
 		if err := f.ximg.XSurfaceSet(f.win.Id); err != nil {
 			f.dropBuffers()
-			return
+			return repairPlan{}, false
 		}
 	}
 	w.perf.surfaceNanos += uint64(time.Since(ximgStart).Nanoseconds())
@@ -656,12 +668,46 @@ func (w *WM) paintFrame(f *frame) {
 				sub.XDraw()
 			}
 		}
-		w.noteRepair(f)
-		f.ximg.XPaintRects(f.win.Id, rects...)
-		return
+		return repairPlan{rects: rects}, true
 	}
 	f.ximg.XDraw()
+	return repairPlan{}, true
+}
+
+// repairFrame makes the pixels uploaded by paintFrameContent visible, and
+// closes the stale-chrome measurement window opened at the geometry commit.
+func (w *WM) repairFrame(f *frame, p repairPlan) {
 	w.noteRepair(f)
+	if p.shm {
+		// One repair, not four. Four ClearAreas let a repaint arrive in
+		// visible pieces; the bounding box of the chrome is a single
+		// server-side blit (GGWM-012 Step 20).
+		if p.rects != nil {
+			bb := p.rects[0]
+			for _, r := range p.rects[1:] {
+				bb = bb.Union(r)
+			}
+			xproto.ClearArea(w.X.Conn(), false, f.win.Id,
+				int16(bb.Min.X), int16(bb.Min.Y),
+				uint16(bb.Dx()), uint16(bb.Dy()))
+		} else {
+			f.win.ClearAll()
+		}
+		if shmSync {
+			// Barrier: the reply cannot arrive until the server has
+			// processed the repair above, so the next paint cannot
+			// overwrite a buffer it is still reading.
+			syncStart := time.Now()
+			_, _ = xproto.GetInputFocus(w.X.Conn()).Reply()
+			w.perf.syncNanos += uint64(time.Since(syncStart).Nanoseconds())
+			w.perf.syncWaits++
+		}
+		return
+	}
+	if p.rects != nil {
+		f.ximg.XPaintRects(f.win.Id, p.rects...)
+		return
+	}
 	f.ximg.XPaint(f.win.Id)
 }
 

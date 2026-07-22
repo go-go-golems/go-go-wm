@@ -2037,3 +2037,64 @@ The user reported that during drags the window chrome itself jumps: the title-st
 
 - Sample log line: `{"leaf":"n1","gap":1.959063,"oldW":1272,"newW":632,...,"message":"staleChromeGap"}`
 - Photos: `images/gap-delay-{1..6}.png`, taken with `GO_GO_WM_REPAIR_DELAY_MS=250`.
+
+## Step 24: Fixing the chrome bounce — upload before the geometry commit
+
+Step 23 established the mechanism: `MoveResize` reached the server a full paint's worth of CPU time before the repair, so the server's own resize repaint filled the frame from a background pixmap still holding the previous chrome. The fix inverts the order. `paintFrame` is split into `paintFrameContent` (compose, convert, write the spare buffer, swap the background attribute — nothing visible changes) and `repairFrame` (the ClearArea/XPaint that makes it visible), and `relayoutPaint` now runs content → `MoveResize` → client `ConfigureWindow` → repair. When the server resizes the window, the background it repaints from already holds the new-size chrome, so the resize repaint IS the fix's delivery mechanism rather than the artifact's.
+
+### Prompt Context
+
+**User prompt (verbatim):** "fix it, once done, restart the WM for me, and i'll confirm." Followed mid-turn by: "Keep a detailed diary as you work (see skill), and commit at appropriate intervals. Backfill the diary appropriately."
+
+**Assistant interpretation:** Implement the reorder proposed in Step 23, validate it, deploy the binary and restart the live WM; keep the diary and commits current.
+
+**Inferred user intent:** Eliminate the chrome bounce on the live session and verify it personally.
+
+### What I did
+
+- Split `paintFrame` into `paintFrameContent` (returns a `repairPlan{rects, shm}`) and `repairFrame(f, plan)`; `paintFrame` remains the composed form for all other callers (focus, floats, Expose default, theme).
+- Reordered `relayoutPaint`: counters and `f.rect` update → `paintFrameContent` → `resizedAt` stamp → `MoveResize` → client `ConfigureWindow` → `repairFrame`. The `resizedAt` stamp moved to just before `MoveResize` so the counter keeps measuring the true artifact window.
+- Re-ran the drag harness: `stale_chrome_gap_ms_avg` fell **0.360 → 0.024 ms**, max **16.78 → 0.167 ms**, with 660/660 resizes still covered; `shm_creates` 2, `paint_ms_total` unchanged (~220 ms/drag).
+- Re-ran the 250 ms delayed-repair photo harness against the fixed binary: `images/gap-fixed-delay-*.png` show correct edge-to-edge chrome mid-drag under the same handicap that previously froze the artifact (`gap-delay-3/5.png`).
+- Ran the scenario sweep (focus, fullscreen, float, workspace switch, theme swap): all eleven screenshots clean (`images/reorder-scen-*.png`).
+- All package tests pass; `go vet` clean.
+
+### Why
+
+- The gap's duration equals whatever CPU work sits between commit and repair. Removing the work from between them (rather than making it faster) makes the fix independent of paint cost — it survives the still-open 9 ms real-hardware compose problem.
+
+### What worked
+
+- The counter built in Step 23 doubled as the fix's acceptance test: same harness, same field, 15× smaller average and, more importantly, no longer proportional to compose time.
+- The artificial-delay photo harness turned into a controlled A/B: same 250 ms handicap, artifact present before (buttons inboard, unchromed sliver) and absent after.
+
+### What didn't work
+
+- Two harness false starts unrelated to the change: the scratchpad rebuild lost the exec bit (`Permission denied`), and `go build -o … .` from the repo root produced a library archive (`!<arch>`) instead of a binary — the main package is `./cmd/go-go-wm`.
+
+### What I learned
+
+- The X server's resize-time background repaint, which caused the artifact, is also the cheapest possible delivery for the fixed pixels: once the pixmap is current before the resize, no extra repair traffic is needed for the resize case at all (the explicit repair is kept for the non-resize paints and costs one server-side blit).
+
+### What was tricky to build
+
+- The split had to preserve the exact repair the content decided on: chrome-only versus full write is chosen inside content (freshBuffer/dirtyAll), and the repair must match it or a fresh buffer would only be partially exposed. `repairPlan` carries that decision across the geometry commit instead of recomputing it.
+
+### What warrants a second pair of eyes
+
+- The mirror exposure: between the background swap and the `MoveResize` there is an instant where the old-size window has new-size chrome. Those are adjacent requests with no client work between them, so the exposure is server-queue microseconds — but a flush boundary between them would widen it. Nothing in xgb batches across these calls today.
+- Float resize (`configureFloat`) still uses the old order via its own path; floats resize rarely and user-driven, but the same reorder could be applied there for symmetry.
+
+### What should be done in the future
+
+- Apply the same content/repair split to the float configure path if float-resize bounce is ever reported.
+- The real-hardware compose cost (Step 21's launcher-tile hypothesis) is now purely a throughput issue, no longer a visible-artifact issue.
+
+### Code review instructions
+
+- `pkg/wmx11/manage.go`: `relayoutPaint` ordering block, `paintFrameContent`/`repairFrame`/`repairPlan`.
+- Validate: `go test ./pkg/... -count=1`; harness `gap-fixed` run shows `stale_chrome_gap_ms_avg ≈ 0.02`; compare `images/gap-delay-3.png` (before) with `images/gap-fixed-delay-3.png` (after).
+
+### Technical details
+
+- Before/after (Xephyr drag, 3 sweeps): gaps 663→660 (both == frames_resized), avg 0.360→0.024 ms, max 16.777→0.167 ms.

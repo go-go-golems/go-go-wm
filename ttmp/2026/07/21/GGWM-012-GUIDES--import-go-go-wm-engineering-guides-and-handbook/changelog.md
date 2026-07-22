@@ -100,3 +100,12 @@ Step 23: confirmed the chrome-bounce artifact — MoveResize precedes the repair
 
 - /home/manuel/workspaces/2026-07-21/go-go-wm-goja/go-go-wm/pkg/wmx11/manage.go — resizedAt stamp + noteRepair + repair delay switch
 
+
+## 2026-07-22
+
+Step 24: fixed the chrome bounce — paintFrame split into content (upload + background swap) and repair; relayoutPaint orders upload → MoveResize → repair so the server's resize repaint draws new-size chrome; gap avg 0.36→0.024ms, delayed-repair photos clean, scenario sweep clean
+
+### Related Files
+
+- /home/manuel/workspaces/2026-07-21/go-go-wm-goja/go-go-wm/pkg/wmx11/manage.go — paintFrameContent/repairFrame split and relayoutPaint reorder
+
