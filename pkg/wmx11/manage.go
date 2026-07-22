@@ -464,6 +464,7 @@ func (w *WM) paintFrame(f *frame) {
 	// ClearAll makes the server blit it. Fallback: the cached
 	// xgraphics image (PutImage chunks over the socket).
 	if xshm.Available(w.X) {
+		surfStart := time.Now()
 		if f.surf != nil && (f.surf.W != f.rect.W || f.surf.H != f.rect.H) {
 			// Every dimension change tears the shared pixmap down and
 			// builds a new one. xshm.New issues two CHECKED requests, i.e.
@@ -484,8 +485,11 @@ func (w *WM) paintFrame(f *frame) {
 				log.Warn().Err(err).Msg("xshm surface failed; falling back to PutImage")
 			}
 		}
+		w.perf.surfaceNanos += uint64(time.Since(surfStart).Nanoseconds())
 		if f.surf != nil {
+			convStart := time.Now()
 			f.surf.WriteRGBA(img)
+			w.perf.convertNanos += uint64(time.Since(convStart).Nanoseconds())
 			f.win.ClearAll()
 			return
 		}
@@ -493,6 +497,7 @@ func (w *WM) paintFrame(f *frame) {
 	// XSurfaceSet only when the pixmap is (re)created, XDraw+XPaint
 	// every time. Keeping the ximg alive also makes Expose a single
 	// XPaint (see connectFrameEvents).
+	ximgStart := time.Now()
 	if f.ximg == nil || f.ximg.Bounds() != img.Bounds() {
 		// The PutImage fallback has the same shape of churn as the shm
 		// path: a client image plus a server pixmap recreated on every
@@ -510,7 +515,10 @@ func (w *WM) paintFrame(f *frame) {
 			return
 		}
 	}
+	w.perf.surfaceNanos += uint64(time.Since(ximgStart).Nanoseconds())
+	convStart := time.Now()
 	draw.CopyToXImage(f.ximg, img)
+	w.perf.convertNanos += uint64(time.Since(convStart).Nanoseconds())
 	f.ximg.XDraw()
 	f.ximg.XPaint(f.win.Id)
 }

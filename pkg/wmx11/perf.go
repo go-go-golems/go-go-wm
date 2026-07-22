@@ -58,6 +58,8 @@ type perfCounters struct {
 	relayoutNanos uint64
 	composeNanos  uint64 // fill + title + border into the RGBA scratch
 	uploadNanos   uint64 // convert + surface create/attach + X blit
+	convertNanos  uint64 // RGBA -> BGRA only
+	surfaceNanos  uint64 // surface destroy/create (the checked round trips)
 }
 
 // perfSnapshot is the JSON shape returned by the "perf" IPC query. It is a
@@ -84,6 +86,8 @@ type perfSnapshot struct {
 	PaintMillis           float64 `json:"paint_ms_total"`
 	ComposeMillis         float64 `json:"compose_ms_total"`
 	UploadMillis          float64 `json:"upload_ms_total"`
+	ConvertMillis         float64 `json:"convert_ms_total"`
+	SurfaceMillis         float64 `json:"surface_ms_total"`
 	RelayoutMillis        float64 `json:"relayout_ms_total"`
 	SharedPixmaps         bool    `json:"shared_pixmaps"`
 }
@@ -114,6 +118,8 @@ func (p *perfCounters) snapshot(sharedPixmaps bool) perfSnapshot {
 		PaintMillis:           float64(p.paintNanos) / 1e6,
 		ComposeMillis:         float64(p.composeNanos) / 1e6,
 		UploadMillis:          float64(p.uploadNanos) / 1e6,
+		ConvertMillis:         float64(p.convertNanos) / 1e6,
+		SurfaceMillis:         float64(p.surfaceNanos) / 1e6,
 		RelayoutMillis:        float64(p.relayoutNanos) / 1e6,
 		SharedPixmaps:         sharedPixmaps,
 	}

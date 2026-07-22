@@ -974,3 +974,98 @@ paint_ms_total             2550       2601      2984
 relayout_ms_total          2595       13.8      3031
 shared_pixmaps             True       True      False
 ```
+
+## Step 10: Decomposing the paint — and correcting Step 9's correction
+
+Step 9 concluded that the round-trip hypothesis was refuted, on the strength of an A/B: disabling MIT-SHM removes all 1,024 checked round trips and is 15% slower, therefore the round trips are not the bottleneck. That inference is wrong, and this step shows why. Swapping MIT-SHM for the PutImage fallback does not remove one component from a fixed system; it exchanges one bundle of components for a different bundle. The comparison said which of two implementations is faster. It said nothing about which component inside either one is expensive.
+
+Decomposing the paint directly — compose, surface management, conversion, transfer — gives the answer that neither the code reading nor the A/B could.
+
+### Prompt Context
+
+**User prompt (verbatim):** "do as much work as possible, keeping a detailed diary, committing at appropriate intervals (see skills), until you need me."
+
+**Assistant interpretation:** Continue autonomously: finish the measurement decomposition, act on it, and keep the ticket current.
+
+**Inferred user intent:** Maximum progress without round-tripping through the console.
+
+### What I did
+
+- Added three timing spans inside `paintFrame`: `compose` (fill, title, border into the RGBA scratch), `surface` (surface destroy/create — the checked round trips on the shm path, `xgraphics.New` + `XSurfaceSet` on the fallback), and `convert` (RGBA to BGRA only). Transfer is the remainder.
+- Ran the Xephyr harness against both upload paths.
+
+### What the decomposition shows
+
+Per paint, averaged over ~520 paints per run:
+
+| Component | MIT-SHM path | share | PutImage fallback | share |
+|---|---:|---:|---:|---:|
+| compose (fill + title + border) | 0.85 ms | 16% | 0.74 ms | 11% |
+| **surface management** | **2.99 ms** | **56%** | **1.75 ms** | **26%** |
+| convert (RGBA→BGRA) | 1.44 ms | 27% | 0.93 ms | 14% |
+| **transfer** (PutImage) | ~0.03 ms | ~1% | **3.22 ms** | **49%** |
+| **total `paintFrame`** | **5.31 ms** | | **6.63 ms** | |
+
+Two things follow immediately.
+
+**Surface management dominates the shm path at 56%.** That is exactly the cost the original Tier-1 hypothesis named: the surface is destroyed and recreated because the pane's dimensions changed, and `xshm.New` pays two checked round trips to do it. The hypothesis was right about the shm path all along.
+
+**Step 9's refutation was an inference error, not a measurement error.** The measurement in Step 9 is correct — no-shm really is 15% slower. What was wrong was concluding from it that surface recreation is cheap. It is not cheap; the alternative is simply more expensive still. Disabling shm trades 2.99 ms of surface management for 3.22 ms of PutImage transfer, and pays 1.75 ms of `ximg` recreation on top. Both paths are dominated by work that exists *only because the dimensions changed on this tick*.
+
+### What I learned
+
+**An A/B between two implementations does not isolate a component.** It swaps a bundle. To attribute cost to a component you must measure the component, not toggle the strategy that contains it. This is the second time in this ticket that a plausible inference survived until someone measured one level deeper — the first being the original code-read hypothesis. The pattern is the same: each level of evidence refutes the level above it, and only direct decomposition terminates the regress.
+
+**Both paths share the same underlying defect.** Surface management is 26–56% depending on path, and it is incurred *per size change*. A divider drag changes dimensions on every tick, so it is incurred per tick. Nothing about that is specific to MIT-SHM; the fallback pays it too, as `ximg` recreation plus `XSurfaceSet`.
+
+**The two remaining costs scale with pane pixels.** Conversion (14–27%) and transfer (1–49%) are both proportional to the number of pixels in the pane. That is what the chrome/content split addresses, by making decoration repaints touch a 1272×22 title strip instead of a 1272×664 pane.
+
+### The revised plan, with both phases justified
+
+The two big changes are now separately motivated by measured numbers rather than competing for the same justification:
+
+1. **Capacity buffers (Phase 2)** eliminate surface recreation on size change. That is **56% of a paint on shm, 26% on the fallback**, and it applies to both. This is the larger, more contained win, and it is the one to do first.
+2. **Chrome/content split (Phase 4)** reduces convert plus transfer, which is **28% on shm and 63% on the fallback**, by roughly 30× for decoration repaints.
+
+Step 9 argued for reordering Phase 4 ahead of Phase 2. That was based on the mistaken belief that surface management was cheap. **The original ordering — Phase 2 first — is correct after all**, and now for a measured reason rather than an inferred one.
+
+### What was tricky to build
+
+Attributing the remainder. `upload` minus `surface` minus `convert` is the transfer, but only if nothing else hides in that span. On the shm path the remainder is `ClearAll`, which measures at ~0.03 ms and confirms that the shm transfer really is nearly free — the server composites from memory both sides already share. On the fallback the remainder is `XDraw` plus `XPaint`, i.e. PutImage pushing the whole surface through the socket, at 3.22 ms. Those two numbers are the clearest statement of what MIT-SHM buys and what it costs.
+
+The other care point: `surfaceNanos` is accumulated on both paths but means slightly different things — shm destroy/create versus `xgraphics.New` plus `XSurfaceSet`. Both are "resource work incurred because the size changed", which is the quantity of interest, but the label is doing some work and the diary should say so.
+
+### What warrants a second pair of eyes
+
+- **The capacity-buffer clipping question is still unresolved** and is the main risk in Phase 2. A shared pixmap has fixed dimensions. Setting an oversized pixmap as a window's background should display its top-left region, because background pixmaps tile from the origin and the window clips — but "should" is doing real work in that sentence and it must be verified with a pixel test before the design depends on it.
+- Whether `compose` at 0.85 ms is mostly the per-paint `image.NewRGBA` allocation. A 636×664 pane buffer is ~1.7 MB, reallocated every tick because the size changed; 520 of those is ~880 MB of allocation per drag. Capacity buffers would remove this too, which would make Phase 2 worth even more than the surface number alone suggests.
+
+### What should be done in the future
+
+- Implement capacity buffers next, covering `f.img`, `f.surf`, and `f.ximg` together, since all three are recreated by the same size-change condition.
+- Re-run the harness after that change; `surface_ms_total` should approach zero during a steady drag and `shm_creates` should fall from ~520 to a handful.
+
+### Code review instructions
+
+- **Reproduce:**
+  ```bash
+  S=ttmp/2026/07/21/GGWM-012-GUIDES--*/scripts/ggwm-xephyr-validate.sh
+  $S split2                       # MIT-SHM path
+  GO_GO_WM_NO_SHM=1 $S split3noshm  # PutImage fallback
+  ```
+- **The numbers that carry the argument** are `surface_ms_total` (1578 ms of 2802 ms on shm; 912 ms of 3462 ms on the fallback) and the derived transfer remainder.
+
+### Technical details
+
+```
+                     shm      fallback
+frames_painted        528          522
+paint_ms_total       2802         3462
+compose_ms_total      450          386
+upload_ms_total      2352         3075
+  surface_ms_total   1578          912
+  convert_ms_total    759          483
+  transfer (derived)   15         1680
+shm_creates           528            0
+ximg_creates            0          522
+```
