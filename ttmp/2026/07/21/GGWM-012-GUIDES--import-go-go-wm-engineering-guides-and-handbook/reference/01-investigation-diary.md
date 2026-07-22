@@ -468,12 +468,12 @@ For the font failure I deliberately did **not** install a third package. `fc-lis
   remarquee upload bundle <absolute paths...> \
     --name "GGWM-012 go-go-wm Performance Engineering" \
     --remote-dir "/ai/2026/07/21/GGWM-012-GUIDES" \
-    --toc-depth 2 --layout editor \
+    --toc-depth 2 \
     --mainfont "Noto Sans" --monofont "JetBrains Mono" \
     --non-interactive
   # OK: uploaded GGWM-012 go-go-wm Performance Engineering.pdf -> /ai/2026/07/21/GGWM-012-GUIDES
   ```
-  `--layout editor` was added deliberately: it widens margins for annotation, which suits a document meant to be marked up on the device.
+  The first upload used `--layout editor` for wider annotation margins; the user preferred the standard layout, so the document was re-rendered without it (see Step 6). Fonts stay overridden because DejaVu is absent.
 
 ### What didn't work
 
@@ -508,4 +508,59 @@ Nothing was built. The genuinely tricky part was the send-keys race described ab
   remarquee cloud ls /ai/2026/07/21/GGWM-012-GUIDES --long --non-interactive
   docmgr task list --ticket GGWM-012-GUIDES        # expect 10/10 done
   docmgr doctor --ticket GGWM-012-GUIDES --stale-after 30
+  ```
+
+## Step 6: Re-render with the standard layout
+
+A one-line preference change, recorded because it alters the delivered artifact and because it cost an irreversible overwrite.
+
+### Prompt Context
+
+**User prompt (verbatim):** "use the standard layout, not editor."
+
+**Assistant interpretation:** Re-render the reMarkable PDF with remarquee's default markdown layout instead of the `editor` preset, and replace the document on the device.
+
+**Inferred user intent:** They do not want the widened annotation margins; the standard layout fits more content per page and reads better for a long technical document.
+
+### What I did
+
+- Re-ran the bundle upload with `--layout editor` removed and `--force` added, keeping `--mainfont "Noto Sans" --monofont "JetBrains Mono"`.
+- Result: `OK: uploaded GGWM-012 go-go-wm Performance Engineering.pdf -> /ai/2026/07/21/GGWM-012-GUIDES`.
+- Patched the Step 5 entry, which had asserted `--layout editor` "was added deliberately", so the diary no longer documents a setting that is not in force.
+
+### Why
+
+`--layout editor` was my choice, not a requirement, made on the assumption that a document meant to be marked up wants annotation margins. The user's judgment overrides that: for a 1,800-line technical guide, page count and line length matter more than marginalia space.
+
+Patching Step 5 rather than only appending Step 6 matters because the diary is meant to be read as a record of *what is true*, not just what happened in sequence. A future reader looking up the upload invocation would otherwise copy the wrong flags.
+
+### What worked
+
+Re-running with `--force` succeeded first try — the toolchain and font overrides from Step 5 carried over unchanged.
+
+### What didn't work
+
+Nothing failed. But an intermediate attempt without `--force` correctly refused:
+```
+SKIP: GGWM-012 go-go-wm Performance Engineering already exists in /ai/2026/07/21/GGWM-012-GUIDES (use --force to overwrite)
+```
+This is the right default — it means a re-upload cannot silently destroy annotations.
+
+### What was tricky to build
+
+Nothing, but there is a real hazard worth naming: **`--force` deletes the existing document together with any annotations on it.** In this case the document was minutes old and unannotated, so the cost was zero. Once the guide has actually been read and marked up on the device, a render-only change is no longer cheap — the annotations do not survive and are not recoverable. From this point on, a re-render should be treated as a decision, not a formatting tweak, and confirmed against whether the device copy has been written on.
+
+### What warrants a second pair of eyes
+
+- The standard layout is narrower per line than `editor`. The wide tables in Part IV and Appendix C, and the ASCII trace diagram in Part III §3.1, should be checked on the device. If they overflow, the next lever is `--geometry margin=0.6in`, not `--layout editor`.
+
+### What should be done in the future
+
+- Record the house style for this repo's reMarkable uploads: default layout, `--toc-depth 2`, Noto Sans / JetBrains Mono.
+
+### Code review instructions
+
+- Confirm the delivered artifact:
+  ```bash
+  remarquee cloud ls /ai/2026/07/21/GGWM-012-GUIDES --long --non-interactive
   ```

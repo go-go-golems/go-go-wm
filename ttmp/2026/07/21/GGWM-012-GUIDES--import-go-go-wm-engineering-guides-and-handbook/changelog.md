@@ -37,3 +37,8 @@ Central finding: xshm.New issues two CHECKED X requests (synchronous round trips
 
 Published the five-document bundle to reMarkable at /ai/2026/07/21/GGWM-012-GUIDES after installing pandoc-cli, texlive-xetex, texlive-latexrecommended, texlive-latexextra, texlive-mathscience and texlive-fontsrecommended; rendered with Noto Sans / JetBrains Mono since DejaVu is not installed.
 
+
+## 2026-07-22
+
+Re-rendered and replaced the reMarkable bundle using remarquee's standard layout instead of the editor preset, per user preference; fonts unchanged (Noto Sans / JetBrains Mono).
+
