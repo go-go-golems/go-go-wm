@@ -439,7 +439,16 @@ func (w *WM) paintFrame(f *frame) {
 	img := f.img
 	// Everything composes into the viewport, not the whole capacity buffer.
 	view := image.Rect(0, 0, f.rect.W, f.rect.H)
-	draw.Fill(img, view, draw.Current().Pane)
+	// Filling follows the same rule as uploading: a reparented client covers
+	// the interior, so only the chrome needs a background. For builtin and
+	// script tiles chromeRects returns nil and the whole viewport is filled.
+	if cr := w.chromeRects(f); cr != nil {
+		for _, r := range cr {
+			draw.Fill(img, r, draw.Current().Pane)
+		}
+	} else {
+		draw.Fill(img, view, draw.Current().Pane)
+	}
 	stripColor := draw.AppColor(leafColor(f.leaf))
 	if name := w.builtinAppOf(f); f.client == 0 && name != "" {
 		if strings.HasPrefix(name, scriptPrefix) {

@@ -1324,3 +1324,76 @@ PutImage fallback
   paint_ms_total        3462         1108
   relayout_ms_total     3518         1150
 ```
+
+## Step 13: Validating the covering invariant, and filling only the chrome
+
+Step 12's chrome-only upload rests on an invariant that nothing enforces: a reparented client covers exactly the frame interior. The drag harness only exercises tiled divider resizes, so every other path that changes what covers a frame was untested — and a violation would not fail a test, it would show as stale pixels. This step builds a scenario sweep to look at those paths, then applies the same insight to composition.
+
+### Prompt Context
+
+**User prompt (verbatim):** (see Step 10 — "do as much work as possible…")
+
+### What I did
+
+- Wrote `scripts/ggwm-xephyr-scenarios.sh`, which drives six scenario families in a nested server and screenshots each: two tiled clients, focus changes, fullscreen enter/exit, float lift/sink, workspace switch away and back, and a theme swap in both directions.
+- Inspected the resulting images.
+- Applied `chromeRects` to the fill as well as the upload: for a client frame only the chrome needs a background, since the interior is covered.
+
+### What worked
+
+**The invariant holds on every path exercised.** Specifically:
+
+- **Builtin tiles are correctly excluded.** The launcher tile renders its full contents — every command row, the query field, the hint line — because `chromeRects` returns `nil` when `f.client == 0`. This is the case that would break most visibly if the exclusion were wrong, and it is intact.
+- **Floats keep their chrome.** After `float`, the frame shows the float title style (close button only, no split/dock buttons) with borders intact and no stale interior.
+- **Fullscreen enter and exit** leave no residue.
+- **A theme swap repaints correctly**, including the builtin tile's full surface in the new palette. This was a specific concern: a theme swap changes the pane colour, and for a client frame the interior keeps the old colour — but it is covered, so it is never seen, and the screenshot confirms it.
+
+Filling only the chrome reduced composition further:
+
+| | compose ms/paint before | after |
+|---|---:|---:|
+| MIT-SHM | 0.52 | **0.39** |
+| fallback | 0.48 | **0.27** |
+
+Total paint is unchanged within run-to-run noise (1.85 ms shm, 2.30 ms fallback), which is expected: composition was already the smallest component after Step 12.
+
+### What didn't work
+
+Two scenarios did not exercise what they were meant to, and the harness reported it honestly rather than silently passing:
+
+- **Focus scenario produced empty leaf ids** (`-- scenario 2: focus  then`). The tree-walking helper assumes a JSON shape for the serialized desktop that does not match what `{"q":"tree"}` returns, so it extracted nothing and the focus calls were no-ops.
+- **Workspace switch-back did not happen.** The screenshot after `switch-workspace ws-1` still shows `ws-2` highlighted, so either the workspace id is not `ws-1` or the op needs a different field.
+
+Both are defects in the harness, not in the window manager, but they mean two of the six scenario families are currently unvalidated. The screenshots are still useful — they show the workspace-2 state rendering correctly — but the transitions themselves were not driven.
+
+### What I learned
+
+**A screenshot sweep is a different instrument from a counter sweep, and this change needed both.** The counters proved the optimization worked; only the images could prove it did not break rendering, because every failure mode here is visual and silent. Committing the images into the ticket means a future reviewer can check the claim rather than trust it.
+
+**Excluding builtin tiles was the load-bearing detail.** They have no client covering them, so their whole surface is visible; had `chromeRects` not returned `nil` for them, the launcher, trace, listener and inspector tiles would have rendered as a title strip over garbage. That is the kind of case that a drag-only harness would never surface, since the drag test uses two xterms.
+
+### What was tricky to build
+
+Driving the window manager from outside required going through the IPC control plane rather than keybindings, and the IPC request shapes are not uniform: `focus` takes a `target`, `fullscreen` and `float` take nothing and act on the current focus, and workspace changes go through `op` with a `wmcore.Op` payload. Getting a leaf id at all requires walking the serialized desktop, and that is where the harness failed — the walker was written against an assumed schema instead of an observed one.
+
+The correct approach would have been to dump one `{"q":"tree"}` response and read it before writing the walker. That is the same error as the "five hand-picked strings" check in Step 8: assuming a shape rather than observing it.
+
+### What warrants a second pair of eyes
+
+- **The two unvalidated scenarios.** Focus changes repaint two frames' chrome, and workspace switches change frame visibility — both interact directly with the covering invariant and with the `mapped` mirror added in Step 7. They should be driven properly before this is considered fully validated.
+- **The gap between frame resize and client resize.** `relayoutPaint` configures the frame and then the client. Between those two requests the frame is larger than its client, so a strip of uncovered frame exists briefly. With chrome-only fill that strip now contains stale pixels rather than the pane colour. No screenshot caught it, but the harness samples at rest rather than during that window.
+
+### What should be done in the future
+
+1. Fix the harness's tree walker against the real serialization, then re-run the focus and workspace scenarios.
+2. Consider whether the frame/client configure gap needs the interior filled after all — it may be cheaper to keep filling the pane background than to reason about that race.
+3. Sweep bucket granularity now that transfer no longer depends on it.
+
+### Code review instructions
+
+- **Run the sweep:**
+  ```bash
+  ttmp/2026/07/21/GGWM-012-GUIDES--*/scripts/ggwm-xephyr-scenarios.sh scen
+  ```
+- **Look at** `images/scen-09-workspace-1-back.png` (builtin tile, full render), `scen-06-float-on.png` (float chrome), and `scen-10-theme-dark.png` (theme swap).
+- The fill change is one branch at the top of `paintFrame`, guarded by the same `chromeRects` call as the upload.
