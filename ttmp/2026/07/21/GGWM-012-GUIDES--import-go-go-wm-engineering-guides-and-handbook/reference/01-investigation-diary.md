@@ -1638,3 +1638,128 @@ Almost entirely for the better:
 go test ./pkg/xshm/ -run TestEnvDisabled -v -count=1
 go run ./ttmp/2026/07/21/GGWM-012-GUIDES--*/scripts/shmprobe :2   # expect SharedPixmaps true
 ```
+
+## Step 17: Real hardware disagrees with the harness, again
+
+The session was moved onto the new code and measured on the actual Xorg. The result contradicted Xephyr in the same direction the shared-pixmap question had: the harness is not the target.
+
+### Prompt Context
+
+**User prompt (verbatim):** "ok update the script to build from go-go-wm-goja, and i think no work was committedon the go-go-wm-dev workspace, so you can delete it with wsm delete."
+
+**Assistant interpretation:** Repoint the session's build path at this worktree and remove the now-redundant dev workspace.
+
+**Inferred user intent:** Run the new code in the live session without the reload loop reverting it.
+
+### What I did
+
+- Verified the dev workspace held nothing: both repos at 0 unique commits vs `main`, 0 unpushed, 0 untracked; the single dirty file was a tracked 64 MB build artifact.
+- Repointed `WM_DIR` in `~/.xinitrc.go-go-wm` and `~/.local/bin/go-go-wm-reload` (backups `*.bak-ggwm012`), installed the new binary (backup `go-go-wm.pre-ggwm012`), added `~/.local/bin/ggwm-perf`.
+- Deleted `go-go-wm-dev` with `wsm delete --force --remove-files --force-worktrees`; worktrees for both repos were unregistered cleanly.
+- Restarted the WM through the xinitrc loop, which now rebuilds from this worktree.
+
+### The measurement
+
+```
+shared_pixmaps   True          <- settles Step 16 on real hardware
+ms per paint     7.733
+surface_ms_total 632.3 ms over 41 shm creations  =  15.4 ms each
+```
+
+**A shared-pixmap creation costs 15.4 ms on this machine.** Xephyr measured 2.6 ms — a 6x difference. Against glamor the driver must produce CPU-mappable memory for an object it would rather keep in GPU memory, and that is expensive. It was 45% of a paint.
+
+So MIT-SHM is not straightforwardly the fast path on accelerated hardware. The Xephyr comparison in Step 9 — shm 15% faster than PutImage — does not transfer.
+
+### The fix, and why it was incomplete
+
+Backing stores were recreated whenever the bucket changed, so a drag sweeping left then right rebuilt them at every crossing in both directions. Made grow-only: a store already large enough is kept.
+
+Xephyr: `shm_creates` 64 → 1, `paint_ms_total` 551 → 200, ms/paint 1.11 → 0.41.
+
+On real hardware the next run still showed **36 creations and 9.16 ms/paint** — worse, not better. Grow-only had not taken effect the way it did in the harness, and I do not yet have the explanation. One difference is visible in the session's own state and is probably the answer: `{"q":"windows"}` shows leaf `n2` with `client: 0`. It is the **builtin launcher tile**, not a terminal. That means `chromeRects` returns nil for it, so it takes the full-surface path, and `renderLauncherTile` re-runs `registry.Match` over the entire command registry on every paint. `compose_ms` was 3.94 ms/paint against 0.39 in Xephyr, where both panes were xterms.
+
+Unverified. The clean experiment is to drag with two xterms and compare.
+
+### What I learned
+
+**Querying the running system beat another round of speculation.** Two IPC calls established that the live layout was not two terminals — which invalidates the comparison to every harness run and probably explains the compose figure. That should have been the first thing checked when the numbers disagreed, not the fifth.
+
+### What warrants a second pair of eyes
+
+- Why grow-only reduced creations 64 → 1 in Xephyr but only to 36 on real hardware.
+- Whether the builtin launcher tile is the compose cost. It re-renders a full command list per paint and has no chrome-only path.
+
+---
+
+## Step 18: The sticky points, measured
+
+The user reported that dragging felt broken, then localised it precisely: "the cursor issues are the sticky points. When it hits a sticky point it seems that the drag mode stops."
+
+### Prompt Context
+
+**User prompt (verbatim):** "Actually the cursor issues are the sticky points. When it hits a sticky point it seems that the drag mode stops."
+
+**Assistant interpretation:** The divider's snap behaviour, not lag, is what makes the drag feel broken.
+
+**Inferred user intent:** Fix the interaction, which matters more than throughput.
+
+### What I did
+
+Rather than theorise about grabs or event delivery, simulated a one-pixel pointer sweep across the ½ snap point on a 1272 px split using the pure functions:
+
+```
+pointer x=614  raw=0.4796  ratio=0.5000  divider x=640 SNAP
+      ...                                                     52 px, divider frozen
+pointer x=666  raw=0.5204  ratio=0.5000  divider x=640 SNAP
+pointer x=668  raw=0.5220  ratio=0.5220  divider x=668
+```
+
+**The divider holds still for 52 px of pointer travel, then jumps 28 px.**
+
+`Snap` engages while `|ratio − snapPoint| < Stick`, and the band is symmetric. A pointer crossing it enters at one edge and must reach the other to escape, so the dead zone is `2 × Stick` — 56 px at `Stick = 0.022` on this split. That is what reads as the drag having stopped.
+
+Pre-existing behaviour, not a regression from the performance work.
+
+### What didn't work
+
+**Shrinking `Stick`.** `tree_test.go:TestSnap` requires `0.32` to snap to ⅓, which needs `Stick ≥ 0.0133`. That is specified behaviour and reducing the constant broke it — correctly. I restored the default rather than quietly weakening a documented product decision.
+
+**Hysteresis.** The instinctive fix makes it worse. Capture and release radii that differ either release the instant you snap (release radius smaller than capture) or widen the dead zone (release radius larger). The dead zone is inherent to freezing the divider inside a symmetric band.
+
+### The fix
+
+Snap-on-release. The divider tracks the pointer continuously; the snap is applied once, at commit. `snapped` still drives the divider's colour, so the "you are at a nice fraction" affordance survives without the frozen band.
+
+Both knobs are environment-tunable: `GO_GO_WM_SNAP_ON_RELEASE=0` restores live snapping, `GO_GO_WM_SNAP_STICK` widens or narrows the band. Measured trade-offs on a 1272 px split: 0.022 → 54 px dead zone, 0.010 → 24 px, 0.006 → 14 px.
+
+`TestSnapDeadZone` now pins the relationship, counting only snap-held runs — the clamped extremes also hold the divider still, by a different mechanism, and an earlier version of the test conflated the two and reported 127 px.
+
+### What I learned
+
+**The user localised the bug better than my instrumentation did.** I had counters for paint cost and none for interaction quality, so a 52 px dead zone was invisible to every measurement in the ticket while being immediately obvious to someone using it. Performance instrumentation does not measure feel.
+
+---
+
+## Step 19: Black blocks — predicted, shipped anyway
+
+### Prompt Context
+
+**User prompt (verbatim):** "iseem to get a lot of z-tearing / i see black blit blocks. it all feels a bit jittery. do you know why? double buffering or so?"
+
+**Assistant interpretation:** Diagnose visible black rectangles and tearing during drags.
+
+### The cause
+
+Chrome-only composition writes only the rectangles a client does not cover, so **the interior of every backing store was never written** — uninitialised memory, which is black. It is normally hidden by the client. But `relayoutPaint` resizes the frame before reconfiguring the client, and a pane growing into its capacity exposes the gap. Both the RGBA scratch and the shared pixmap had the hole; `WriteRGBARect` only touches chrome rows, so a new shm surface held uninitialised BGRA.
+
+Fix: newly allocated buffers are filled and uploaded in full once; only subsequent paints are chrome-only. One extra fill per allocation rather than per paint.
+
+### What I learned
+
+**I predicted this exact defect and shipped it.** Diary Step 13 says: *"with chrome-only fill that strip now contains stale pixels rather than the pane colour… no screenshot caught it, but the harness samples at rest, not during that window."* I wrote down the failure mode, wrote down why my tests could not see it, and released it anyway.
+
+The screenshot harness has a structural blind spot: it captures before the drag, once mid-drag, and after release — all moments when the system is settled. The defect lives in the sub-frame window between two X requests. A harness that samples at rest cannot see a bug that exists only in transit, and knowing that was not the same as acting on it.
+
+### What warrants a second pair of eyes
+
+- Whether any other path exposes uninitialised buffer. `dropBuffers` clears everything and the next paint reallocates, so the initialisation is on the allocation path and should cover all of them — but that is an argument, not a test.
