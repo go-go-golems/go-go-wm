@@ -32,6 +32,16 @@ type dragState struct {
 	// than panes can paint, so motion is coalesced to ~60Hz and the
 	// release applies the final pointer position (GGWM-005).
 	lastPaint time.Time
+
+	// splitRect is the split node's own rectangle, captured once when the
+	// gesture begins. Changing a split's ratio moves its descendants'
+	// rectangles but not its own, so the pointer-to-ratio conversion does
+	// not need a fresh layout per motion event. dividerMotion used to call
+	// wmcore.Layout for this and then relayoutResized called it again: two
+	// full-tree layouts and two map allocations per tick (GGWM-012).
+	splitRect wmcore.Rect
+	splitDir  wmcore.Dir
+	haveSplit bool
 }
 
 func (w *WM) setupInput() {
@@ -268,7 +278,16 @@ func (w *WM) beginDividerDrag(split wmcore.NodeID) {
 	if !w.grabPointer() {
 		return
 	}
-	w.drag = &dragState{kind: "divider", split: split}
+	d := &dragState{kind: "divider", split: split}
+	if ws := w.desktop.CurrentWorkspace(); ws != nil {
+		if n := ws.Root.Find(split); n != nil && n.Kind == wmcore.Split {
+			w.perf.layoutCalls++
+			if item, ok := wmcore.Layout(ws.Root, w.area, Gap)[split]; ok {
+				d.splitRect, d.splitDir, d.haveSplit = item.Rect, n.Dir, true
+			}
+		}
+	}
+	w.drag = d
 	w.setMouseDoc("drag divider — sticky at ¼ ⅓ ½ ⅔ ¾")
 }
 
@@ -330,21 +349,33 @@ func (w *WM) floatMotion(d *dragState, x, y int) {
 func (w *WM) dividerMotion(d *dragState, x, y int) {
 	// Coalesce: skip repaints closer than a frame apart; handleRelease
 	// runs a final dividerMotion with the release coordinates.
+	w.perf.motionEvents++
 	if time.Since(d.lastPaint) < 16*time.Millisecond {
 		return
 	}
 	d.lastPaint = time.Now()
-	ws := w.desktop.CurrentWorkspace()
-	n := ws.Root.Find(d.split)
-	if n == nil {
-		return
+	w.perf.motionAdmitted++
+	// The split's own rect is invariant for the gesture, so the rect
+	// captured at drag start stays valid. Fall back to a layout only if
+	// the capture failed (GGWM-012).
+	splitRect, dir := d.splitRect, d.splitDir
+	if !d.haveSplit {
+		ws := w.desktop.CurrentWorkspace()
+		if ws == nil {
+			return
+		}
+		n := ws.Root.Find(d.split)
+		if n == nil {
+			return
+		}
+		w.perf.layoutCalls++
+		item, ok := wmcore.Layout(ws.Root, w.area, Gap)[d.split]
+		if !ok {
+			return
+		}
+		splitRect, dir = item.Rect, n.Dir
 	}
-	items := wmcore.Layout(ws.Root, w.area, Gap)
-	item, ok := items[d.split]
-	if !ok {
-		return
-	}
-	f := wmcore.RatioForPointer(item.Rect, n.Dir, x, y)
+	f := wmcore.RatioForPointer(splitRect, dir, x, y)
 	f, snapped := wmcore.Snap(f)
 	d.snapped = snapped
 	_, _ = wmcore.Apply(w.desktop, wmcore.Op{Op: wmcore.OpSetRatio, Node: d.split, Ratio: f})
@@ -353,11 +384,30 @@ func (w *WM) dividerMotion(d *dragState, x, y int) {
 }
 
 func (w *WM) gripMotion(d *dragState, x, y int) {
+	// Grip drags were completely unthrottled: a full layout, a DFS per
+	// layout item, and an uncached drop-preview blit per raw motion event
+	// (GGWM-012). Admit at the same cadence as divider drags.
+	w.perf.motionEvents++
+	if time.Since(d.lastPaint) < 16*time.Millisecond {
+		return
+	}
+	d.lastPaint = time.Now()
+	w.perf.motionAdmitted++
 	ws := w.desktop.CurrentWorkspace()
+	if ws == nil {
+		return
+	}
+	w.perf.layoutCalls++
 	items := wmcore.Layout(ws.Root, w.area, Gap)
+	// gripMotion never runs nested with relayoutPaint (both are on the WM
+	// loop), so they can share one scratch index.
+	if w.idxScratch == nil {
+		w.idxScratch = wmcore.Index{}
+	}
+	idx := wmcore.BuildIndexInto(ws.Root, w.idxScratch)
 	d.over, d.zone = "", ""
 	for id, item := range items {
-		n := ws.Root.Find(id)
+		n := idx[id]
 		if n == nil || n.Kind != wmcore.Leaf || id == d.from {
 			continue
 		}
@@ -381,6 +431,14 @@ func (w *WM) handleRelease(x, y int) {
 	w.hideDropPreview()
 	w.setMouseDoc("")
 
+	if d.kind == "grip" {
+		// gripMotion is now throttled, so d.over/d.zone can be up to one
+		// frame stale. Replay the release coordinates first so the drop
+		// lands where the pointer actually is — the same guarantee the
+		// divider path has had since GGWM-005 (GGWM-012).
+		d.lastPaint = time.Time{}
+		w.gripMotion(d, x, y)
+	}
 	if d.kind == "grip" && d.over != "" && d.over != d.from {
 		if d.zone == wmcore.ZoneCenter {
 			w.swapFrames(d.from, d.over)

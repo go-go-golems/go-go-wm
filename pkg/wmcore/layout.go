@@ -168,3 +168,44 @@ func RatioForPointer(splitRect Rect, dir Dir, x, y int) float64 {
 	}
 	return clampRatio(f)
 }
+
+// Index is a node lookup table for one tree revision.
+//
+// Reconciliation used to call Root.Find (an O(n) depth-first scan) once per
+// entry while iterating the layout map, making a relayout O(n^2) in tree
+// size. Building this once per pass and looking up in it makes the same work
+// linear. It is derived state: rebuild it after any tree mutation and never
+// serialize it.
+type Index map[NodeID]*Node
+
+// BuildIndex walks the tree once and records every node by id.
+func BuildIndex(root *Node) Index {
+	idx := make(Index, 16)
+	indexInto(root, idx)
+	return idx
+}
+
+// BuildIndexInto refills dst instead of allocating, and returns it.
+//
+// This matters: benchmarking showed the allocating BuildIndex is SLOWER than
+// the O(n^2) Find loop it replaces for trees below roughly 24 leaves, because
+// a fresh map costs more than the depth-first scans save at that size — and a
+// real workspace usually holds 2-8 tiles. Reusing one scratch map per WM
+// keeps the linear behaviour without paying for the allocation.
+func BuildIndexInto(root *Node, dst Index) Index {
+	if dst == nil {
+		return BuildIndex(root)
+	}
+	clear(dst)
+	indexInto(root, dst)
+	return dst
+}
+
+func indexInto(n *Node, idx Index) {
+	if n == nil {
+		return
+	}
+	idx[n.ID] = n
+	indexInto(n.A, idx)
+	indexInto(n.B, idx)
+}

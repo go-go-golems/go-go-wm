@@ -100,7 +100,23 @@ type frame struct {
 	img  *image.RGBA
 	ximg *xgraphics.Image
 	surf *xshm.Surface
+
+	// mapped mirrors what the server has been told, so relayout can skip
+	// the Map/Unmap request when visibility did not change. Zero value is
+	// "unknown", which forces the first pass to issue the request — the
+	// safe default for a frame adopted at startup (GGWM-012).
+	mapped mapState
 }
+
+// mapState is a tri-state so that "never told the server anything" is
+// distinguishable from "told it to unmap".
+type mapState uint8
+
+const (
+	mapUnknown mapState = iota
+	mapMapped
+	mapUnmapped
+)
 
 // dropBuffers releases the frame's paint buffers (and their server
 // pixmaps). Call whenever the frame leaves the screen or is destroyed.
@@ -175,6 +191,16 @@ type WM struct {
 	remoteCmds     map[string]remoteCmd            // A2 daemon commands, by id
 
 	drag *dragState
+
+	// idxScratch is the reusable node index for one reconciliation pass.
+	// Reused rather than allocated because a fresh map costs more than the
+	// Root.Find scans it replaces for small trees (GGWM-012).
+	idxScratch wmcore.Index
+
+	// perf counts the work the reconciler and paint path do, so resize
+	// performance claims can be settled with numbers instead of opinion
+	// (GGWM-012). Read it with the "perf" IPC query.
+	perf perfCounters
 
 	world *apps.World // state behind the embedded trace/listener/inspector
 

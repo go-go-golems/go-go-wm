@@ -39,6 +39,7 @@ func (w *WM) manageExisting() {
 func (w *WM) handleMapRequest(ev xevent.MapRequestEvent) {
 	if f := w.byClient[ev.Window]; f != nil {
 		f.win.Map()
+		f.mapped = mapMapped
 		return
 	}
 	attrs, err := xproto.GetWindowAttributes(w.X.Conn(), ev.Window).Reply()
@@ -117,6 +118,7 @@ func (w *WM) manage(clientWin xproto.Window) {
 	w.connectFrameEvents(fw)
 
 	fw.Map()
+	f.mapped = mapMapped
 	xproto.MapWindow(w.X.Conn(), clientWin)
 	w.focus(leafID)
 	managedData := map[string]interface{}{
@@ -318,11 +320,21 @@ func (w *WM) relayoutPaint(paintAll bool) {
 	if ws == nil {
 		return
 	}
+	t0 := time.Now()
+	w.perf.relayouts++
+	w.perf.layoutCalls++
 	items := wmcore.Layout(ws.Root, w.area, Gap)
-	w.syncDividers(items, ws)
+	// One index per pass replaces a Root.Find (O(n) DFS) per layout item,
+	// which made this loop O(n^2) in tree size (GGWM-012).
+	if w.idxScratch == nil {
+		w.idxScratch = wmcore.Index{}
+	}
+	idx := wmcore.BuildIndexInto(ws.Root, w.idxScratch)
+	w.syncDividers(items, idx)
+	defer func() { w.perf.relayoutNanos += uint64(time.Since(t0).Nanoseconds()) }()
 	visible := map[wmcore.NodeID]bool{}
 	for id, item := range items {
-		if n := ws.Root.Find(id); n == nil || n.Kind != wmcore.Leaf {
+		if n := idx[id]; n == nil || n.Kind != wmcore.Leaf {
 			continue
 		}
 		visible[id] = true
@@ -332,7 +344,15 @@ func (w *WM) relayoutPaint(paintAll bool) {
 		}
 		r := item.Rect
 		resized := f.rect != r
+		// A pure move keeps the frame's pixels valid; only a size change
+		// invalidates the paint buffers. Tracking them separately lets the
+		// resize path skip paint for moves (GGWM-012).
+		sizeChanged := f.rect.W != r.W || f.rect.H != r.H
 		if resized {
+			w.perf.framesMoved++
+			if sizeChanged {
+				w.perf.framesResized++
+			}
 			f.rect = r
 			f.win.MoveResize(r.X, r.Y, r.W, r.H)
 			// Inner client area: inside the 2px border, below the strip.
@@ -352,17 +372,37 @@ func (w *WM) relayoutPaint(paintAll bool) {
 			}
 		}
 		if paintAll || resized {
-			w.paintFrame(f)
+			// GO_GO_WM_NO_RESIZE_PAINT measures the upper bound of removing
+			// decoration paint from the drag path: geometry still commits,
+			// pixels keep their old contents until release. It answers "how
+			// much of the drag cost is paint?" without restructuring the
+			// frame into chrome + content first (GGWM-012 Phase 2).
+			if suppressResizePaint && w.drag != nil && w.drag.kind == "divider" && !paintAll {
+				w.perf.resizePaintSuppressed++
+			} else {
+				w.paintFrame(f)
+			}
 		}
 	}
-	// Hide everything not on this workspace.
+	// Hide everything not on this workspace. Issue the request only on a
+	// visibility transition: this loop walks every frame in the process,
+	// across all workspaces, so unconditional Map/Unmap meant dozens of
+	// redundant requests per relayout (GGWM-012).
 	for leaf, f := range w.frames {
 		if !visible[leaf] {
-			f.win.Unmap()
+			if f.mapped != mapUnmapped {
+				f.win.Unmap()
+				f.mapped = mapUnmapped
+			} else {
+				w.perf.mapReqSkipped++
+			}
 			f.rect = wmcore.Rect{}
 			f.dropBuffers() // off-screen frames don't hold megabytes
-		} else {
+		} else if f.mapped != mapMapped {
 			f.win.Map()
+			f.mapped = mapMapped
+		} else {
+			w.perf.mapReqSkipped++
 		}
 	}
 	w.syncFloats(paintAll)
@@ -374,8 +414,11 @@ func (w *WM) paintFrame(f *frame) {
 	if f.rect.W < 4 || f.rect.H < 4 {
 		return
 	}
+	w.perf.framesPainted++
 	defer func(t0 time.Time) {
-		log.Debug().Dur("ms", time.Since(t0)).Str("leaf", string(f.leaf)).
+		d := time.Since(t0)
+		w.perf.addPaint(d, f.rect.W*f.rect.H)
+		log.Debug().Dur("ms", d).Str("leaf", string(f.leaf)).
 			Int("w", f.rect.W).Int("h", f.rect.H).Msg("paintFrame")
 	}(time.Now())
 	if f.img == nil || f.img.Bounds().Dx() != f.rect.W || f.img.Bounds().Dy() != f.rect.H {
@@ -418,10 +461,17 @@ func (w *WM) paintFrame(f *frame) {
 	// xgraphics image (PutImage chunks over the socket).
 	if xshm.Available(w.X) {
 		if f.surf != nil && (f.surf.W != f.rect.W || f.surf.H != f.rect.H) {
+			// Every dimension change tears the shared pixmap down and
+			// builds a new one. xshm.New issues two CHECKED requests, i.e.
+			// two synchronous X round trips, plus a shmget/shmat/IPC_RMID
+			// triple — and a divider drag changes dimensions on every
+			// tick. These counters exist to size that (GGWM-012).
+			w.perf.shmDestroys++
 			f.surf.Destroy()
 			f.surf = nil
 		}
 		if f.surf == nil {
+			w.perf.shmCreates++
 			if surf, err := xshm.New(w.X, xproto.Drawable(f.win.Id), f.rect.W, f.rect.H); err == nil {
 				f.surf = surf
 				xproto.ChangeWindowAttributes(w.X.Conn(), f.win.Id,
@@ -440,9 +490,16 @@ func (w *WM) paintFrame(f *frame) {
 	// every time. Keeping the ximg alive also makes Expose a single
 	// XPaint (see connectFrameEvents).
 	if f.ximg == nil || f.ximg.Bounds() != img.Bounds() {
+		// The PutImage fallback has the same shape of churn as the shm
+		// path: a client image plus a server pixmap recreated on every
+		// size change. On hosts where the server reports no shared-pixmap
+		// support this is the ONLY path, so it is the one that matters
+		// there (GGWM-012).
 		if f.ximg != nil {
+			w.perf.ximgDestroys++
 			f.ximg.Destroy()
 		}
+		w.perf.ximgCreates++
 		f.ximg = xgraphics.New(w.X, img.Bounds())
 		if err := f.ximg.XSurfaceSet(f.win.Id); err != nil {
 			f.dropBuffers()
@@ -590,8 +647,12 @@ func (w *WM) handleConfigureRequest(ev xevent.ConfigureRequestEvent) {
 			w.configureFloat(f, ev)
 			return
 		}
-		// Re-assert our geometry (send a synthetic ConfigureNotify).
-		w.relayout()
+		// Re-assert our geometry. ICCCM 4.1.5 requires a synthetic
+		// ConfigureNotify carrying root-relative values when a request is
+		// denied; it does NOT require recomputing the workspace. Calling
+		// relayout() here let a client that spams ConfigureRequest drive
+		// full relayouts and repaints at its own rate (GGWM-012).
+		w.sendSyntheticConfigureNotify(f)
 		return
 	}
 	xwindow.New(w.X, ev.Window).Configure(int(ev.ValueMask),
@@ -600,3 +661,35 @@ func (w *WM) handleConfigureRequest(ev xevent.ConfigureRequestEvent) {
 }
 
 var _ = xgbutil.XUtil{}
+
+// sendSyntheticConfigureNotify tells a tiled client the geometry it actually
+// has, in root coordinates, after we declined the geometry it asked for.
+//
+// This is the whole correct response to a denied ConfigureRequest: no layout
+// traversal, no paint, no buffer allocation.
+func (w *WM) sendSyntheticConfigureNotify(f *frame) {
+	if f == nil || f.client == 0 {
+		return
+	}
+	cw := f.rect.W - 2*draw.BorderW
+	ch := f.rect.H - draw.TitleH - draw.BorderW
+	if cw < 1 {
+		cw = 1
+	}
+	if ch < 1 {
+		ch = 1
+	}
+	ev := xproto.ConfigureNotifyEvent{
+		Event:            f.client,
+		Window:           f.client,
+		AboveSibling:     0,
+		X:                int16(f.rect.X + draw.BorderW),
+		Y:                int16(f.rect.Y + draw.TitleH),
+		Width:            uint16(cw),
+		Height:           uint16(ch),
+		BorderWidth:      0,
+		OverrideRedirect: false,
+	}
+	xproto.SendEvent(w.X.Conn(), false, f.client,
+		xproto.EventMaskStructureNotify, string(ev.Bytes()))
+}

@@ -9,6 +9,7 @@ import (
 	"github.com/go-go-golems/go-go-wm/pkg/draw"
 	"github.com/go-go-golems/go-go-wm/pkg/launcher"
 	"github.com/go-go-golems/go-go-wm/pkg/wmcore"
+	"github.com/go-go-golems/go-go-wm/pkg/xshm"
 )
 
 // IPC: a tiny NDJSON query/control protocol on a Unix socket, in the spirit
@@ -114,6 +115,13 @@ func (w *WM) dispatchIPC(req ipcRequest) ipcResponse {
 			done <- ipcResponse{OK: true, Data: json.RawMessage(raw)}
 		case "windows":
 			done <- ipcResponse{OK: true, Data: w.windowsSnapshot()}
+		case "perf":
+			// Bounded aggregates only — a debug endpoint must never stream
+			// an unbounded trace (GGWM-012).
+			done <- ipcResponse{OK: true, Data: w.perf.snapshot(xshm.Available(w.X))}
+		case "perf-reset":
+			w.perf.reset()
+			done <- ipcResponse{OK: true}
 		case "op":
 			if req.Op == nil {
 				done <- ipcResponse{OK: false, Error: "missing op"}

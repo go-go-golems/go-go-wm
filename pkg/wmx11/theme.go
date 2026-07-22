@@ -46,6 +46,10 @@ func (w *WM) setTheme(name string) error {
 	}
 	for _, d := range w.dividers {
 		d.win.Change(xproto.CwBackPixel, uint32(pixel(draw.Current().Paper)))
+		// The paint key does not include the palette, so a theme swap has
+		// to invalidate it explicitly or dividers keep their old colours
+		// (GGWM-012).
+		d.invalidate()
 	}
 	// Drop the cached bar surfaces so blitCached rebuilds them via
 	// XSurfaceSet (re-establishing the background pixmap after the

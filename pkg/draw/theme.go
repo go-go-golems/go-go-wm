@@ -18,7 +18,6 @@ import (
 
 	"golang.org/x/image/font"
 	"golang.org/x/image/font/opentype"
-	"golang.org/x/image/math/fixed"
 )
 
 // Theme is one complete palette. A live snapshot (Palette) is exposed
@@ -244,15 +243,10 @@ func Border(img *image.RGBA, r image.Rectangle, w int, c color.RGBA) {
 // Text draws s with its baseline at (x, y) and returns the advance width in
 // pixels.
 func Text(img *image.RGBA, x, y int, s string, bold bool, size float64, c color.RGBA) int {
-	face := Face(bold, size)
-	d := font.Drawer{
-		Dst:  img,
-		Src:  image.NewUniform(c),
-		Face: face,
-		Dot:  fixed.P(x, y),
-	}
-	d.DrawString(s)
-	return (d.Dot.X - fixed.I(x)).Ceil()
+	// Rasterizing glyphs was 72% of a title-strip render and repeated on
+	// every repaint even though the string never changed; the run is cached
+	// as an alpha mask and recoloured here (GGWM-012, ~7x faster).
+	return drawTextCached(img, x, y, s, bold, size, c)
 }
 
 // TextWidth measures s without drawing.

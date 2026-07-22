@@ -28,17 +28,45 @@ type dividerWin struct {
 	win   *xwindow.Window
 	rect  wmcore.Rect
 	mode  int
+
+	// painted is the state the divider's pixels currently show. A divider's
+	// appearance depends only on (mode, dir, size) — not on its position —
+	// so a drag that only moves the window needs no raster work at all.
+	// syncDividers used to call paintDivider unconditionally on every
+	// relayout, and paintDivider allocates an image plus a server pixmap
+	// per call (GGWM-012).
+	painted    dividerPaintKey
+	hasPainted bool
+
+	// mapped mirrors the server-side map state so relayout stops issuing a
+	// MapWindow request for an already-mapped divider on every pass.
+	mapped bool
 }
+
+// dividerPaintKey captures everything that changes a divider's pixels.
+type dividerPaintKey struct {
+	mode int
+	dir  wmcore.Dir
+	w, h int
+}
+
+func (d *dividerWin) paintKey() dividerPaintKey {
+	return dividerPaintKey{mode: d.mode, dir: d.dir, w: d.rect.W, h: d.rect.H}
+}
+
+// invalidate forces the next paintDivider to actually draw. Called when
+// something outside the key changes the appearance, such as a theme swap.
+func (d *dividerWin) invalidate() { d.hasPainted = false }
 
 // syncDividers reconciles divider windows with the current workspace's
 // layout (called from relayout).
-func (w *WM) syncDividers(items map[wmcore.NodeID]wmcore.LayoutItem, ws *wmcore.Workspace) {
+func (w *WM) syncDividers(items map[wmcore.NodeID]wmcore.LayoutItem, idx wmcore.Index) {
 	if w.dividers == nil {
 		w.dividers = map[wmcore.NodeID]*dividerWin{}
 	}
 	seen := map[wmcore.NodeID]bool{}
 	for id, item := range items {
-		n := ws.Root.Find(id)
+		n := idx[id]
 		if n == nil || n.Kind != wmcore.Split || item.DividerRect.W <= 0 || item.DividerRect.H <= 0 {
 			continue
 		}
@@ -56,7 +84,14 @@ func (w *WM) syncDividers(items map[wmcore.NodeID]wmcore.LayoutItem, ws *wmcore.
 			d.rect = item.DividerRect
 			d.win.MoveResize(d.rect.X, d.rect.Y, d.rect.W, d.rect.H)
 		}
-		d.win.Map()
+		if !d.mapped {
+			d.win.Map()
+			d.mapped = true
+		}
+		// Repaint only when the appearance actually changed. During a
+		// divider drag the rect moves every tick but mode/dir/size do
+		// not, so this is the difference between one paint per drag and
+		// one paint per motion event.
 		w.paintDivider(d)
 	}
 	for id, d := range w.dividers {
@@ -117,6 +152,9 @@ func (w *WM) createDivider(split wmcore.NodeID, dir wmcore.Dir) *dividerWin {
 	}).Connect(w.X, id)
 	xevent.ExposeFun(func(_ *xgbutil.XUtil, ev xevent.ExposeEvent) {
 		if ev.Count == 0 {
+			// The server has thrown the contents away, so the paint key
+			// no longer describes what is on screen: force a redraw.
+			d.invalidate()
 			w.paintDivider(d)
 		}
 	}).Connect(w.X, id)
@@ -129,6 +167,18 @@ func (w *WM) paintDivider(d *dividerWin) {
 	if d.rect.W < 1 || d.rect.H < 1 {
 		return
 	}
+	// Appearance is a pure function of the paint key, and the pixels stay
+	// valid across a pure move because the window keeps its contents. Skip
+	// the image allocation, the server pixmap, and the upload when nothing
+	// visible changed. Expose and theme swaps call invalidate() first.
+	if key := d.paintKey(); d.hasPainted && d.painted == key {
+		w.perf.dividerPaintSkipped++
+		return
+	} else {
+		d.painted = key
+		d.hasPainted = true
+	}
+	w.perf.dividerPainted++
 	img := image.NewRGBA(image.Rect(0, 0, d.rect.W, d.rect.H))
 	draw.Fill(img, img.Bounds(), draw.DividerColor(d.mode))
 	const mark = 26
