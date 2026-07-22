@@ -1193,3 +1193,134 @@ paint_ms_total            3462    3094
   transfer (derived)      1680    2167   <-- regression: capacity-sized PutImage
 relayout_ms_total         3518    3144
 ```
+
+## Step 12: Uploading only what is visible — 2.9x on both paths
+
+Step 11 left the two upload paths with different bottlenecks and different verdicts: MIT-SHM 2.35x faster, the PutImage fallback essentially unchanged. This step closes that gap with an observation that the decomposition made obvious and that neither the source reading nor the review documents had drawn: **for a frame holding a reparented client, almost everything the window manager converts and transfers is covered by the client window and never appears on screen.**
+
+Acting on it brings both paths to roughly 2.9x faster than baseline, and it does so without creating a single new X window — which is the change the design document proposes as Phase 4 and describes as the highest-risk item in the plan.
+
+### Prompt Context
+
+**User prompt (verbatim):** (see Step 10 — "do as much work as possible…")
+
+### The observation
+
+A frame is a window the WM owns; the client is reparented inside it at `(BorderW, TitleH)`. The WM renders a title strip, a border, and — for builtin or script tiles only — content. When there is a client, the client window occupies everything except the strip and a 2-pixel border.
+
+For a 636×664 pane that is about 20,000 visible WM pixels out of 422,000. Every paint was converting and uploading all 422,000.
+
+```
++-- frame 636x664 -----------------------+
+| title strip  636 x 22      <- visible  |
++----------------------------------------+
+|B|                                    |B|   B = 2px border, visible
+|o|   client window covers this        |o|
+|r|   ~416,000 px, NEVER visible       |r|
+|d|                                    |d|
++----------------------------------------+
+| bottom border 636 x 2      <- visible  |
++----------------------------------------+
+```
+
+### What I did
+
+- Added `WM.chromeRects(f)`, returning the four rectangles the WM actually shows for a client frame, and `nil` for builtin/script tiles whose whole surface is visible.
+- Fallback path: `XDraw` each chrome sub-image, then `XPaintRects` for those rectangles instead of `XPaint` over the window.
+- MIT-SHM path: added `Surface.WriteRGBARect` and converted only the chrome rows, then `ClearArea` per rectangle instead of `ClearAll`.
+- Re-enabled capacity bucketing on both paths, since transfer volume no longer depends on the backing store's size.
+
+### What worked
+
+Per paint, against the Step 9 baseline:
+
+| | baseline | after Step 11 | **after Step 12** | total |
+|---|---:|---:|---:|---:|
+| MIT-SHM | 5.31 ms | 2.29 ms | **1.82 ms** | **2.92x** |
+| PutImage fallback | 6.63 ms | 6.09 ms | **2.27 ms** | **2.92x** |
+
+WM-loop work for one scripted drag (`relayout_ms_total`):
+
+| | baseline | **after** | |
+|---|---:|---:|---:|
+| MIT-SHM | 2852 ms | **944 ms** | **3.02x** |
+| fallback | 3518 ms | **1150 ms** | **3.06x** |
+
+The transfer collapse on the fallback is the headline component: **3.22 ms/paint to 0.38 ms — 8.5x.** That path is the one the development machine actually runs, since its Xorg reports no shared-pixmap support.
+
+The cost profile is now flat. Nothing dominates:
+
+```
+                shm     fallback
+compose        0.52 ms   0.48 ms
+surface        0.65 ms   0.48 ms
+convert        0.61 ms   0.85 ms
+transfer       0.04 ms   0.45 ms
+total          1.82 ms   2.27 ms
+```
+
+**Rendering verified by screenshot on both paths**, mid-drag and after release: title strips, borders, the snapped divider, and both bars all intact, with no artifacts from the uploaded region being smaller than the surface.
+
+### What didn't work
+
+The same sub-image technique, applied to the *whole viewport* in Step 11, was measurably worse: 5.79 ms/paint against 4.09. `xgraphics`' `xdraw` allocates a contiguous copy of the region on every call, and for a full viewport that copy costs more than the ~7% capacity surplus it avoids.
+
+The technique is right; the region was wrong. For roughly 22 rows the copy is trivial and the saved transfer is enormous. **A mechanism that loses at one scale can win decisively at another**, which is an argument for measuring the specific application rather than forming a general opinion about the mechanism. The rejected variant is recorded in a comment at the call site so it is not retried on the strength of the general principle.
+
+### What I learned
+
+**This is Phase 4's benefit without Phase 4's risk.** The design document proposes splitting chrome from content by giving each frame a title child window, and identifies it as the highest-risk change in the plan because it rewrites frame lifecycle. The actual saving it targets is "stop touching pixels the client covers". That saving is available from the upload path alone, because the client already covers those pixels — the window hierarchy did not need to change to make them uninteresting, only the upload had to stop pretending they were visible.
+
+The structural split still buys things this does not: composition and conversion still run over the full pane (`compose` 0.5 ms, `convert` 0.6–0.85 ms), and a title child window would make those scale with the strip too. But the largest single component is now gone, and the remaining case for Phase 4 is considerably weaker than it was two hours ago.
+
+**The decomposition earned this.** The observation is available to anyone reading `paintFrame`, and three review documents plus my own analysis missed it. What surfaced it was having `transfer` as a separate number and watching it dominate one path and not the other.
+
+### What was tricky to build
+
+Correctness rests on an invariant that is true but nowhere enforced: the client window covers exactly the frame interior. It is established in `manage` (reparent at `(0, TitleH)`, configure to `W-2*BorderW × H-TitleH-BorderW`) and maintained by `relayoutPaint`. If a future change moved the client or left a gap, the uncovered region would show stale pixels, and no test would fail — the screenshots would show it, which is one more reason they are now committed to the ticket.
+
+The two paths also need different repair calls: `XPaintRects` for the fallback, explicit `ClearArea` per rectangle for shm. `ClearAll` would repair the whole window from a background pixmap whose interior was never converted, which is exactly the failure this invariant protects against.
+
+### What warrants a second pair of eyes
+
+- **The covering invariant above.** It deserves an assertion in development builds, or a comment at `manage`'s reparent call pointing at `chromeRects`.
+- **Fullscreen and float frames.** Floats reparent at `(BorderW, TitleH)` and are also fully covered, so `chromeRects` applies; a fullscreen frame is handled by `fullscreenState` and skipped by `relayoutPaint`, so it should be unaffected. Neither was exercised by the harness, which only drives divider drags.
+- **Builtin and script tiles are deliberately excluded** (`f.client == 0` returns nil) and still pay a full-surface upload. They are also the surfaces that genuinely need one.
+
+### What should be done in the future
+
+1. Extend the harness to cover floats, fullscreen transitions and workspace switches — the paths this change touches but does not exercise.
+2. Reconsider Phase 4's priority. Its remaining value is making compose and convert scale with the strip; that is ~1.1–1.3 ms of a ~2 ms paint, no longer the 60%+ it looked like.
+3. Sweep the bucket granularity now that transfer no longer depends on it.
+
+### Code review instructions
+
+- **Start at** `WM.chromeRects` in `pkg/wmx11/manage.go` and its two call sites — the shm branch and the fallback branch of `paintFrame`.
+- **Check the invariant**, not the arithmetic: confirm the client window truly covers everything `chromeRects` omits.
+- **Verify rendering** from `images/final2-shm-*.png` and `images/chrome-noshm-*.png`.
+- **Reproduce:**
+  ```bash
+  S=ttmp/2026/07/21/GGWM-012-GUIDES--*/scripts/ggwm-xephyr-validate.sh
+  $S final2-shm ; GO_GO_WM_NO_SHM=1 $S final2-noshm
+  ```
+
+### Technical details
+
+```
+                     baseline    after Step 12
+MIT-SHM
+  compose_ms_total       450          256
+  surface_ms_total      1578          325
+  convert_ms_total       759          303
+  transfer (derived)      15           23
+  paint_ms_total        2802          905
+  relayout_ms_total     2852          944
+
+PutImage fallback
+  compose_ms_total       386          235
+  surface_ms_total       912          237
+  convert_ms_total       483          413
+  transfer (derived)    1680          222
+  paint_ms_total        3462         1108
+  relayout_ms_total     3518         1150
+```

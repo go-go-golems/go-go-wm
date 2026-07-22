@@ -131,6 +131,25 @@ func (s *Surface) WriteRGBA(img *image.RGBA) {
 	})
 }
 
+// WriteRGBARect converts only the rows covered by r, for callers that know
+// most of the surface is not visible.
+//
+// A frame holding a reparented client shows window-manager pixels only in its
+// title strip and border; the client covers the rest. Converting the whole
+// surface there spends ~30x the work for pixels nobody sees (GGWM-012).
+func (s *Surface) WriteRGBARect(img *image.RGBA, rect image.Rectangle) {
+	b := img.Bounds()
+	rect = rect.Intersect(image.Rect(0, 0, s.W, s.H)).Intersect(b)
+	if rect.Empty() {
+		return
+	}
+	draw.ConvertRows(rect, func(y, w int) ([]byte, []byte) {
+		so := img.PixOffset(rect.Min.X, y)
+		do := y*s.W*4 + rect.Min.X*4
+		return img.Pix[so : so+w*4 : so+w*4], s.Data[do : do+w*4 : do+w*4]
+	})
+}
+
 // Destroy releases the X-side resources and our mapping. The kernel
 // segment itself is already RMID-marked and dies with the detachments.
 func (s *Surface) Destroy() {

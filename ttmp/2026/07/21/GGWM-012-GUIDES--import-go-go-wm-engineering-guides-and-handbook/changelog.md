@@ -62,3 +62,8 @@ Corrected the design doc from implementation evidence: shared_pixmaps is false o
 
 Measured three conditions on a real WM under Xephyr: the Tier-1 round-trip hypothesis is REFUTED (disabling shm removes 1024 round trips and is 15% slower), reconciliation is 1.8% of a relayout, and ~98% of a paint is BGRA conversion plus upload. Plan reordered: Phase 4 (chrome/content split) now precedes Phase 2.
 
+
+## 2026-07-22
+
+Upload only the rectangles a reparented client does not cover: ~20k visible pixels instead of ~422k per frame. Combined with capacity buffers this is 2.92x faster per paint on both upload paths and ~3x less WM-loop work per drag. Delivers Phase 4's main saving without creating any new X windows.
+

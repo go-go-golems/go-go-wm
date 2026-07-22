@@ -501,9 +501,25 @@ func (w *WM) paintFrame(f *frame) {
 		w.perf.surfaceNanos += uint64(time.Since(surfStart).Nanoseconds())
 		if f.surf != nil {
 			convStart := time.Now()
-			f.surf.WriteRGBA(img)
+			rects := w.chromeRects(f)
+			if rects != nil {
+				// Convert and repair only what the client does not cover.
+				for _, r := range rects {
+					f.surf.WriteRGBARect(img, r)
+				}
+			} else {
+				f.surf.WriteRGBA(img)
+			}
 			w.perf.convertNanos += uint64(time.Since(convStart).Nanoseconds())
-			f.win.ClearAll()
+			if rects != nil {
+				for _, r := range rects {
+					xproto.ClearArea(w.X.Conn(), false, f.win.Id,
+						int16(r.Min.X), int16(r.Min.Y),
+						uint16(r.Dx()), uint16(r.Dy()))
+				}
+			} else {
+				f.win.ClearAll()
+			}
 			return
 		}
 	}
@@ -532,11 +548,22 @@ func (w *WM) paintFrame(f *frame) {
 	convStart := time.Now()
 	draw.CopyToXImage(f.ximg, img)
 	w.perf.convertNanos += uint64(time.Since(convStart).Nanoseconds())
-	// Deliberately NOT a sub-image transfer. XDraw on a sub-image allocates
-	// a contiguous copy of the region on every call, and measurement showed
-	// that costs more than transferring the small capacity surplus:
-	// 5.79 ms/paint against 4.09 (GGWM-012 Phase 2). Capacity sizing is
-	// disabled on this path instead — see bucketSizeFor.
+	// A reparented client covers the frame's interior, so the only pixels
+	// the window manager actually owns are the title strip and the border.
+	// Transferring the interior pushes ~30x more data than is ever seen.
+	//
+	// Sub-image XDraw allocates a contiguous copy per call, which is why it
+	// lost when used for the whole viewport (5.79 ms/paint against 4.09).
+	// For the chrome it wins easily: the copy is ~22 rows instead of ~660.
+	if rects := w.chromeRects(f); rects != nil {
+		for _, r := range rects {
+			if sub, ok := f.ximg.SubImage(r).(*xgraphics.Image); ok && sub != nil {
+				sub.XDraw()
+			}
+		}
+		f.ximg.XPaintRects(f.win.Id, rects...)
+		return
+	}
 	f.ximg.XDraw()
 	f.ximg.XPaint(f.win.Id)
 }
@@ -746,9 +773,6 @@ const sizeBucket = 64
 // both — transferring a sub-image costs more in allocation and copying than
 // the surplus it avoids. On that path, exact sizing wins.
 func (w *WM) bucketSizeFor(pw, ph int) (int, int) {
-	if !xshm.Available(w.X) {
-		return pw, ph
-	}
 	return bucketSize(pw, ph)
 }
 
@@ -761,4 +785,33 @@ func roundUpTo(v, m int) int {
 		v = 1
 	}
 	return ((v + m - 1) / m) * m
+}
+
+// chromeRects returns the sub-rectangles of a frame that the window manager
+// actually renders, or nil when the whole surface is visible.
+//
+// A frame holding a reparented client shows WM pixels only in the title strip
+// and the border: the client window covers everything else. Builtin and
+// script tiles have no client, so their whole surface is visible and they
+// return nil.
+//
+// Restricting the upload to these rectangles is the same saving the
+// chrome/content window split would give, without changing the window
+// hierarchy: for a 636x664 pane it is roughly 20k pixels instead of 422k.
+func (w *WM) chromeRects(f *frame) []image.Rectangle {
+	if f.client == 0 || f.rect.W < 4 || f.rect.H < 4 {
+		return nil // builtin or script tile: all of it is visible
+	}
+	pw, ph := f.rect.W, f.rect.H
+	b := draw.BorderW
+	t := draw.TitleH
+	if ph <= t+b {
+		return nil
+	}
+	return []image.Rectangle{
+		image.Rect(0, 0, pw, t),       // title strip
+		image.Rect(0, ph-b, pw, ph),   // bottom border
+		image.Rect(0, t, b, ph-b),     // left border
+		image.Rect(pw-b, t, pw, ph-b), // right border
+	}
 }
