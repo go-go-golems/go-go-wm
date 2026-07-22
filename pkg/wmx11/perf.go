@@ -19,6 +19,37 @@ var suppressResizePaint = os.Getenv("GO_GO_WM_NO_RESIZE_PAINT") != ""
 // Default on: the frozen band was the behaviour users reported as the drag
 // stopping (GGWM-012 Step 18). Set GO_GO_WM_SNAP_ON_RELEASE=0 for the old
 // live-snapping feel.
+// doubleBuffer renders each frame into a spare shared pixmap and swaps it in,
+// so the server never composites from memory being written. Without it the
+// background pixmap is written in place with no synchronisation, which tears
+// (GGWM-012 Step 20). Costs a second surface per frame.
+// GO_GO_WM_NO_DOUBLE_BUFFER=1 disables it.
+var doubleBuffer = !envOn("GO_GO_WM_NO_DOUBLE_BUFFER")
+
+func envOn(name string) bool {
+	switch strings.ToLower(strings.TrimSpace(os.Getenv(name))) {
+	case "", "0", "false", "no", "off":
+		return false
+	default:
+		return true
+	}
+}
+
+// shmSync makes the WM wait for the server to finish processing the repair
+// before the next paint may write the other buffer.
+//
+// MIT-SHM CompletionEvents do NOT apply here: the server emits them for
+// ShmPutImage, and this design installs a shared pixmap as the window's
+// background instead, which is what makes Expose repair free and server-side.
+// The equivalent guarantee is a barrier — a reply-bearing request the server
+// can only answer once it has processed everything queued behind it.
+//
+// Double buffering already prevents writing a buffer the server is reading in
+// the same frame. This closes the remaining case where the server falls more
+// than one frame behind. It costs one round trip per paint, so it is opt-in
+// via GO_GO_WM_SHM_SYNC=1 and measured rather than assumed.
+var shmSync = envOn("GO_GO_WM_SHM_SYNC")
+
 var snapOnRelease = func() bool {
 	switch strings.ToLower(strings.TrimSpace(os.Getenv("GO_GO_WM_SNAP_ON_RELEASE"))) {
 	case "0", "false", "no", "off":
@@ -74,6 +105,8 @@ type perfCounters struct {
 	composeNanos  uint64 // fill + title + border into the RGBA scratch
 	uploadNanos   uint64 // convert + surface create/attach + X blit
 	convertNanos  uint64 // RGBA -> BGRA only
+	syncNanos     uint64 // barrier round trips (GO_GO_WM_SHM_SYNC)
+	syncWaits     uint64
 	surfaceNanos  uint64 // surface destroy/create (the checked round trips)
 }
 
@@ -103,6 +136,8 @@ type perfSnapshot struct {
 	UploadMillis          float64 `json:"upload_ms_total"`
 	ConvertMillis         float64 `json:"convert_ms_total"`
 	SurfaceMillis         float64 `json:"surface_ms_total"`
+	SyncMillis            float64 `json:"sync_ms_total"`
+	SyncWaits             uint64  `json:"sync_waits"`
 	RelayoutMillis        float64 `json:"relayout_ms_total"`
 	SharedPixmaps         bool    `json:"shared_pixmaps"`
 	BufferBytes           int64   `json:"buffer_bytes"`
@@ -137,6 +172,8 @@ func (p *perfCounters) snapshot(sharedPixmaps bool) perfSnapshot {
 		UploadMillis:          float64(p.uploadNanos) / 1e6,
 		ConvertMillis:         float64(p.convertNanos) / 1e6,
 		SurfaceMillis:         float64(p.surfaceNanos) / 1e6,
+		SyncMillis:            float64(p.syncNanos) / 1e6,
+		SyncWaits:             p.syncWaits,
 		RelayoutMillis:        float64(p.relayoutNanos) / 1e6,
 		SharedPixmaps:         sharedPixmaps,
 	}

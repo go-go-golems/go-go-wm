@@ -67,7 +67,22 @@ type Surface struct {
 	Pixmap xproto.Pixmap
 	Data   []byte // W*H*4 bytes, BGRA, row-major, stride == W*4
 	W, H   int
+
+	// dirtyAll marks a surface whose contents cannot be trusted for a
+	// partial update — freshly created, or a back buffer whose geometry
+	// changed while it was not being written. The next write must cover the
+	// whole surface (GGWM-012 Step 20).
+	dirtyAll bool
 }
+
+// MarkDirtyAll forces the next write to cover the whole surface.
+func (s *Surface) MarkDirtyAll() { s.dirtyAll = true }
+
+// DirtyAll reports whether the whole surface needs rewriting.
+func (s *Surface) DirtyAll() bool { return s.dirtyAll }
+
+// ClearDirty marks the surface fully written.
+func (s *Surface) ClearDirty() { s.dirtyAll = false }
 
 // New creates a surface sized w×h for the given drawable's screen.
 // Callers should have checked Available; New re-validates the depth
@@ -113,7 +128,7 @@ func New(X *xgbutil.XUtil, drawable xproto.Drawable, w, h int) (*Surface, error)
 		return nil, fmt.Errorf("xshm: shared pixmap: %w", err)
 	}
 
-	return &Surface{X: X, Seg: seg, Pixmap: pid, Data: data[:size], W: w, H: h}, nil
+	return &Surface{X: X, Seg: seg, Pixmap: pid, Data: data[:size], W: w, H: h, dirtyAll: true}, nil
 }
 
 // WriteRGBA converts img (RGBA) into the surface (BGRA), row-major —

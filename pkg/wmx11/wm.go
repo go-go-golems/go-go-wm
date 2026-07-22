@@ -99,7 +99,13 @@ type frame struct {
 	// the window's background pixmap, so Expose is server-side.
 	img  *image.RGBA
 	ximg *xgraphics.Image
-	surf *xshm.Surface
+	surf *xshm.Surface // front: currently installed as the window background
+	// back is the second shared pixmap. The server composites the window
+	// from whichever pixmap is installed as its background, and nothing
+	// synchronises that against our writes — so writing into the installed
+	// one is a tear. Rendering into the spare and then swapping the
+	// background attribute makes each frame appear whole (GGWM-012 Step 20).
+	back *xshm.Surface
 
 	// mapped mirrors what the server has been told, so relayout can skip
 	// the Map/Unmap request when visibility did not change. Zero value is
@@ -129,6 +135,10 @@ func (f *frame) dropBuffers() {
 			xproto.CwBackPixel, []uint32{uint32(pixel(draw.Current().Pane))})
 		f.surf.Destroy()
 		f.surf = nil
+	}
+	if f.back != nil {
+		f.back.Destroy()
+		f.back = nil
 	}
 	if f.ximg != nil {
 		f.ximg.Destroy()

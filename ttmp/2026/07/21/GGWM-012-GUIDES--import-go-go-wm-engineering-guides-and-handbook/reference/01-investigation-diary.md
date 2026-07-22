@@ -1763,3 +1763,72 @@ The screenshot harness has a structural blind spot: it captures before the drag,
 ### What warrants a second pair of eyes
 
 - Whether any other path exposes uninitialised buffer. `dropBuffers` clears everything and the next paint reallocates, so the initialisation is on the allocation path and should cover all of them — but that is an argument, not a test.
+
+## Step 20: Tearing — double buffering works, the barrier does not
+
+The user asked for all three tearing fixes: coalesce the repair, double buffer, and MIT-SHM completion events. Two were implemented as asked. The third does not apply to this architecture, and the equivalent guarantee turned out to cost five times more than the thing it protects.
+
+### Prompt Context
+
+**User prompt (verbatim):** "do all 3"
+
+**Assistant interpretation:** Implement the coalesced repair, double buffering, and completion-event synchronisation proposed in the previous message.
+
+### 1. Coalesced repair
+
+Chrome-only upload had replaced one `ClearAll` with four per-rectangle `ClearArea` calls, so a repaint could arrive in four visible pieces. Now a single `ClearArea` over the bounding box of the chrome rectangles: one server-side blit.
+
+### 2. Double buffering
+
+The shared pixmap **is** the window's background, and nothing synchronises our writes against the server compositing from it. That is the tear, and it is inherent to the design GGWM-006 chose (it is also what makes Expose repair free and server-side, so it is a deliberate trade, not an oversight).
+
+Each frame now carries a second surface. Rendering goes into whichever buffer is *not* installed, then `ChangeWindowAttributes` swaps the background pixmap and the repair follows. The server never composites from memory being written.
+
+Two correctness details:
+
+- A back buffer holds the *previous* frame. Its interior is still valid (the client covers it) and its chrome is rewritten every paint, so partial updates remain safe — except after a size change, where the geometry no longer matches. `Surface.dirtyAll` marks that case and forces a full rewrite.
+- New surfaces start `dirtyAll`, which subsumes the fix from Step 19.
+
+**Cost: none.** Xephyr, one scripted drag:
+
+| | paint_ms_total | ms/paint |
+|---|---:|---:|
+| double-buffered | 207.6 | **0.32** |
+| single-buffered | 215.6 | 0.32 |
+
+The double-buffered run is marginally *faster*, which is within run-to-run noise. The only real cost is one extra shared pixmap per frame.
+
+### 3. Completion events — why they do not apply, and what does
+
+MIT-SHM `CompletionEvent`s exist in the protocol and in xgb, but the server emits them for **`ShmPutImage`**. This design does not use `ShmPutImage`; it installs a shared pixmap as the window background and lets the server blit from it. There is no request whose completion could be signalled, so there is nothing to wait for.
+
+Adopting `ShmPutImage` to gain completion events would mean giving up the background pixmap — and with it the free, server-side Expose repair that GGWM-005 and GGWM-006 specifically built. That is a bad trade for a race that double buffering already makes rare.
+
+The equivalent guarantee without changing the upload model is a **barrier**: a reply-bearing request the server can only answer once it has processed everything queued behind it. Implemented behind `GO_GO_WM_SHM_SYNC=1` and measured:
+
+| | paint_ms_total | ms/paint | sync |
+|---|---:|---:|---|
+| double buffer only | 207.6 | 0.32 | — |
+| plus barrier | **1042.1** | **1.59** | 816 ms over 656 waits = **1.24 ms each** |
+
+**A round trip costs 1.24 ms and makes each paint five times more expensive.** It closes only the residual case where the server falls more than a full frame behind, which double buffering already makes uncommon. Left off by default, kept behind the flag with the numbers recorded so the trade is not re-litigated.
+
+### What I learned
+
+**"Do all three" was the right instruction and the wrong outcome for one of them.** Implementing the third as literally described was impossible; implementing its *intent* was possible and measurably bad. Reporting that is more useful than either silently skipping it or shipping a 5x regression because it was on the list.
+
+This is the same shape as the sub-image transfer in Step 12 — a mechanism that is correct in general and wrong at this scale — and the same resolution: build it, measure it, keep the number, leave it off.
+
+### What warrants a second pair of eyes
+
+- **The residual race is real but narrow.** With two buffers the server must be more than one frame behind to be reading the buffer being written. A third buffer would widen the margin at one more surface per frame; nobody has measured whether it is ever hit.
+- `dirtyAll` after a swap compares the two buffers' dimensions. Grow-only sizing means they should track, but the comparison is the safety net for the case where they do not.
+
+### Code review instructions
+
+```bash
+S=ttmp/2026/07/21/GGWM-012-GUIDES--*/scripts/ggwm-xephyr-validate.sh
+$S dbuf                                  # default: double buffered
+GO_GO_WM_NO_DOUBLE_BUFFER=1 $S dbuf-off  # control
+GO_GO_WM_SHM_SYNC=1         $S sync      # barrier; expect ~5x worse
+```

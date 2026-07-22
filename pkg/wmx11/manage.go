@@ -509,6 +509,11 @@ func (w *WM) paintFrame(f *frame) {
 	// xgraphics image (PutImage chunks over the socket).
 	if xshm.Available(w.X) {
 		surfStart := time.Now()
+		if doubleBuffer && f.back != nil && (f.back.W < capW || f.back.H < capH) {
+			w.perf.shmDestroys++
+			f.back.Destroy()
+			f.back = nil
+		}
 		if f.surf != nil && (f.surf.W < capW || f.surf.H < capH) {
 			// Every dimension change tears the shared pixmap down and
 			// builds a new one. xshm.New issues two CHECKED requests, i.e.
@@ -530,33 +535,75 @@ func (w *WM) paintFrame(f *frame) {
 				log.Warn().Err(err).Msg("xshm surface failed; falling back to PutImage")
 			}
 		}
+		// Allocate the back buffer lazily, alongside the front.
+		if doubleBuffer && f.surf != nil && f.back == nil {
+			if b, err := xshm.New(w.X, xproto.Drawable(f.win.Id), f.surf.W, f.surf.H); err == nil {
+				w.perf.shmCreates++
+				f.back = b
+				freshBuffer = true // its BGRA is uninitialised
+			}
+		}
 		w.perf.surfaceNanos += uint64(time.Since(surfStart).Nanoseconds())
 		if f.surf != nil {
+			// Render into the buffer the server is NOT compositing from.
+			target := f.surf
+			if doubleBuffer && f.back != nil {
+				target = f.back
+			}
 			convStart := time.Now()
 			rects := w.chromeRects(f)
-			if freshBuffer {
-				// A new surface holds uninitialised BGRA; write all of it
-				// once so the region the client does not cover is the pane
-				// colour rather than black.
+			if freshBuffer || target.DirtyAll() {
+				// Uninitialised BGRA, or a back buffer that has not been
+				// written since it was last the front: write all of it so
+				// the region the client does not cover is the pane colour
+				// rather than black.
 				rects = nil
 			}
 			if rects != nil {
-				// Convert and repair only what the client does not cover.
 				for _, r := range rects {
-					f.surf.WriteRGBARect(img, r)
+					target.WriteRGBARect(img, r)
 				}
 			} else {
-				f.surf.WriteRGBA(img)
+				target.WriteRGBA(img)
 			}
+			target.ClearDirty()
 			w.perf.convertNanos += uint64(time.Since(convStart).Nanoseconds())
-			if rects != nil {
-				for _, r := range rects {
-					xproto.ClearArea(w.X.Conn(), false, f.win.Id,
-						int16(r.Min.X), int16(r.Min.Y),
-						uint16(r.Dx()), uint16(r.Dy()))
+
+			if doubleBuffer && f.back != nil {
+				// Swap: install the freshly written pixmap, then repair. The
+				// server never composites from a buffer we are writing.
+				xproto.ChangeWindowAttributes(w.X.Conn(), f.win.Id,
+					xproto.CwBackPixmap, []uint32{uint32(target.Pixmap)})
+				f.surf, f.back = target, f.surf
+				// The new back holds the previous frame; its chrome is stale
+				// but its interior is valid, so only a size change needs a
+				// full rewrite. Track that rather than always rewriting.
+				if f.back.W != target.W || f.back.H != target.H {
+					f.back.MarkDirtyAll()
 				}
+			}
+			// One repair, not four. Four ClearAreas let a repaint arrive in
+			// visible pieces; the bounding box of the chrome is a single
+			// server-side blit (GGWM-012 Step 20).
+			if rects != nil {
+				bb := rects[0]
+				for _, r := range rects[1:] {
+					bb = bb.Union(r)
+				}
+				xproto.ClearArea(w.X.Conn(), false, f.win.Id,
+					int16(bb.Min.X), int16(bb.Min.Y),
+					uint16(bb.Dx()), uint16(bb.Dy()))
 			} else {
 				f.win.ClearAll()
+			}
+			if shmSync {
+				// Barrier: the reply cannot arrive until the server has
+				// processed the repair above, so the next paint cannot
+				// overwrite a buffer it is still reading.
+				syncStart := time.Now()
+				_, _ = xproto.GetInputFocus(w.X.Conn()).Reply()
+				w.perf.syncNanos += uint64(time.Since(syncStart).Nanoseconds())
+				w.perf.syncWaits++
 			}
 			return
 		}
