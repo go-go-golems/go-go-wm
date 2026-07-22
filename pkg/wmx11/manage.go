@@ -422,11 +422,24 @@ func (w *WM) paintFrame(f *frame) {
 			Int("w", f.rect.W).Int("h", f.rect.H).Msg("paintFrame")
 	}(time.Now())
 	composeStart := time.Now()
-	if f.img == nil || f.img.Bounds().Dx() != f.rect.W || f.img.Bounds().Dy() != f.rect.H {
-		f.img = image.NewRGBA(image.Rect(0, 0, f.rect.W, f.rect.H))
+	// Capacity sizing (GGWM-012 Phase 2). Measurement attributed 56% of a
+	// paint on the shm path (26% on the fallback) to resource work that
+	// exists only because the pane's dimensions changed on this tick — and
+	// during a divider drag they change on every tick. Rounding the backing
+	// store up to a bucket means the buffers survive until the drag crosses
+	// a bucket boundary, turning ~350 recreations per drag into ~10.
+	//
+	// The window is smaller than its backing store. X tiles a background
+	// pixmap from the window origin, so an oversized pixmap displays its
+	// top-left region and the surplus is clipped away, never seen.
+	capW, capH := bucketSize(f.rect.W, f.rect.H)
+	if f.img == nil || f.img.Bounds().Dx() != capW || f.img.Bounds().Dy() != capH {
+		f.img = image.NewRGBA(image.Rect(0, 0, capW, capH))
 	}
 	img := f.img
-	draw.Fill(img, img.Bounds(), draw.Current().Pane)
+	// Everything composes into the viewport, not the whole capacity buffer.
+	view := image.Rect(0, 0, f.rect.W, f.rect.H)
+	draw.Fill(img, view, draw.Current().Pane)
 	stripColor := draw.AppColor(leafColor(f.leaf))
 	if name := w.builtinAppOf(f); f.client == 0 && name != "" {
 		if strings.HasPrefix(name, scriptPrefix) {
@@ -454,7 +467,7 @@ func (w *WM) paintFrame(f *frame) {
 	if f.client == 0 {
 		f.regions = w.paintBuiltin(f, img)
 	}
-	draw.Border(img, img.Bounds(), draw.BorderW, draw.Current().Ink)
+	draw.Border(img, view, draw.BorderW, draw.Current().Ink)
 
 	w.perf.composeNanos += uint64(time.Since(composeStart).Nanoseconds())
 	uploadStart := time.Now()
@@ -465,7 +478,7 @@ func (w *WM) paintFrame(f *frame) {
 	// xgraphics image (PutImage chunks over the socket).
 	if xshm.Available(w.X) {
 		surfStart := time.Now()
-		if f.surf != nil && (f.surf.W != f.rect.W || f.surf.H != f.rect.H) {
+		if f.surf != nil && (f.surf.W != capW || f.surf.H != capH) {
 			// Every dimension change tears the shared pixmap down and
 			// builds a new one. xshm.New issues two CHECKED requests, i.e.
 			// two synchronous X round trips, plus a shmget/shmat/IPC_RMID
@@ -477,7 +490,7 @@ func (w *WM) paintFrame(f *frame) {
 		}
 		if f.surf == nil {
 			w.perf.shmCreates++
-			if surf, err := xshm.New(w.X, xproto.Drawable(f.win.Id), f.rect.W, f.rect.H); err == nil {
+			if surf, err := xshm.New(w.X, xproto.Drawable(f.win.Id), capW, capH); err == nil {
 				f.surf = surf
 				xproto.ChangeWindowAttributes(w.X.Conn(), f.win.Id,
 					xproto.CwBackPixmap, []uint32{uint32(surf.Pixmap)})
@@ -704,4 +717,27 @@ func (w *WM) sendSyntheticConfigureNotify(f *frame) {
 	}
 	xproto.SendEvent(w.X.Conn(), false, f.client,
 		xproto.EventMaskStructureNotify, string(ev.Bytes()))
+}
+
+// bucketSize rounds a pane size up to the backing-store granularity.
+//
+// A divider drag changes a pane's width on every tick; without bucketing that
+// invalidates the RGBA scratch, the shared pixmap and the fallback XImage on
+// every tick, and recreating the shared pixmap costs two synchronous X round
+// trips. Bucketing trades a bounded amount of surplus memory for recreating
+// those resources only when the drag crosses a boundary.
+//
+// 64 pixels keeps the surplus under ~10% for ordinary panes while cutting
+// recreations during a full-width sweep by more than an order of magnitude.
+const sizeBucket = 64
+
+func bucketSize(w, h int) (int, int) {
+	return roundUpTo(w, sizeBucket), roundUpTo(h, sizeBucket)
+}
+
+func roundUpTo(v, m int) int {
+	if v < 1 {
+		v = 1
+	}
+	return ((v + m - 1) / m) * m
 }

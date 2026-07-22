@@ -114,6 +114,15 @@ if [ -n "$leaf" ]; then
   DISPLAY="$NEST" xterm -geometry 20x5 & sleep 1.5
 fi
 
+# 3b. Screenshots -------------------------------------------------------------
+# Saved into the ticket so the report can show what the WM actually looked
+# like at each stage, and so a rendering regression is visible rather than
+# inferred from counters.
+SHOTS="${SHOTS:-$PWD/ttmp/2026/07/21/GGWM-012-GUIDES--import-go-go-wm-engineering-guides-and-handbook/images}"
+mkdir -p "$SHOTS"
+shot() { DISPLAY="$NEST" import -window root "$SHOTS/$LABEL-$1.png" 2>/dev/null && echo "-- shot: $LABEL-$1.png"; }
+shot 1-before-drag
+
 # 4. Baseline counters, then a scripted drag ---------------------------------
 echo "-- reset: $(ipc '{"q":"perf-reset"}')"
 W=${GEOM%x*}; H=${GEOM#*x}
@@ -127,10 +136,12 @@ for r in 1 2 3; do
   for x in $(seq $LO 6 $HI); do xdotool mousemove $x $DIVY; sleep 0.004; done
   for x in $(seq $HI -6 $LO); do xdotool mousemove $x $DIVY; sleep 0.004; done
 done
+shot 2-mid-drag
 xdotool mousemove $DIVX $DIVY
 xdotool mouseup 1
 sleep 1
 unset DISPLAY
+shot 3-after-release
 
 # 5. Results -----------------------------------------------------------------
 ipc '{"q":"perf"}' > "$OUT/$LABEL.perf.json"

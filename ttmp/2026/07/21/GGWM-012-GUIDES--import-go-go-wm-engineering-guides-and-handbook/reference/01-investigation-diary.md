@@ -1069,3 +1069,127 @@ upload_ms_total      2352         3075
 shm_creates           528            0
 ximg_creates            0          522
 ```
+
+## Step 11: Capacity buffers — a 2.35x win, and a bug the measurement caught
+
+Step 10 identified surface management as 56% of a paint on the MIT-SHM path: resource work incurred solely because the pane's dimensions changed on this tick, which during a divider drag means every tick. This step implements the fix, and it produced the largest end-to-end improvement of the ticket. It also introduced a regression that the counters caught immediately and that no test would have.
+
+### Prompt Context
+
+**User prompt (verbatim):** (see Step 10 — "do as much work as possible…")
+
+**Follow-up user prompt (verbatim):** "save the screenshots in the ticket as well so we can create a nice illustrated report later on and also see what you were dealing with"
+
+**Assistant interpretation:** Capture screenshots of the running WM into the ticket so the report can be illustrated and rendering can be inspected rather than inferred.
+
+### What I did
+
+- Added `bucketSize` — pane dimensions rounded up to a 64-pixel granularity — and sized `f.img`, `f.surf` and `f.ximg` to the bucket rather than to the exact pane.
+- Changed composition to draw into an explicit viewport rectangle instead of `img.Bounds()`, so the surplus capacity is never touched.
+- Added screenshot capture to the Xephyr harness at three points (before drag, mid drag, after release), written into `images/` in the ticket.
+
+### Why bucketing works at all
+
+The window is now smaller than its backing store, and the backing store is installed as the window's background pixmap. X tiles a background pixmap from the window origin, so an oversized pixmap displays its top-left region and the surplus is clipped away. This was flagged in the design doc as an assumption requiring verification before anything depended on it, so it was verified by screenshot rather than by reasoning — see below.
+
+Bucketing at 64 pixels keeps surplus memory under about 10% for ordinary panes while turning roughly 350 resource recreations per drag into about 10.
+
+### What worked
+
+MIT-SHM path, before and after:
+
+| | before | after | change |
+|---|---:|---:|---|
+| `shm_creates` | 528 | 124 | **4.3x fewer** |
+| surface ms/paint | 2.99 | 0.69 | **4.3x** |
+| compose ms/paint | 0.85 | 0.50 | 1.7x |
+| **ms per paint** | **5.31** | **2.26** | **2.35x** |
+| **relayout_ms_total** | **2852** | **1155** | **2.47x** |
+
+The compose improvement was not the target and is worth noting: `image.NewRGBA` for a 636×664 pane is about 1.7 MB, and it was being reallocated on every tick because the size changed. Roughly 880 MB of allocation per drag is now roughly 200 MB.
+
+**The rendering is correct.** The screenshots confirm it directly rather than by inference: `capbuf2-3-after-release.png` shows two correctly sized panes with intact title strips, borders, divider and bars; `capbuf2-2-mid-drag.png` shows the divider in its snapped (mustard) state with the status bar reading `RESIZING`, no stale pixels and no artifacts from the oversized pixmap.
+
+### What didn't work
+
+**The first run of capacity buffers tripled the paint count.** `frames_painted` jumped from 528 to 1340 while `frames_resized` stayed at 496, so roughly 844 paints were arriving from somewhere other than reconciliation.
+
+The cause was in the Expose fast path (`events.go`), which decides whether a frame's buffers are current:
+
+```go
+case f.surf != nil && f.surf.W == f.rect.W && f.surf.H == f.rect.H:
+    // server-side repair; no client work
+```
+
+That compares the surface to the **viewport**. Once surfaces became capacity-sized the comparison could never succeed, so every Expose fell through to `default:` and ran a full `paintFrame` — precisely the cost that fast path exists to avoid, and which a comment records as having been ~27% of the profile when it was first fixed under GGWM-005. Comparing against the bucket instead restored it: `frames_painted` is now 492, exactly equal to `frames_resized`.
+
+**No test would have caught this.** It is not a correctness bug — the screen looked right throughout, and every one of the 15 packages passed. It was visible only as a counter that did not match its sibling. That is a direct argument for the counters being part of the product rather than scaffolding.
+
+**Capacity buffers help the fallback path much less.** On the PutImage path:
+
+| | before | after |
+|---|---:|---:|
+| `ximg_creates` | 522 | 124 |
+| surface ms/paint | 1.75 | 0.42 |
+| transfer ms/paint | 3.22 | **4.09** |
+| ms per paint | 6.63 | 5.84 |
+
+Surface work fell by the expected factor, but **transfer got worse**, because the fallback pushes the whole backing store through `PutImage` and the backing store is now bucket-sized. Net improvement is 12% rather than 135%. The two paths respond differently because they are billed differently: shm pays per resource creation and its transfer is nearly free, while the fallback pays per pixel transferred.
+
+This matters for this project specifically, because the development machine's Xorg reports no shared-pixmap support and therefore runs the fallback.
+
+### What I learned
+
+**A change can be a large win and a small win simultaneously, depending on which resource the path is billed for.** Capacity sizing removes creations; it does not remove pixels, and it slightly increases them. Any optimization that trades one resource for another needs measuring on every path that has a different price list.
+
+The fix for the fallback is to transfer only the viewport rather than the whole capacity buffer — `SubImage` over the viewport rectangle before `XDraw`. That should make the fallback strictly better instead of a trade.
+
+### What was tricky to build
+
+The viewport/capacity split has to be applied consistently or it produces subtle wrongness rather than obvious breakage. Composition draws into `view`; the buffers are sized to `capW, capH`; the currency checks compare against `capW, capH`; and `paintBuiltin` already worked in `f.rect` terms so it needed no change. Missing any one of those produces either surplus work (filling the whole capacity) or a permanently-stale cache (the Expose bug). The Expose case is the instructive one because it failed silently in the direction of doing *more* work, which is invisible without instrumentation.
+
+### What warrants a second pair of eyes
+
+- **Bucket granularity is unmeasured.** 64 pixels was chosen to keep surplus under ~10%; 32 or 128 might be better on either axis. The counters make this cheap to sweep.
+- **Memory ceiling.** Buffers now round up and are never shrunk except by `dropBuffers` on workspace hide or unmanage. A pane that is briefly large leaves a large buffer behind until it is hidden. A compaction policy for surfaces that stay small for some period is worth considering.
+- **The Expose currency check now duplicates the bucketing rule.** If `bucketSize` changes, both call sites must agree. Deriving the check from a single helper on `frame` would remove the coupling.
+
+### What should be done in the future
+
+1. Transfer only the viewport on the fallback path (next step).
+2. Sweep bucket granularity with the harness.
+3. Then reassess whether the chrome/content split is still the right next major change — its value is reducing pixels, which is now the dominant remaining cost on both paths.
+
+### Code review instructions
+
+- **Start at** `pkg/wmx11/manage.go:paintFrame` for the viewport/capacity split and `bucketSize` at the end of the file, then `pkg/wmx11/events.go` for the currency check that must agree with it.
+- **Verify rendering** by looking at the committed screenshots in `images/`, not by reasoning about background-pixmap tiling.
+- **Reproduce:**
+  ```bash
+  S=ttmp/2026/07/21/GGWM-012-GUIDES--*/scripts/ggwm-xephyr-validate.sh
+  $S capbuf2                        # shm path
+  GO_GO_WM_NO_SHM=1 $S capbuf-noshm # fallback path
+  ```
+  Expect `frames_painted == frames_resized` (no Expose re-render) and `shm_creates` around 124 rather than ~520.
+
+### Technical details
+
+```
+MIT-SHM path            before   after
+frames_painted             528     492
+frames_resized             528     492   (equal after the Expose fix)
+shm_creates                528     124
+paint_ms_total            2802    1111
+  compose_ms_total         450     246
+  surface_ms_total        1578     341
+  convert_ms_total         759     511
+relayout_ms_total         2852    1155
+
+PutImage fallback       before   after
+ximg_creates               522     124
+paint_ms_total            3462    3094
+  surface_ms_total         912     224
+  convert_ms_total         483     459
+  transfer (derived)      1680    2167   <-- regression: capacity-sized PutImage
+relayout_ms_total         3518    3144
+```

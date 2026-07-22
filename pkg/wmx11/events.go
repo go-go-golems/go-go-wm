@@ -22,10 +22,17 @@ func (w *WM) connectFrameEvents(fw *xwindow.Window) {
 			// ximg needs one re-blit. A full re-render on every Expose
 			// was ~27% of the profile — each MoveResize during a drag
 			// exposed a frame that had just been painted (GGWM-005).
+			// Buffers are capacity-sized, not viewport-sized (GGWM-012
+			// Phase 2), so currency is checked against the bucket. Testing
+			// against f.rect made every buffer look stale the moment
+			// capacity sizing landed, which turned each Expose back into a
+			// full re-render — the exact cost this fast path exists to
+			// avoid.
+			capW, capH := bucketSize(f.rect.W, f.rect.H)
 			switch {
-			case f.surf != nil && f.surf.W == f.rect.W && f.surf.H == f.rect.H:
+			case f.surf != nil && f.surf.W == capW && f.surf.H == capH:
 				// server-side repair; no client work
-			case f.ximg != nil && f.ximg.Bounds().Dx() == f.rect.W && f.ximg.Bounds().Dy() == f.rect.H:
+			case f.ximg != nil && f.ximg.Bounds().Dx() == capW && f.ximg.Bounds().Dy() == capH:
 				f.ximg.XPaint(f.win.Id)
 			default:
 				w.paintFrame(f)
