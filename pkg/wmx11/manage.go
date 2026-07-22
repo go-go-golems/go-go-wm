@@ -445,8 +445,18 @@ func (w *WM) paintFrame(f *frame) {
 			capW, capH = b.Dx(), b.Dy()
 		}
 	}
+	freshBuffer := false
 	if f.img == nil || f.img.Bounds().Dx() != capW || f.img.Bounds().Dy() != capH {
 		f.img = image.NewRGBA(image.Rect(0, 0, capW, capH))
+		// Initialise the WHOLE store once, not just the chrome.
+		//
+		// Composition writes only the rectangles the client does not cover,
+		// so without this the interior stays uninitialised — black. It is
+		// normally hidden by the client, but a frame is resized before its
+		// client is reconfigured, and a pane that grows exposes the gap.
+		// That showed as black blocks during a drag (GGWM-012 Step 19).
+		draw.Fill(f.img, f.img.Bounds(), draw.Current().Pane)
+		freshBuffer = true
 	}
 	img := f.img
 	// Everything composes into the viewport, not the whole capacity buffer.
@@ -454,7 +464,7 @@ func (w *WM) paintFrame(f *frame) {
 	// Filling follows the same rule as uploading: a reparented client covers
 	// the interior, so only the chrome needs a background. For builtin and
 	// script tiles chromeRects returns nil and the whole viewport is filled.
-	if cr := w.chromeRects(f); cr != nil {
+	if cr := w.chromeRects(f); cr != nil && !freshBuffer {
 		for _, r := range cr {
 			draw.Fill(img, r, draw.Current().Pane)
 		}
@@ -510,6 +520,7 @@ func (w *WM) paintFrame(f *frame) {
 			f.surf = nil
 		}
 		if f.surf == nil {
+			freshBuffer = true
 			w.perf.shmCreates++
 			if surf, err := xshm.New(w.X, xproto.Drawable(f.win.Id), capW, capH); err == nil {
 				f.surf = surf
@@ -523,6 +534,12 @@ func (w *WM) paintFrame(f *frame) {
 		if f.surf != nil {
 			convStart := time.Now()
 			rects := w.chromeRects(f)
+			if freshBuffer {
+				// A new surface holds uninitialised BGRA; write all of it
+				// once so the region the client does not cover is the pane
+				// colour rather than black.
+				rects = nil
+			}
 			if rects != nil {
 				// Convert and repair only what the client does not cover.
 				for _, r := range rects {
@@ -559,6 +576,7 @@ func (w *WM) paintFrame(f *frame) {
 			f.ximg.Destroy()
 		}
 		w.perf.ximgCreates++
+		freshBuffer = true
 		f.ximg = xgraphics.New(w.X, img.Bounds())
 		if err := f.ximg.XSurfaceSet(f.win.Id); err != nil {
 			f.dropBuffers()
@@ -576,7 +594,7 @@ func (w *WM) paintFrame(f *frame) {
 	// Sub-image XDraw allocates a contiguous copy per call, which is why it
 	// lost when used for the whole viewport (5.79 ms/paint against 4.09).
 	// For the chrome it wins easily: the copy is ~22 rows instead of ~660.
-	if rects := w.chromeRects(f); rects != nil {
+	if rects := w.chromeRects(f); rects != nil && !freshBuffer {
 		for _, r := range rects {
 			if sub, ok := f.ximg.SubImage(r).(*xgraphics.Image); ok && sub != nil {
 				sub.XDraw()
