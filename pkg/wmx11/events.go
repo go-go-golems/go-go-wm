@@ -28,7 +28,7 @@ func (w *WM) connectFrameEvents(fw *xwindow.Window) {
 			// capacity sizing landed, which turned each Expose back into a
 			// full re-render — the exact cost this fast path exists to
 			// avoid.
-			capW, capH := bucketSize(f.rect.W, f.rect.H)
+			capW, capH := w.bucketSizeFor(f.rect.W, f.rect.H)
 			switch {
 			case f.surf != nil && f.surf.W == capW && f.surf.H == capH:
 				// server-side repair; no client work

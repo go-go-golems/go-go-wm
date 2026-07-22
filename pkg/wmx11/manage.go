@@ -432,7 +432,7 @@ func (w *WM) paintFrame(f *frame) {
 	// The window is smaller than its backing store. X tiles a background
 	// pixmap from the window origin, so an oversized pixmap displays its
 	// top-left region and the surplus is clipped away, never seen.
-	capW, capH := bucketSize(f.rect.W, f.rect.H)
+	capW, capH := w.bucketSizeFor(f.rect.W, f.rect.H)
 	if f.img == nil || f.img.Bounds().Dx() != capW || f.img.Bounds().Dy() != capH {
 		f.img = image.NewRGBA(image.Rect(0, 0, capW, capH))
 	}
@@ -532,6 +532,11 @@ func (w *WM) paintFrame(f *frame) {
 	convStart := time.Now()
 	draw.CopyToXImage(f.ximg, img)
 	w.perf.convertNanos += uint64(time.Since(convStart).Nanoseconds())
+	// Deliberately NOT a sub-image transfer. XDraw on a sub-image allocates
+	// a contiguous copy of the region on every call, and measurement showed
+	// that costs more than transferring the small capacity surplus:
+	// 5.79 ms/paint against 4.09 (GGWM-012 Phase 2). Capacity sizing is
+	// disabled on this path instead — see bucketSizeFor.
 	f.ximg.XDraw()
 	f.ximg.XPaint(f.win.Id)
 }
@@ -730,6 +735,22 @@ func (w *WM) sendSyntheticConfigureNotify(f *frame) {
 // 64 pixels keeps the surplus under ~10% for ordinary panes while cutting
 // recreations during a full-width sweep by more than an order of magnitude.
 const sizeBucket = 64
+
+// bucketSizeFor picks the backing-store size for a pane.
+//
+// Bucketing is worth it only when the path is billed per resource creation.
+// MIT-SHM is: recreating a shared pixmap costs two synchronous round trips,
+// and bucketing cut a drag's recreations from 528 to 124 for a 2.35x faster
+// paint. The PutImage fallback is billed per pixel transferred instead, so a
+// larger backing store makes it slower, and measurement found no way to have
+// both — transferring a sub-image costs more in allocation and copying than
+// the surplus it avoids. On that path, exact sizing wins.
+func (w *WM) bucketSizeFor(pw, ph int) (int, int) {
+	if !xshm.Available(w.X) {
+		return pw, ph
+	}
+	return bucketSize(pw, ph)
+}
 
 func bucketSize(w, h int) (int, int) {
 	return roundUpTo(w, sizeBucket), roundUpTo(h, sizeBucket)
