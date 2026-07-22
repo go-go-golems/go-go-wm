@@ -869,6 +869,42 @@ This is the part that saves you weeks. The three source guides were written agai
 | Handbook Appendix C "contains three ADRs" | It contains **seven** (ADR-1 … ADR-7) | `sources/local/go-go-wm_engineering_handbook.md` |
 | Proposed backlog assigns **GGWM-012** to "Divider gesture preview and latest-motion scheduler" | **Numbering collision:** GGWM-012 is this ticket. Renumber before adopting GGWM-013…029 | ibid. §44 |
 
+## 4.2a WITHDRAWN: "this machine does not support shared pixmaps"
+
+Sections 4.2b, 4.2c and 4.2d below repeatedly state that the development
+machine's Xorg reports `shared_pixmaps: false`, that it therefore runs the
+PutImage fallback, and that GGWM-006's MIT-SHM work is inert on it.
+
+**All of that is false and is withdrawn.** A probe against the live session:
+
+```
+display        :2
+root depth     24
+MIT-SHM        1.2
+SharedPixmaps  true
+=> go-go-wm will use the MIT-SHM shared-pixmap path.
+```
+
+The `false` reading came from the measurement harness, not the hardware.
+`xshm.Available` gated on `os.Getenv("GO_GO_WM_NO_SHM") != ""` — a bare
+non-empty test — and the VT harness expressed its enabled condition as
+`GO_GO_WM_NO_SHM=0`, which is non-empty. The "shm on" arm ran with shared
+memory switched off.
+
+Corrected in `pkg/xshm` (`envDisabled` honours `0`/`false`/`no`/`off`, pinned
+by `env_test.go`) and in the harness. Read the affected sections below with
+this in mind:
+
+- **This machine takes the MIT-SHM path**, so the relevant result is
+  **5.31 → 1.11 ms per paint, 4.8x**, not the fallback's 3.5x.
+- **There is no Xorg configuration to change.** Shared pixmaps are already
+  available with `glamor` acceleration enabled.
+- The shm-versus-fallback *comparison* remains valid as a comparison of two
+  code paths. Only the claim about which path this machine takes was wrong.
+
+Use `scripts/shmprobe` to check any display rather than inferring from the
+driver.
+
 ## 4.2b Corrections from implementation (added after Phase 0/1 landed)
 
 Three claims in this document were tested by implementing them. Two survived; one did not.

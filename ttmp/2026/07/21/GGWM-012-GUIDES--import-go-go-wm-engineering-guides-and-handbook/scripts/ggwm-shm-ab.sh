@@ -111,7 +111,7 @@ run_condition() {
   echo "-- wrote $log ($(wc -l < "$log") lines)"
 }
 
-run_condition shm-on  0
+run_condition shm-on  ""
 run_condition shm-off 1
 
 echo

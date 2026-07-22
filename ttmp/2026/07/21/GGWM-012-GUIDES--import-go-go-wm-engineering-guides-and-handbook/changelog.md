@@ -72,3 +72,8 @@ Upload only the rectangles a reparented client does not cover: ~20k visible pixe
 
 Swept backing-store granularity and raised the default to 128px. Cumulative result against baseline: MIT-SHM 5.31 -> 1.11 ms/paint (4.8x), PutImage fallback 6.63 -> 1.89 ms/paint (3.5x), WM-loop work per drag down 4.8x and 3.7x respectively.
 
+
+## 2026-07-22
+
+WITHDRAWN: the claim that this machine lacks shared-pixmap support. A probe reports SharedPixmaps=true; the false reading came from GO_GO_WM_NO_SHM=0 being non-empty and thus disabling shm in the harness's 'enabled' arm. Fixed in xshm.Available with envDisabled + test. The machine takes the MIT-SHM path and gets the 4.8x, not 3.5x.
+

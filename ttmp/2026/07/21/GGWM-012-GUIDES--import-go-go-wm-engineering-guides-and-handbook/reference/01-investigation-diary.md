@@ -1548,3 +1548,93 @@ Carried forward, unresolved:
 - **The frame/client configure gap.** `relayoutPaint` configures the frame then the client. Between those requests the frame is briefly larger than its client, and with chrome-only fill that strip now holds stale pixels rather than the pane colour. Both requests are async and unflushed between, so the gap is sub-frame and no screenshot caught it — but the harness samples at rest, not during that window.
 - **The covering invariant is unenforced.** `chromeRects` assumes the client covers exactly the frame interior. It is established at reparent time and maintained by reconciliation; a future change could break it and nothing would fail except the pixels.
 - **Memory under many frames.** `buffer_bytes` reports resident totals now, but the sweep only ever ran with two frames.
+
+## Step 16: The machine does support shared pixmaps — a false reading, traced
+
+The user asked what Xorg configuration might enable shared pixmaps, since Steps 9 onward had recorded that the development machine reports `shared_pixmaps: false` and that GGWM-006's MIT-SHM work was therefore inert on it. Answering that question properly meant checking the driver rather than asserting, and checking produced the opposite of the recorded finding.
+
+**The machine supports shared pixmaps. It always did. The `false` came from my own harness.**
+
+### Prompt Context
+
+**User prompt (verbatim):** "ok, is there xorg config you can change as well? you mentioned something earlier? what should I run?"
+
+**Assistant interpretation:** Identify whether an Xorg configuration change would enable MIT-SHM shared pixmaps on this machine, and give a concrete command to run.
+
+**Inferred user intent:** Recover the ~1.7x that the shm path appeared to offer over the fallback.
+
+### What I did
+
+- Read the real session's Xorg log and confirmed the driver: `modesetting` with `glamor X acceleration enabled on Mesa Intel(R) UHD Graphics 620`.
+- Reasoned that glamor pixmaps are GL textures and therefore cannot be CPU-mapped shared memory, so `SharedPixmaps` would be false by design and not by misconfiguration.
+- **Wrote a probe instead of asserting that** (`scripts/shmprobe`), an ordinary X client that reports MIT-SHM version, `SharedPixmaps`, and root depth for any display.
+- Ran it against the live session on `:2`.
+
+### The result
+
+```
+display        :2
+root depth     24
+MIT-SHM        1.2
+SharedPixmaps  true
+
+=> go-go-wm will use the MIT-SHM shared-pixmap path.
+```
+
+`true`. The reasoning about glamor was wrong — this X server reports shared-pixmap support with acceleration enabled.
+
+### Where the false reading came from
+
+`xshm.Available` gates on the environment first:
+
+```go
+if os.Getenv("GO_GO_WM_NO_SHM") != "" {
+    return false
+}
+```
+
+A **bare non-empty test**. And `ggwm-shm-ab.sh`, the VT harness written in Step 5, expressed its two conditions as:
+
+```bash
+run_condition shm-on   0
+run_condition shm-off  1
+```
+
+`GO_GO_WM_NO_SHM=0` is not empty. **The "shm enabled" arm ran with shared memory disabled**, logged `shared_pixmaps: false`, and I read that as a property of the hardware.
+
+That reading then propagated into diary Steps 9, 10, 12, 13 and 15, into design-doc sections 4.2b, 4.2c and 4.2d, into the published article, and into three separate summaries to the user — always as the same claim: *this machine runs the fallback, so GGWM-006 is inert here.* It is false.
+
+### What I learned
+
+**A measurement harness is instrumentation, and its bugs are indistinguishable from findings.** Every other correction in this ticket came from a measurement overturning an inference. This one is worse: a measurement was *wrong*, produced a plausible result that explained other observations, and survived six steps of scrutiny because it was never questioned — it was the thing doing the questioning.
+
+The specific defect is a well-known API smell. A boolean-style switch tested for non-emptiness makes `VAR=0` mean *on*, which is the opposite of how every reader will use it. The harness author (me) then wrote exactly the invocation the trap is designed to catch.
+
+What would have caught it sooner: the Xephyr runs reported `shared_pixmaps: true` from Step 9 onward, and I attributed the difference to Xephyr being a software server rather than asking why the same binary disagreed with itself across two harnesses. **A contradiction between two of my own measurements was visible for six steps and I explained it away instead of investigating it.**
+
+### What this changes
+
+Almost entirely for the better:
+
+- **The development machine gets the MIT-SHM path, which is the one optimized hardest.** Per paint 5.31 ms → **1.11 ms, 4.8x** — not the fallback's 3.5x.
+- **GGWM-006 is not inert.** That claim is withdrawn.
+- **There is no Xorg configuration to change.** The question that prompted this step has no action attached: shared pixmaps are already enabled.
+- The shm-versus-fallback comparison in Step 9 remains valid as a comparison of the two code paths; only the claim about which path this machine takes was wrong.
+
+### Fixes applied
+
+- `xshm.Available` now uses `envDisabled`, honouring `0`, `false`, `no`, `off` and empty as *not disabled*, with `pkg/xshm/env_test.go` pinning all of them.
+- `ggwm-shm-ab.sh`'s enabled arm now passes an empty value.
+- Diary, design doc and article corrected.
+
+### What warrants a second pair of eyes
+
+- **Other bare non-empty environment checks.** `GO_GO_WM_PPROF` and `GO_GO_WM_NO_RESIZE_PAINT` are both value-carrying or genuinely presence-only, but any future boolean switch should use `envDisabled`.
+- **Whether the Xephyr numbers now need re-reading.** They were correct — the default arm never set the variable — but every conclusion drawn from a *comparison* between the VT harness and Xephyr should be re-checked, since one of the two was misconfigured.
+
+### Code review instructions
+
+```bash
+go test ./pkg/xshm/ -run TestEnvDisabled -v -count=1
+go run ./ttmp/2026/07/21/GGWM-012-GUIDES--*/scripts/shmprobe :2   # expect SharedPixmaps true
+```

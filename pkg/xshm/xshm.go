@@ -15,6 +15,7 @@ import (
 	"fmt"
 	"image"
 	"os"
+	"strings"
 	"sync"
 
 	"github.com/jezek/xgb"
@@ -39,7 +40,7 @@ var (
 // Codex review RC-15), and GO_GO_WM_NO_SHM is unset. Cached per
 // connection; returns false so callers fall back to PutImage.
 func Available(X *xgbutil.XUtil) bool {
-	if os.Getenv("GO_GO_WM_NO_SHM") != "" {
+	if envDisabled("GO_GO_WM_NO_SHM") {
 		return false
 	}
 	availMu.Lock()
@@ -160,4 +161,20 @@ func (s *Surface) Destroy() {
 	shm.Detach(s.X.Conn(), s.Seg)
 	_ = unix.SysvShmDetach(s.Data[:cap(s.Data)])
 	s.Data = nil
+}
+
+// envDisabled reports whether a boolean-style environment switch is on.
+//
+// This used to be a bare non-empty test, which made GO_GO_WM_NO_SHM=0 disable
+// shared memory — the opposite of what it reads as. A measurement harness set
+// exactly that to express "shm enabled", and the resulting shared_pixmaps
+// value was reported as a property of the machine rather than of the harness
+// (GGWM-012 Step 16). Off-values are now honoured.
+func envDisabled(name string) bool {
+	switch strings.ToLower(strings.TrimSpace(os.Getenv(name))) {
+	case "", "0", "false", "no", "off":
+		return false
+	default:
+		return true
+	}
 }
