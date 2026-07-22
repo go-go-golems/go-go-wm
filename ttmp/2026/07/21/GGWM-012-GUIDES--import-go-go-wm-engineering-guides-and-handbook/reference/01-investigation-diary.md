@@ -241,3 +241,104 @@ Stated latency budget to design against (60 Hz display interval = 16.67 ms, not 
 | X request construction and flush | < 1 ms |
 | Decoration paint/upload | < 2 ms total |
 | Total WM update | < 4-6 ms p95 |
+
+## Step 3: Synthesis — and the finding all three guides missed
+
+The four readers came back and the picture changed. The three guides converge on a diagnosis I could verify — divider resize does far too much work per pointer sample — but the codebase map contradicted them on several specifics, and in one case in a way that inverts the priority order. The guides all assert that the admitted motion path contains no synchronous X round trips. It contains four. That single correction is the most valuable thing this ticket produced, and it is the reason the deliverable is a new document rather than a summary of the existing three.
+
+Writing then became an exercise in *subtraction* as much as synthesis. A large fraction of what the guides recommend has already landed under GGWM-005 and GGWM-006 — the motion throttle, the applied-geometry diff, the resize-only repaint mode, the server-side Expose repair, row-major parallel colour conversion, cached bar surfaces, `ApplyBatch` coalescing. Handing an intern a document that tells them to build things that already exist would waste weeks and destroy their trust in the document. So Part IV of the guide is an explicit already-done table, and every open item carries a `file.go:LINE` anchor.
+
+### Prompt Context
+
+**User prompt (verbatim):** (see Step 2)
+
+**Assistant interpretation:** Synthesize the four extractions into one long-form, technically precise intern guide, storing it in the ticket and publishing it to reMarkable.
+
+**Inferred user intent:** (see Step 2)
+
+### What I did
+
+- Read the four agent reports and reconciled them against each other, resolving three direct conflicts (see below).
+- Wrote `design-doc/01-go-go-wm-performance-engineering-an-intern-s-guide-to-the-resize-and-render-path.md` — 1,807 lines, structured as: how to read it → executive summary → scope → Part I X11 primer → Part II evidence-anchored codebase map → Part III end-to-end drag trace and cost model → Part IV gap analysis → Part V target architecture with five decision records → Part VI seven-phase plan with exit criteria → Part VII test strategy → Part VIII risks and open questions → Part IX onboarding labs → Appendices A–E.
+- Related twelve source files to the doc with `docmgr doc relate`, each with a note explaining *why* that file matters.
+- Wrote three changelog entries, including one recording the central finding.
+- Checked off tasks 5d9r, ukt0, 6vbj, 6nch, zayb.
+
+### Why
+
+Three overlapping 100+ KB review documents are not a usable onboarding artifact. They disagree with each other in places, they were written against a commit rather than against the working tree, and none of them carries line anchors. The value this ticket adds is not more analysis — it is *verification plus subtraction*: check every claim against the code, delete what is already done, anchor what remains, and order the rest by impact-to-risk.
+
+The document is deliberately opinionated about sequencing. Phase 0 is measurement, and Phase 0 is explicitly gated on confirming or refuting the round-trip hypothesis, because if that hypothesis is wrong the whole priority order should change. Writing a plan whose first phase can invalidate its second is more honest than writing one that assumes its own diagnosis.
+
+### What worked
+
+- **The fan-out brief design.** Naming target sections by number and demanding verbatim preservation of numbers, tables, ASCII diagrams, and API signatures produced reusable source material rather than summaries. Every budget table, byte count, and struct sketch in the final document came through intact.
+- **Briefing the codebase agent to say what is *already correct*.** This was the single most valuable instruction given to any agent. Without it the deliverable would have recommended re-implementing the motion throttle, the applied-geometry cache, and the Expose fast path.
+- **The evidence anchors.** Every substantive claim in Parts II–IV carries a `file.go:LINE` reference, so a reviewer can falsify any of them in one keystroke.
+
+### What didn't work
+
+- The `remarquee cloud account --non-interactive` pairing loop from Step 2 was resolved when the user supplied an 8-character one-time code. Piping it in worked:
+  ```bash
+  printf '<code>\n' | remarquee cloud account --reauth
+  ```
+  The command exceeded the 120 s tool timeout and was backgrounded with an empty output file, so it looked like a failure — but it had in fact succeeded: `~/.config/rmapi/rmapi.conf` (1.5 KB) appeared at 23:09, and the background task later reported exit code 0. **Lesson: check for the side effect, not just the exit status, when a pairing command backgrounds.**
+- One agent, resumed to append its methodology log, returned only the log on the second notification rather than the log appended to its original report. Harmless here because the first report was already captured, but worth knowing: resuming a completed agent gives you the *new* turn's output, not a re-emission of the old one.
+
+### What I learned
+
+Three conflicts between the guides and the code, resolved in favor of the code:
+
+1. **Round trips.** The guides say the drag loop has none. `xshm.New` calls `shm.AttachChecked(...).Check()` (`pkg/xshm/xshm.go:92`) and `shm.CreatePixmapChecked(...).Check()` (`xshm.go:106-107`). Both are *checked* requests, therefore round trips. `paintFrame` destroys and recreates the surface on every dimension change (`manage.go:420-432`), and a divider drag changes dimensions every tick. Two panes change per tick, so roughly four round trips per tick, plus a `shmget`/`shmat`/`IPC_RMID` syscall triple each. The reason three independent reviews missed this is that the obvious audit is `grep '\.Reply()'`, and this is `.Check()`.
+2. **The throttle.** The guides frame the 16 ms gate as leaving the final pointer position stale. It does not: `handleRelease` clears the gate and replays the release coordinates (`input.go:392-395`). The real defect is mid-drag lag and the absence of X-level motion compression — go-go-wm uses raw `MotionNotifyFun` rather than `mousebind.Drag`, which is xgbutil's compressing facility.
+3. **The applied-state cache.** The guides recommend introducing one. `frame.rect` already is one, and it is correctly diffed before any `MoveResize` or client `ConfigureWindow` (`manage.go:332`). What is *not* diffed is visibility: `Map()`/`Unmap()` are issued unconditionally for every frame in the process on every relayout (`manage.go:359-366`).
+
+A fourth, non-conflicting insight: the concurrency architecture is genuinely excellent and deserves to be defended rather than refactored. There is not a single mutex in `pkg/wmx11` (verified by grep) because one goroutine owns all X-facing state, and the mutual exclusion between X callbacks and posted ops falls out of xgbutil's unbuffered `pingBefore`/`pingAfter` handshake. JavaScript provably never touches the WM loop. Any performance proposal that adds a render thread would destroy this, which is why the guide includes a decision record recording "keep the single-owner loop" as *accepted existing practice*, specifically to stop it being re-litigated.
+
+### What was tricky to build
+
+The hardest judgment was **priority inversion**. Read naively, the guides put "thin decoration layers" first — it has the biggest arithmetic behind it (a 48× reduction in bytes touched) and all three documents lead with it. But it is also the highest-risk change in the codebase, because it rewrites frame lifecycle, and it is a *throughput* fix. The round trips are a *latency* fix, and latency is what the user perceives during a drag. A 7.9 MiB memcpy at memory bandwidth is on the order of a millisecond; four serial server round trips are a scheduling dependency that no amount of faster pixel code removes.
+
+So the guide reorders: measure, then cheap structural wins, then kill the resource churn, then preview/commit, and only then the chrome split. Getting that ordering right required holding the pixel arithmetic and the round-trip cost in the same frame and deciding which one the user actually feels. I have flagged it as a hypothesis rather than a fact, because it is unmeasured — Phase 0 exists to settle it.
+
+A second sharp edge: describing the event loop correctly required reading the *vendored* `xgbutil/xevent/eventloop.go` alongside `wm.go`, because the mutual-exclusion guarantee is not visible in go-go-wm's own code. It emerges from `MainPing` sending on an unbuffered channel before dequeuing each event. A reader who only reads `wm.go:236-281` sees a `select` and may reasonably conclude that X callbacks race with posted ops. They do not. That subtlety is now written down in §2.2 with the reasoning, because it is load-bearing for the "no mutexes" claim.
+
+### What warrants a second pair of eyes
+
+- **The round-trip claim itself.** It is read out of source, not measured. Someone should instrument `xshm.New` and count `Attach`/`CreatePixmap` calls per second during a real drag before Phase 2 is scheduled. Lab 3 in the guide exists precisely to reproduce it.
+- **The capacity-buffer design in §5.5.** Shared pixmaps have fixed dimensions, so a larger pixmap cannot simply back a smaller window without a clipping policy. The guide flags this as needing an experiment; if the experiment fails, Phase 2 needs a different shape.
+- **The Map/Unmap diffing change in Phase 1.** Workspace switching intentionally unmaps frames, and those events must not be confused with client withdrawal. This is the kind of change that looks trivial and breaks window visibility in a corner case.
+- **Whether `mousebind.Drag` is a drop-in win.** It already compresses motion in xgbutil (`drag.go:97,116`) and might deliver most of the mailbox benefit for a fraction of the work — or conflict with the existing grab handling. Listed as open question 3.
+
+### What should be done in the future
+
+- File the Phase 0 work as its own ticket. Note the **GGWM-012 numbering collision**: the handbook's proposed backlog assigns GGWM-012 to "Divider gesture preview and latest-motion scheduler", but this ticket already holds that number. Renumber before filing GGWM-013…029.
+- Decide which of the three source guides is canonical, or merge them (carried forward from Step 1).
+- Consider adding a `--pprof` flag; profiling is currently env-gated only (`GO_GO_WM_PPROF`), which is a discoverability problem.
+
+### Code review instructions
+
+- **Start here:** `design-doc/01-…-resize-and-render-path.md`, Part IV §4.2 ("Where this guide corrects the source material"). That table is the ticket's actual contribution; if it is wrong, the rest needs re-reading.
+- **Then spot-check the anchors.** Pick any three claims from Part II and verify them:
+  ```bash
+  sed -n '88,96p'   pkg/xshm/xshm.go        # the two .Check() round trips
+  sed -n '316,369p' pkg/wmx11/manage.go     # relayoutPaint: the f.rect diff, the unconditional Map
+  sed -n '330,353p' pkg/wmx11/input.go      # dividerMotion: gate, double Layout, durable op
+  grep -rn 'sync\.\|Mutex' pkg/wmx11/*.go | grep -v _test   # expect: no output
+  ```
+- **Validate the ticket:**
+  ```bash
+  docmgr doctor --ticket GGWM-012-GUIDES --stale-after 30
+  ```
+
+### Technical details
+
+Reconciled priority order, with the reasoning made explicit:
+
+| Tier | Cost | Nature | Anchor |
+|---|---|---|---|
+| 1 | ~4 checked X round trips + syscalls per tick | **Latency** — serial server dependency | `xshm.go:92,106`; `manage.go:420-432` |
+| 2 | ~32 MiB memory traffic per tick (2 panes, fill + convert) | **Throughput** — memory bandwidth | `manage.go:381-413`; `ximage.go:56-108` |
+| 3 | Divider image + pixmap create/free per divider per tick | **X resource churn** | `divider.go:60,132,148`; `bars.go:110-115` |
+| 4 | 2× full `Layout`, O(n²) `Find`, unconditional Map/Unmap | **Algorithmic waste** | `input.go:342`; `manage.go:321,325,359-366` |
+| 5 | Client-side reflow after each configure | **Outside WM control** | — mitigated by outline mode / `_NET_WM_SYNC_REQUEST` |
