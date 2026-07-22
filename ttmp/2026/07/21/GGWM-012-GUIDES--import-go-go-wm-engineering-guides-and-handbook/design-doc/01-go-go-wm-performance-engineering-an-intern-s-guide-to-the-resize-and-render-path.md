@@ -936,6 +936,98 @@ unaccounted         ~2956 us    BGRA conversion + upload + X
 
 **Over 95% of a frame paint is conversion, upload, and X** — not fill, not text. Instrument `ConvertRows` and the upload separately before optimizing either.
 
+## 4.2c MEASURED: the Tier-1 hypothesis is refuted, and the plan reorders
+
+Everything above §4.2c was derived from reading code. This section reports what
+happened when it was **measured**, on a real window manager under a scripted
+drag (`scripts/ggwm-xephyr-validate.sh`, nested Xephyr, 1280x800, 644 motion
+events per run). Where this section disagrees with earlier sections, believe
+this one.
+
+### The mechanism is confirmed; the conclusion is not
+
+`shm_creates = shm_destroys = frames_resized = 512` for one drag. The surface
+really is torn down and rebuilt once per resized pane per tick, and `xshm.New`
+really does issue two checked requests — **1,024 synchronous round trips for a
+single drag.** §3.2 Tier 1 describes this correctly.
+
+But removing them does not help:
+
+| Condition | `shm_creates` | `ximg_creates` | ms/paint | p50 | p95 |
+|---|---:|---:|---:|---:|---:|
+| default (MIT-SHM) | 512 | 0 | **4.98** | 4.82 | 8.29 |
+| `GO_GO_WM_NO_SHM=1` | 0 | 510 | **5.85** | 5.47 | 9.44 |
+
+Disabling shm eliminates every round trip and is **15% slower**. MIT-SHM pays
+for its round trips several times over. **The round trips are real and are not
+the bottleneck.**
+
+### Reconciliation is 1.8% of a relayout; paint is the rest
+
+With `GO_GO_WM_NO_RESIZE_PAINT=1`, which commits geometry but skips decoration
+paint during a drag:
+
+```
+relayout_ms_total   2595 ms  ->  13.8 ms      (188x)
+ms per relayout     7.416    ->  0.040
+```
+
+Layout, the tree index, map diffing, geometry requests and divider
+synchronisation together are **0.13 ms of a 7.4 ms relayout**. Every algorithmic
+item in §4.3 and Phase 1 targets that 1.8%. They remove real waste and should
+be kept, but they cannot be felt.
+
+### Where a paint actually goes
+
+`paintFrame` averages **4.98 ms** for ~470 kilopixels. `draw.Fill` runs at
+32 GB/s, i.e. ~0.06 ms for that many pixels. With the glyph cache from §4.2b:
+
+```
+draw.Fill            ~0.06 ms    ~1%
+TitleStrip.Render    ~0.04 ms    ~1%
+                     ---------
+everything else      ~4.9  ms   ~98%    BGRA conversion + upload + X server
+```
+
+### Consequence: Phase 4 moves ahead of Phase 2
+
+Part VI orders Phase 2 (capacity buffers, killing per-tick surface recreation)
+before Phase 4 (chrome/content split), because Phase 2 attacks round trips.
+**That ordering is wrong.** The dominant cost is pixel volume through conversion
+and upload, and the chrome/content split is the change that reduces it — a
+22-pixel title strip instead of a 664-pixel pane is roughly a 30x reduction in
+pixels touched per decoration repaint.
+
+**Do Phase 4 first.** Phase 2 remains worth doing, for allocation pressure and
+for the pathological cases, but it is no longer the headline.
+
+### One design lesson from the suppression experiment
+
+Under `NO_RESIZE_PAINT`, `resize_paint_suppressed` reached 506 while
+`frames_painted` stayed at 506 and `paint_ms_total` did not move. The paints
+relocated to the `Expose` handler: skipping the paint leaves the background
+pixmap stale at the new size, the server exposes the window, and the frame
+repaints anyway. **"Do not paint during the drag" is not implementable on its
+own** — it requires retained content or a preview representation that remains
+valid while geometry changes. The flag is a valid measurement tool and a false
+design direction.
+
+### Environment caveats, which matter
+
+- Xephyr reports `shared_pixmaps: True`; **the target machine's Xorg reports
+  `False`** (`modesetting`). The live deployment therefore runs the *slower*
+  PutImage path, and has no shm path to fall back from. The `noshm` row above is
+  the one that represents production.
+- Xephyr is nested, so absolute timings are inflated. Corroboration: the live
+  Xorg log recorded `paintFrame` at 3.1-3.5 ms versus Xephyr's 4.8 ms p50 — same
+  order, so ratios are trustworthy and the absolute budget is not.
+
+### What to instrument next
+
+`ConvertRows` and the upload are ~98% of a paint and are still one
+undifferentiated block. Splitting them is the highest-value instrumentation
+remaining, and it decides how Phase 4 should be built.
+
 ## 4.3 Open, evidence-backed work
 
 Ordered by impact-to-risk ratio. This ordering *is* the roadmap in Part VI.

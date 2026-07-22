@@ -831,3 +831,146 @@ observed paintFrame  ~3100 us  (live WM debug log)
                      --------
 unaccounted          ~2956 us  ->  BGRA conversion + upload + X
 ```
+
+## Step 9: Measurement refutes the central hypothesis
+
+The VT harness failed a second time, but the fixed logging finally explained why, and that pointed at a much better approach: run the whole thing in a nested Xephyr server on the user's existing display. That needs no console, cannot take down a real session, and can be driven entirely from a tool call. Within minutes it produced the numbers this ticket has been trying to get since the beginning.
+
+The numbers say the design document's central hypothesis is **wrong**. Not imprecise — wrong in a way that reverses the recommended order of work.
+
+### Prompt Context
+
+**User prompt (verbatim):** "I ran the test again."
+
+**Assistant interpretation:** Read the harness output from the user's second VT attempt and diagnose it.
+
+**Inferred user intent:** Get the experiment unblocked and produce the measurements the plan depends on.
+
+**Follow-up user prompt (verbatim):** "Goal set: continue as far as you can before you need my input / contribution again"
+
+**Assistant interpretation:** Work autonomously to the point where a human contribution is genuinely required.
+
+**Inferred user intent:** Stop round-tripping through the console; get results.
+
+### What I did
+
+- Read `harness.log` — the logging fix from Step 6 paid off immediately.
+- Diagnosed the VT failure, then abandoned that approach in favour of Xephyr.
+- Wrote `scripts/ggwm-xephyr-validate.sh`: nested server, real WM, scripted `xdotool` drag, perf counters dumped over IPC.
+- Ran three conditions: default, `GO_GO_WM_NO_RESIZE_PAINT=1`, `GO_GO_WM_NO_SHM=1`.
+- Extracted `paintFrame` duration distributions from the JSON logs.
+
+### What worked
+
+**Xephyr is the right harness and the VT was never necessary.** `:0` is reachable (3200×1800), so a nested `:7` at 1280×800 runs the real window manager with real X semantics, disposably, from a tool call. The whole VT/tty/startx path — three failed attempts across two sessions — was solving a problem that did not need solving.
+
+The Phase 1 changes are confirmed working at runtime:
+
+| Counter | Value | Meaning |
+|---|---:|---|
+| `map_requests_skipped` | 700 | The map-state mirror suppressed 700 redundant Map/Unmap requests |
+| `divider_paint_skipped` | 350 | The paint guard skipped 350 of 531 divider paints (66%) |
+| `motion_coalesced` | 294 of 644 | 46% of motion events dropped by admission control |
+| `layout_calls` / `relayouts` | 351 / 350 | The split-rect cache holds: one layout per tick, not two |
+
+No visual defects, no missing windows, no stale pixels. The three behavioural changes I flagged as unverifiable by unit test are now verified.
+
+### What didn't work — and the finding that matters
+
+**The Tier-1 hypothesis is refuted.**
+
+The design document argues that `xshm.New`'s two *checked* X requests — synchronous round trips — paid on every tick because `paintFrame` recreates the surface on every dimension change, are the dominant cost of a drag. The counters confirm the *mechanism* exactly: `shm_creates = shm_destroys = frames_resized = 512`. One create/destroy pair per resized pane per tick. **1,024 round trips for a single drag.**
+
+But the conclusion drawn from that mechanism does not survive contact with a measurement:
+
+| Condition | `shm_creates` | `ximg_creates` | ms/paint | p50 | p95 |
+|---|---:|---:|---:|---:|---:|
+| default (shm) | 512 | 0 | **4.98** | 4.82 | 8.29 |
+| `GO_GO_WM_NO_SHM=1` | 0 | 510 | **5.85** | 5.47 | 9.44 |
+
+Disabling MIT-SHM **removes all 1,024 round trips and makes things 15% slower.** If the round trips dominated, the opposite would happen. They do not dominate. MIT-SHM earns its cost even while paying two synchronous round trips per frame.
+
+**The second measurement is more decisive still.** With `GO_GO_WM_NO_RESIZE_PAINT=1`:
+
+```
+relayout_ms_total:  2595 ms  ->  13.8 ms     (188x)
+ms per relayout:    7.416    ->  0.040
+```
+
+Reconciliation minus paint is **0.13 ms of a 7.4 ms relayout — 1.8%**. Layout, the tree index, the map diffing, geometry request construction, divider synchronisation: all of it together is under two percent of the cost of a relayout.
+
+So the honest assessment of my own Phase 1 work is that it optimized the 1.8%. It was correct, it removed real waste, and it is worth keeping — but it was never going to be felt.
+
+### What I learned
+
+**Where the time actually goes.** A `paintFrame` averages 4.98 ms for ~470 kilopixels. `draw.Fill` benchmarks at 32 GB/s, which would cover 470 kpx in about 0.06 ms. Fill is therefore **~1%** of a paint. Combined with the glyph cache result from Step 8, the accounting is:
+
+```
+draw.Fill              ~0.06 ms    ~1%
+TitleStrip.Render      ~0.04 ms    ~1%   (after the glyph cache)
+                       ---------
+everything else        ~4.9  ms    ~98%   BGRA conversion + upload + X server
+```
+
+**This reverses the plan's ordering.** The design doc puts Phase 2 (capacity buffers, eliminating per-tick surface recreation) before Phase 4 (chrome/content split), on the theory that round trips are the top cost. The measurement says the top cost is *pixels* — conversion and upload volume. The chrome/content split makes decoration paint scale with a 22-pixel title strip instead of a 664-pixel pane, roughly a 30× reduction in pixels touched. **Phase 4 should now come first.**
+
+**Suppressing paint defers it rather than removing it.** Under `NO_RESIZE_PAINT`, `resize_paint_suppressed` reached 506 — yet `frames_painted` was still 506 and `paint_ms_total` was unchanged at 2601 ms. The paints simply moved to the `Expose` handler: skipping the paint leaves the window's background pixmap stale at the new size, so the server generates Expose and the frame repaints anyway. The flag still did its job as a *measurement* — `relayout_ms_total` is the number that matters — but as a design direction, "just don't paint during the drag" does not work without also solving what the window shows in the meantime. That is precisely the argument for retained content plus a preview, not for a paint skip.
+
+### What was tricky to build
+
+The environment differs from the deployment target in a way that must be stated with the results, or they will mislead:
+
+- **Xephyr reports `shared_pixmaps: True`; the user's real Xorg reports `False`.** So this harness exercises the shm path, while the actual machine runs the PutImage fallback. The `noshm` condition is therefore the one that represents the live deployment, and it is the *slower* of the two.
+- **Xephyr is a nested server**, so absolute timings are inflated by the parent server's own work. Corroboration: the live Xorg log recorded `paintFrame` at 3.1–3.5 ms against Xephyr's 4.8 ms p50 — the same order of magnitude, so the inflation is modest and the ratios are trustworthy.
+
+Getting `ggwm-xephyr-validate.sh` to fail loudly rather than hang was the other piece of care: it polls for the WM process as well as the socket, so a WM that dies during startup reports its own last log lines instead of spinning for eight seconds and then claiming the socket never appeared.
+
+### What warrants a second pair of eyes
+
+- **The shm-versus-PutImage comparison should be repeated on bare Xorg**, where `shared_pixmaps` is false and the comparison cannot actually be made. That asymmetry means the live machine has no shm path to fall back *from*, so the 15% is not available to it at all.
+- **The 4.98 ms/paint figure is Xephyr's**, not bare metal's. Conclusions about *proportions* are safe; the absolute budget is not.
+- Whether `divider_painted = 181` is irreducible. It tracks legitimate mode changes as the pointer crosses snap zones (`dividerDragFeedback` toggles between dragging and snapped), so most of those paints are real appearance changes — but a cheaper representation for that state flash may exist.
+
+### What should be done in the future
+
+1. **Reorder the plan: Phase 4 before Phase 2.** Pixels dominate; round trips do not.
+2. **Instrument `ConvertRows` and the upload separately.** They are ~98% of a paint and are still a single undifferentiated block. This is now the highest-value instrumentation left.
+3. Re-run this harness after every subsequent change — it takes about ninety seconds and produces directly comparable counters.
+4. Retire the VT harness (`ggwm-shm-ab.sh`) in favour of the Xephyr one, or fix it as a bare-metal cross-check for the cases where nesting distorts results.
+
+### Code review instructions
+
+- **Reproduce:**
+  ```bash
+  S=ttmp/2026/07/21/GGWM-012-GUIDES--*/scripts/ggwm-xephyr-validate.sh
+  $S phase1                              # default
+  GO_GO_WM_NO_RESIZE_PAINT=1 $S nopaint  # isolates paint from reconciliation
+  GO_GO_WM_NO_SHM=1          $S noshm    # the live machine's actual path
+  ```
+  Results land in `~/ggwm-xephyr/<label>.{perf.json,jsonl,harness.log}`.
+- **The two numbers that carry the argument** are `relayout_ms_total` under `nopaint` (13.8 ms vs 2595 ms) and `ms/paint` for shm vs no-shm (4.98 vs 5.85).
+
+### Technical details
+
+Full counter sets, one scripted drag of three sweeps each (644 motion events):
+
+```
+                        default    nopaint     noshm
+relayouts                   350        347       345
+layout_calls                351        348       346   (~1 per tick: split-rect cache)
+frames_resized              512        506       510
+frames_painted              512        506       510
+map_requests_skipped        700        694       690
+divider_painted             181        178       176
+divider_paint_skipped       350        347       345
+shm_creates / destroys      512        506         0
+ximg_creates / destroys       0          0       510
+paint_megapixels          240.7      237.9     239.8
+motion_events               644        644       644
+motion_admitted             350        347       345
+motion_coalesced            294        297       299
+resize_paint_suppressed       0        506         0
+paint_ms_total             2550       2601      2984
+relayout_ms_total          2595       13.8      3031
+shared_pixmaps             True       True      False
+```

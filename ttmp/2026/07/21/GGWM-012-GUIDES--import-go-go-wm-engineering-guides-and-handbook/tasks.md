@@ -24,3 +24,6 @@
 - [x] P1: synthetic ConfigureNotify instead of full relayout for tiled clients <!-- t:9icy -->
 - [x] P1: throttle gripMotion and cache the drop-preview surface <!-- t:lxoy -->
 - [x] P1: verify with go test + benchmarks; no visible behaviour change <!-- t:e4yb -->
+- [ ] P2: instrument ConvertRows and upload separately (98% of a paint, undifferentiated) <!-- t:z0iv -->
+- [ ] P4 (now first): chrome/content split — title child window, decoration scales with the strip <!-- t:a5q3 -->
+- [ ] Retire the VT harness in favour of the Xephyr one <!-- t:cov3 -->

@@ -57,3 +57,8 @@ Implemented Phase 0 (perf counters, perf IPC query, GO_GO_WM_NO_RESIZE_PAINT, fi
 
 Corrected the design doc from implementation evidence: shared_pixmaps is false on this host so the shm path never runs (GGWM-006 inert here); the O(n^2) removal is scaling insurance rather than a speedup below ~24 leaves; and >95% of a frame paint is BGRA conversion plus upload, not fill or text.
 
+
+## 2026-07-22
+
+Measured three conditions on a real WM under Xephyr: the Tier-1 round-trip hypothesis is REFUTED (disabling shm removes 1024 round trips and is 15% slower), reconciliation is 1.8% of a relayout, and ~98% of a paint is BGRA conversion plus upload. Plan reordered: Phase 4 (chrome/content split) now precedes Phase 2.
+
