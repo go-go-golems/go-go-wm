@@ -2,6 +2,8 @@ package wmx11
 
 import (
 	"image"
+	"os"
+	"strconv"
 	"strings"
 	"time"
 
@@ -770,7 +772,33 @@ func (w *WM) sendSyntheticConfigureNotify(f *frame) {
 //
 // 64 pixels keeps the surplus under ~10% for ordinary panes while cutting
 // recreations during a full-width sweep by more than an order of magnitude.
-const sizeBucket = 64
+// sizeBucket is overridable so the granularity can be swept with the
+// measurement harness rather than argued about.
+// 128 comes from a sweep with the measurement harness (GGWM-012 Step 14):
+//
+//	bucket   shm creates   ms/paint   relayout ms
+//	    16          375       4.38          2362
+//	    32          237       2.94          1496
+//	    64          124       1.85           969
+//	   128           64       1.08           578
+//	   256           28       0.74           414
+//
+// Larger is monotonically faster because the only per-tick cost bucketing
+// removes is resource recreation, and — since compose, conversion and upload
+// are all restricted to the chrome — a larger backing store costs no extra
+// time, only surplus memory. 128 keeps that surplus under ~16% for typical
+// panes while capturing most of the win; 256 is faster still but wastes up to
+// 255 pixels per axis on small panes.
+var sizeBucket = envInt("GO_GO_WM_SIZE_BUCKET", 128)
+
+func envInt(name string, def int) int {
+	if v := os.Getenv(name); v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n > 0 {
+			return n
+		}
+	}
+	return def
+}
 
 // bucketSizeFor picks the backing-store size for a pane.
 //

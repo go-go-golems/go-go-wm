@@ -1412,3 +1412,82 @@ Also replaced the assumed workspace identifiers with ones read from the running 
 - **Workspace switch away and back** restores both clients with correct chrome and no stale pixels (`scen2-09-workspace-1-back.png`). This exercises the `frame.mapped` mirror added in Step 7 across exactly the transition flagged there as needing review — workspace switches intentionally unmap frames, and a missed transition would leave windows invisible. It does not.
 
 That closes the review item from Step 7 and the two open families from Step 13.
+
+## Step 14: Bucket granularity sweep — and why bigger is now free
+
+The 64-pixel bucket in Step 11 was a guess chosen to keep surplus memory under about 10%. With the counters in place and the harness taking ninety seconds per run, guessing is unnecessary. This step sweeps it, and the result is more one-sided than expected because Step 12 changed what a bucket costs.
+
+### Prompt Context
+
+**User prompt (verbatim):** (see Step 10 — "do as much work as possible…")
+
+### The sweep
+
+`sizeBucket` made overridable via `GO_GO_WM_SIZE_BUCKET`, then one harness run per value on the MIT-SHM path:
+
+| bucket | shm creates | ms/paint | relayout ms |
+|---:|---:|---:|---:|
+| 16 | 375 | 4.38 | 2362 |
+| 32 | 237 | 2.94 | 1496 |
+| 64 | 124 | 1.85 | 969 |
+| **128** | **64** | **1.08** | **578** |
+| 256 | 28 | 0.74 | 414 |
+
+Monotonic, and steeply so: 16 to 256 is a 5.9x difference in per-paint cost.
+
+### Why it is monotonic
+
+When bucketing was introduced in Step 11 it was a genuine trade — a larger backing store meant a larger `PutImage`, which is why it had to be disabled on the fallback path. Step 12 removed that coupling. Composition fills only the chrome rectangles, conversion covers only the chrome rows, and the upload transfers only the chrome. **None of the three scales with the backing store any more.** The only remaining per-tick cost that bucketing removes is resource recreation, and the only cost it adds is surplus memory.
+
+So the sweep has no interior optimum in time. It is bounded by memory alone, and the choice becomes a straightforward statement about how much surplus is acceptable.
+
+Surplus for a 636×664 pane:
+
+| bucket | backing store | surplus |
+|---:|---|---:|
+| 64 | 640×704 | +6.5% |
+| 128 | 640×768 | +16% |
+| 256 | 768×768 | +40% |
+
+At larger pane sizes the relative surplus shrinks — a 956×1024 pane rounds to 1024×1024 at both 128 and 256, about +7%.
+
+**128 is the new default.** It captures most of the win while keeping surplus under ~16% for typical panes; 256 is faster still but wastes up to 255 pixels per axis, which is poor behaviour for small panes and for the many-frames case. The sweep table is recorded at the declaration so the choice can be revisited with data rather than reargued.
+
+### Cumulative result
+
+Against the Step 9 baseline, one scripted drag of three sweeps:
+
+| | baseline | now | |
+|---|---:|---:|---:|
+| **MIT-SHM** ms/paint | 5.31 | **1.11** | **4.8x** |
+| **MIT-SHM** relayout total | 2852 ms | **595 ms** | **4.8x** |
+| **fallback** ms/paint | 6.63 | **1.89** | **3.5x** |
+| **fallback** relayout total | 3518 ms | **963 ms** | **3.7x** |
+| shm surface creations per drag | 528 | **64** | 8.3x |
+
+Rendering verified by screenshot on both paths after the change.
+
+### What I learned
+
+**An optimization can change another optimization's cost structure, and the second one then needs re-deciding.** Bucketing was tuned conservatively, and correctly so, when its downside was transfer volume. Once chrome-only upload removed that downside, the conservative default was leaving a factor of 1.7 on the table for no reason. Nothing about the bucketing code changed — only the surrounding costs did.
+
+This is an argument for keeping tuning constants cheap to sweep rather than reasoning about them once and freezing the conclusion. `GO_GO_WM_SIZE_BUCKET` costs eight lines and turns a debate into a table.
+
+### What warrants a second pair of eyes
+
+- **Memory ceiling under many frames.** Buffers round up and are freed only by `dropBuffers` on workspace hide or unmanage. Nine workspaces of tiles each holding a bucket-rounded buffer is the case to check; the counters do not currently report resident buffer bytes, and they should.
+- **Whether 256 is actually the better default** for single-monitor use where frame counts are low. The data says it is 1.46x faster than 128; the argument against is worst-case waste, not measured cost.
+
+### What should be done in the future
+
+- Add a `surface_resource_bytes` counter so the memory side of this trade is measured rather than estimated.
+- Re-run the sweep after any change to what scales with the backing store.
+
+### Code review instructions
+
+- The constant and its sweep table are at `sizeBucket` in `pkg/wmx11/manage.go`.
+- **Reproduce the sweep:**
+  ```bash
+  S=ttmp/2026/07/21/GGWM-012-GUIDES--*/scripts/ggwm-xephyr-validate.sh
+  for b in 16 32 64 128 256; do GO_GO_WM_SIZE_BUCKET=$b $S "bucket$b"; done
+  ```

@@ -67,3 +67,8 @@ Measured three conditions on a real WM under Xephyr: the Tier-1 round-trip hypot
 
 Upload only the rectangles a reparented client does not cover: ~20k visible pixels instead of ~422k per frame. Combined with capacity buffers this is 2.92x faster per paint on both upload paths and ~3x less WM-loop work per drag. Delivers Phase 4's main saving without creating any new X windows.
 
+
+## 2026-07-22
+
+Swept backing-store granularity and raised the default to 128px. Cumulative result against baseline: MIT-SHM 5.31 -> 1.11 ms/paint (4.8x), PutImage fallback 6.63 -> 1.89 ms/paint (3.5x), WM-loop work per drag down 4.8x and 3.7x respectively.
+
