@@ -435,6 +435,16 @@ func (w *WM) paintFrame(f *frame) {
 	// pixmap from the window origin, so an oversized pixmap displays its
 	// top-left region and the surplus is clipped away, never seen.
 	capW, capH := w.bucketSizeFor(f.rect.W, f.rect.H)
+	// Grow-only. Recreating on any change meant a drag that sweeps left then
+	// right rebuilt the backing store on every bucket crossing in both
+	// directions. On glamor a shared-pixmap creation measured 15.4 ms —
+	// 45% of a paint — so keeping a store that is already large enough is
+	// worth far more than the surplus memory it holds (GGWM-012 Step 17).
+	if f.img != nil {
+		if b := f.img.Bounds(); b.Dx() >= capW && b.Dy() >= capH {
+			capW, capH = b.Dx(), b.Dy()
+		}
+	}
 	if f.img == nil || f.img.Bounds().Dx() != capW || f.img.Bounds().Dy() != capH {
 		f.img = image.NewRGBA(image.Rect(0, 0, capW, capH))
 	}
@@ -489,7 +499,7 @@ func (w *WM) paintFrame(f *frame) {
 	// xgraphics image (PutImage chunks over the socket).
 	if xshm.Available(w.X) {
 		surfStart := time.Now()
-		if f.surf != nil && (f.surf.W != capW || f.surf.H != capH) {
+		if f.surf != nil && (f.surf.W < capW || f.surf.H < capH) {
 			// Every dimension change tears the shared pixmap down and
 			// builds a new one. xshm.New issues two CHECKED requests, i.e.
 			// two synchronous X round trips, plus a shmget/shmat/IPC_RMID
@@ -538,7 +548,7 @@ func (w *WM) paintFrame(f *frame) {
 	// every time. Keeping the ximg alive also makes Expose a single
 	// XPaint (see connectFrameEvents).
 	ximgStart := time.Now()
-	if f.ximg == nil || f.ximg.Bounds() != img.Bounds() {
+	if f.ximg == nil || f.ximg.Bounds().Dx() < img.Bounds().Dx() || f.ximg.Bounds().Dy() < img.Bounds().Dy() {
 		// The PutImage fallback has the same shape of churn as the shm
 		// path: a client image plus a server pixmap recreated on every
 		// size change. On hosts where the server reports no shared-pixmap

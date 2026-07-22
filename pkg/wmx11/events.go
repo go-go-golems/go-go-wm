@@ -30,9 +30,9 @@ func (w *WM) connectFrameEvents(fw *xwindow.Window) {
 			// avoid.
 			capW, capH := w.bucketSizeFor(f.rect.W, f.rect.H)
 			switch {
-			case f.surf != nil && f.surf.W == capW && f.surf.H == capH:
+			case f.surf != nil && f.surf.W >= capW && f.surf.H >= capH:
 				// server-side repair; no client work
-			case f.ximg != nil && f.ximg.Bounds().Dx() == capW && f.ximg.Bounds().Dy() == capH:
+			case f.ximg != nil && f.ximg.Bounds().Dx() >= capW && f.ximg.Bounds().Dy() >= capH:
 				f.ximg.XPaint(f.win.Id)
 			default:
 				w.paintFrame(f)

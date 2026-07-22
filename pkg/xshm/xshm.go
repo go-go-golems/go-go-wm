@@ -123,6 +123,12 @@ func (s *Surface) WriteRGBA(img *image.RGBA) {
 	r := img.Bounds()
 	w := r.Dx()
 	if w != s.W || r.Dy() != s.H {
+		// Backing stores are grow-only, so a surface can legitimately be
+		// larger than the image being written. Copy the overlap rather than
+		// silently writing nothing, which would blank the surface
+		// (GGWM-012 Step 17). WriteRGBARect computes source and destination
+		// offsets independently, so differing strides are handled.
+		s.WriteRGBARect(img, image.Rect(0, 0, min(w, s.W), min(r.Dy(), s.H)))
 		return
 	}
 	draw.ConvertRows(r, func(y, w int) ([]byte, []byte) {
