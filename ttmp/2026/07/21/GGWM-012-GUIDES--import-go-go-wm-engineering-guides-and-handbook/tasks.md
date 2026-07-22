@@ -24,6 +24,10 @@
 - [x] P1: synthetic ConfigureNotify instead of full relayout for tiled clients <!-- t:9icy -->
 - [x] P1: throttle gripMotion and cache the drop-preview surface <!-- t:lxoy -->
 - [x] P1: verify with go test + benchmarks; no visible behaviour change <!-- t:e4yb -->
-- [ ] P2: instrument ConvertRows and upload separately (98% of a paint, undifferentiated) <!-- t:z0iv -->
-- [ ] P4 (now first): chrome/content split — title child window, decoration scales with the strip <!-- t:a5q3 -->
-- [ ] Retire the VT harness in favour of the Xephyr one <!-- t:cov3 -->
+- [x] P2: instrument ConvertRows and upload separately (98% of a paint, undifferentiated) <!-- t:z0iv -->
+- [ ] Phase 4 chrome/content split — RE-COST before scheduling: its main saving was obtained without it (Step 12); remaining value is only pane-width TitleStrip.Render and the pane-sized RGBA scratch <!-- t:a5q3 -->
+- [x] Retire the VT harness in favour of the Xephyr one <!-- t:cov3 -->
+- [x] P2: capacity-sized backing stores (bucket 128) — DONE, 8.3x fewer surface creations <!-- t:529x -->
+- [x] P2: chrome-only compose/convert/upload — DONE, delivers Phase 4's main saving without new windows <!-- t:qnk5 -->
+- [x] P0: bucket granularity sweep + buffer_bytes counter — DONE <!-- t:mny4 -->
+- [x] Scenario sweep harness (fullscreen/float/workspace/theme) with screenshots — DONE <!-- t:m0xt -->

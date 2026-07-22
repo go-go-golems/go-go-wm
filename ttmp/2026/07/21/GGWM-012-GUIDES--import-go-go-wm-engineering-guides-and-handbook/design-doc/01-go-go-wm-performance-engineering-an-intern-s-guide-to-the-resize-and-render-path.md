@@ -1028,6 +1028,50 @@ design direction.
 undifferentiated block. Splitting them is the highest-value instrumentation
 remaining, and it decides how Phase 4 should be built.
 
+## 4.2d OUTCOME: what was implemented and what it measured
+
+Phases 0 through 2 are implemented and measured. This section supersedes the
+priority arguments in §4.2b and §4.2c, both of which were made before the work
+existed.
+
+### Result
+
+One scripted drag, three sweeps, 644 motion events, nested Xephyr at 1280x800:
+
+| | baseline | after | |
+|---|---:|---:|---:|
+| MIT-SHM ms/paint | 5.31 | **1.11** | **4.8x** |
+| MIT-SHM relayout total | 2852 ms | **595 ms** | **4.8x** |
+| PutImage fallback ms/paint | 6.63 | **1.89** | **3.5x** |
+| PutImage fallback relayout total | 3518 ms | **963 ms** | **3.7x** |
+| shm surface creations per drag | 528 | **64** | 8.3x |
+| `draw.Text` (24-char title) | 53.9 us | **7.46 us** | 7.2x |
+
+### What produced it
+
+1. **Glyph-run cache** (§4.2b). Text rasterization was 72% of a title render and the string never changes during a resize.
+2. **Capacity-sized backing stores.** Rounding to a 128-pixel bucket makes buffers survive until a drag crosses a boundary, cutting shm surface creations 528 to 64.
+3. **Chrome-only composition, conversion and upload.** A reparented client covers the frame interior, so the window manager's visible pixels are the title strip and border: ~20k of ~422k for a 636x664 pane. Builtin and script tiles are excluded and still get a full-surface treatment.
+4. Phase 1's reconciliation work — node index, single layout per tick, divider paint guard, map-state mirrors, synthetic `ConfigureNotify`.
+
+### The Phase 2 versus Phase 4 question, settled
+
+§4.2c argued Phase 4 (chrome/content split via title child windows) should precede Phase 2 (capacity buffers), then §4.2d's measurements reversed that again. Both arguments are now moot:
+
+**The chrome/content split's principal saving was obtained without it.** Its purpose is to stop touching pixels the client covers. Those pixels are already covered — only the upload had to stop treating them as visible. No new X windows were created, and the highest-risk item in the plan was not attempted.
+
+What a structural split would still buy is narrower: `TitleStrip.Render` still renders at pane width, and the RGBA scratch is still pane-sized. That is a fraction of a now ~1-2 ms paint. **Phase 4 should be re-costed before it is scheduled; its case is much weaker than when it was written.**
+
+### Where the remaining time goes
+
+Per paint at bucket 128, MIT-SHM path, roughly 1.1 ms total: composition, conversion, surface management and transfer are now within a small factor of each other, with no single dominant component. Further gains require either fewer paints (preview/commit separation, Phase 3) or a different rendering model, not another constant-factor fix to this path.
+
+### Method notes worth keeping
+
+- **`GO_GO_WM_SIZE_BUCKET`** makes the granularity sweepable. The sweep table lives at the `sizeBucket` declaration.
+- **`{"q":"perf"}` / `{"q":"perf-reset"}`** return bounded aggregates including `buffer_bytes`, so both sides of the capacity trade are measured.
+- **Two harnesses**, both in `scripts/`: `ggwm-xephyr-validate.sh` drives a scripted drag and reports counters; `ggwm-xephyr-scenarios.sh` drives fullscreen, float, workspace switch, focus and theme swap and screenshots each. Screenshots are committed under `images/` because every failure mode of the chrome-only upload is visual and silent.
+
 ## 4.3 Open, evidence-backed work
 
 Ordered by impact-to-risk ratio. This ordering *is* the roadmap in Part VI.
