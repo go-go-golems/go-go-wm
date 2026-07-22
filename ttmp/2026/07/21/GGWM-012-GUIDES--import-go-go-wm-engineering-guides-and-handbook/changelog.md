@@ -32,3 +32,8 @@ Central finding: xshm.New issues two CHECKED X requests (synchronous round trips
 - /home/manuel/workspaces/2026-07-21/go-go-wm-goja/go-go-wm/pkg/wmx11/manage.go — Surface destroy/recreate on size change at :420-432
 - /home/manuel/workspaces/2026-07-21/go-go-wm-goja/go-go-wm/pkg/xshm/xshm.go — AttachChecked().Check() at :92 and CreatePixmapChecked().Check() at :106-107
 
+
+## 2026-07-22
+
+Published the five-document bundle to reMarkable at /ai/2026/07/21/GGWM-012-GUIDES after installing pandoc-cli, texlive-xetex, texlive-latexrecommended, texlive-latexextra, texlive-mathscience and texlive-fontsrecommended; rendered with Noto Sans / JetBrains Mono since DejaVu is not installed.
+

@@ -11,4 +11,4 @@
 - [x] Maintain investigation diary <!-- t:paz0 -->
 - [x] Relate key source files and update changelog <!-- t:zayb -->
 - [x] Run docmgr doctor and resolve warnings <!-- t:pgxl -->
-- [ ] Upload the bundle to reMarkable — BLOCKED: pandoc + xelatex not installed on this machine (device pairing itself succeeded) <!-- t:j43y -->
+- [x] Upload the bundle to reMarkable <!-- t:j43y -->

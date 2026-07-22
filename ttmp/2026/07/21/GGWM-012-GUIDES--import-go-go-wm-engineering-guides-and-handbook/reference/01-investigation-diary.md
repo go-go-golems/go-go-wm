@@ -425,3 +425,87 @@ Nothing was built in this step. The tricky part was diagnosis order: because the
   docmgr doctor --ticket GGWM-012-GUIDES --stale-after 30    # expect: all checks passed
   docmgr task list --ticket GGWM-012-GUIDES                   # expect: 9/10 done, upload blocked
   ```
+
+## Step 5: Unblocking the PDF toolchain and completing delivery
+
+The user reversed the Step 4 decision and asked for the toolchain to be installed after all, in a tmux window so they could supply the sudo password themselves. The install turned out to need three rounds rather than one, because the LaTeX dependency chain for pandoc's default template is deeper than the obvious `pandoc + xetex` pair, and because the tool's default fonts are not present on this machine. All three failures were fixed without guessing, by reading the exact error and checking what was actually installed.
+
+### Prompt Context
+
+**User prompt (verbatim):** "open tmux with sudo to install tetex and pandoc"
+
+**Assistant interpretation:** Open an interactive tmux window running the pacman install for TeX Live and pandoc, so the user can enter their sudo password, then complete the reMarkable upload.
+
+**Inferred user intent:** Get the guide onto the reMarkable device after all, keeping the privileged install visible and under their control rather than hidden inside a tool call.
+
+**Follow-up user prompt (verbatim):** "can you resent the sudo command to the window, I don't see it"
+
+**Assistant interpretation:** Re-issue the command in the tmux window because it is not visible.
+
+**Inferred user intent:** Make the prompt visible so they can act on it.
+
+### What I did
+
+1. Created window `8:install` in the already-attached `go-go-wm-dev` session and sent the pacman command.
+2. On the re-send request, cancelled the pending `sudo` with `C-c` before re-sending — see below for why this mattered.
+3. Confirmed the transaction (184.49 MiB download, 773.29 MiB installed, 245 packages).
+4. Installed a second round after `xcolor.sty` was reported missing: `texlive-latexrecommended texlive-latexextra texlive-mathscience`.
+5. Substituted available fonts rather than installing a third round.
+6. Ran the upload successfully and updated task `j43y` and the changelog.
+
+### Why
+
+The tmux route was the right shape for this: `sudo` needs a TTY for the password prompt, and a backgrounded tool call cannot provide one. Putting it in a window of the session the user already had attached meant they could act on it without switching context, while I could still observe progress with `capture-pane` and `display-message -p '#{pane_current_command}'`.
+
+For the font failure I deliberately did **not** install a third package. `fc-list` showed Noto Sans and JetBrains Mono already present, both of which are better choices for e-ink than DejaVu anyway. Checking before installing cost one command and saved a round trip through the sudo prompt.
+
+### What worked
+
+- Polling `#{pane_current_command}` is a reliable completion signal for a long pacman run: it reads `sudo` while the transaction is live and flips to `bash` when the shell returns. This is much better than sleeping a fixed interval and hoping.
+- `kpsewhich <pkg>.sty` verified the LaTeX packages directly instead of re-running the multi-minute pandoc pipeline to find out.
+- The final invocation, which is the one to reuse:
+  ```bash
+  remarquee upload bundle <absolute paths...> \
+    --name "GGWM-012 go-go-wm Performance Engineering" \
+    --remote-dir "/ai/2026/07/21/GGWM-012-GUIDES" \
+    --toc-depth 2 --layout editor \
+    --mainfont "Noto Sans" --monofont "JetBrains Mono" \
+    --non-interactive
+  # OK: uploaded GGWM-012 go-go-wm Performance Engineering.pdf -> /ai/2026/07/21/GGWM-012-GUIDES
+  ```
+  `--layout editor` was added deliberately: it widens margins for annotation, which suits a document meant to be marked up on the device.
+
+### What didn't work
+
+Three sequential failures, each needing a different fix:
+
+1. **`tmux send-keys` reported `can't find window: install`** even though `new-window` had succeeded. `list-windows` showed the cause: an existing window named `install-` at index 6 made the name `install` ambiguous. Fixed by targeting the stable pane ID `@10` instead of the name.
+2. **`! LaTeX Error: File 'xcolor.sty' not found.`** `texlive-xetex` plus `texlive-fontsrecommended` is not enough for pandoc's default template. Fixed with `texlive-latexrecommended texlive-latexextra texlive-mathscience`.
+3. **`Package fontspec Error: The font "DejaVu Sans" cannot be found`.** remarquee defaults to DejaVu Sans / DejaVu Sans Mono, and `ttf-dejavu` is not installed here. Fixed by overriding with fonts that are.
+
+### What I learned
+
+- **Never blind-send text to a pane running `sudo`.** When the re-send was requested, the pane still had `sudo` waiting at `[sudo] password for manuel:`. Sending the command text at that moment would have submitted the entire pacman command line *as the password* — echoing a failed password attempt into the scrollback and possibly into logs. Checking `#{pane_current_command}` first, then sending `C-c` to dismiss the prompt, then re-sending, was the safe order. This is a general rule for driving interactive TTYs: read the pane state before writing to it.
+- The password prompt had in fact already been satisfied by the time of the re-send (sudo credentials were cached), so the second attempt landed straight on `:: Proceed with installation? [Y/n]`. That is exactly the situation in which a blind send would have been most damaging — the pane looked idle but was not.
+- pandoc-on-Arch needs a larger package set than intuition suggests. The working set for xelatex output is: `pandoc-cli`, `texlive-basic`, `texlive-latex`, `texlive-latexrecommended`, `texlive-latexextra`, `texlive-mathscience`, `texlive-xetex`, `texlive-fontsrecommended`. `selnolig.sty` is still absent but is guarded by `\ifLuaTeX` in pandoc's template and so is irrelevant under xelatex.
+
+### What was tricky to build
+
+Nothing was built. The genuinely tricky part was the send-keys race described above — a case where the obviously-correct action (do what the user asked: re-send the command) was unsafe given hidden pane state, and where the failure would have been silent rather than loud. The symptom the user reported ("I don't see it") was consistent both with "the window is empty" and with "the window is sitting at a prompt you have not looked at"; only inspecting the pane distinguished them.
+
+### What warrants a second pair of eyes
+
+- The rendered PDF should be checked on the device for the wide tables in Part IV and Appendix C, and for the ASCII trace diagram in Part III §3.1. Those were the layout risks flagged in Step 4. If they break, `--layout editor` is already applied, so the next lever is `--geometry margin=0.6in` or splitting the widest tables.
+
+### What should be done in the future
+
+- Consider `ttf-dejavu` if remarquee's defaults are wanted unmodified; otherwise record the Noto Sans / JetBrains Mono override as the house style for this repo's uploads.
+
+### Code review instructions
+
+- Verify delivery:
+  ```bash
+  remarquee cloud ls /ai/2026/07/21/GGWM-012-GUIDES --long --non-interactive
+  docmgr task list --ticket GGWM-012-GUIDES        # expect 10/10 done
+  docmgr doctor --ticket GGWM-012-GUIDES --stale-after 30
+  ```
