@@ -1507,3 +1507,44 @@ Step 14 chose 128 over 256 on an *estimate* of surplus memory, which is exactly 
 256 is a genuine trade: +20% memory for another 1.57x. Left at 128, but now the choice rests on two measured columns instead of one measured and one estimated.
 
 The general point, again: the estimate said 64 → 128 costs ~10% more memory. It costs zero at this geometry. Estimating a quantity you can cheaply measure is a habit worth breaking even when the estimate is directionally reasonable.
+
+## Step 15: Final verification and stopping point
+
+A last full pass at the shipped configuration (bucket 128, chrome-only compose/convert/upload, capacity buffers on both paths).
+
+### Verification
+
+- `go build ./...` clean; **15/15 packages pass**; `go vet` clean; `gofmt` reports zero files needing formatting.
+- Scenario sweep re-run end to end: two tiled clients, focus n2→n1, fullscreen on/off, float on/off, workspace switch away and back, theme dark→paper. All six drive successfully and all screenshots render correctly. Fullscreen in particular fills the screen with no chrome and no bar residue.
+- Drag harness re-run on both upload paths with the shipped defaults.
+
+### Cumulative result
+
+| | baseline | shipped | |
+|---|---:|---:|---:|
+| MIT-SHM, per paint | 5.31 ms | **1.11 ms** | **4.8x** |
+| MIT-SHM, WM work per drag | 2852 ms | **595 ms** | **4.8x** |
+| PutImage fallback, per paint | 6.63 ms | **1.89 ms** | **3.5x** |
+| PutImage fallback, WM work per drag | 3518 ms | **963 ms** | **3.7x** |
+| Surface creations per drag | 528 | **64** | 8.3x |
+| `draw.Text`, 24-char title | 53.9 µs | **7.46 µs** | 7.2x |
+
+In duty-cycle terms the drag ran about six seconds: WM-loop work fell from roughly 48% of that interval to roughly 10%.
+
+### Why this is a stopping point
+
+The remaining per-paint costs — composition, surface management, conversion, transfer — are now within a small factor of one another with no dominant component. Constant-factor work on this path has run out of obvious targets. The next lever is **fewer paints**, not cheaper ones, and the admitted rate is already at the 16 ms gate's ~58/second.
+
+Three things now need a human:
+
+1. **Bare-metal confirmation.** Every number here is from a nested Xephyr server. The live Xorg reported `paintFrame` at 3.1–3.5 ms before any of this work; the equivalent measurement afterwards has not been taken, and only a real session can take it.
+2. **The `shared_pixmaps: false` question.** The development machine's Xorg with the `modesetting` driver reports no shared-pixmap support, so it runs the fallback and MIT-SHM is inert. The shm path is now 1.7x faster than the fallback, so this is worth roughly that much if it is a driver configuration issue rather than a hardware limit.
+3. **Whether to schedule Phase 3 or Phase 4 at all.** Phase 4's principal saving has already been taken without it. Phase 3 (preview/commit separation) no longer has a performance argument — the paint rate is already at the gate — but retains a correctness and semantics argument: one durable operation per drag instead of one per tick, which matters for replay, undo, and event-log clarity.
+
+### What warrants a second pair of eyes
+
+Carried forward, unresolved:
+
+- **The frame/client configure gap.** `relayoutPaint` configures the frame then the client. Between those requests the frame is briefly larger than its client, and with chrome-only fill that strip now holds stale pixels rather than the pane colour. Both requests are async and unflushed between, so the gap is sub-frame and no screenshot caught it — but the harness samples at rest, not during that window.
+- **The covering invariant is unenforced.** `chromeRects` assumes the client covers exactly the frame interior. It is established at reparent time and maintained by reconciliation; a future change could break it and nothing would fail except the pixels.
+- **Memory under many frames.** `buffer_bytes` reports resident totals now, but the sweep only ever ran with two frames.
