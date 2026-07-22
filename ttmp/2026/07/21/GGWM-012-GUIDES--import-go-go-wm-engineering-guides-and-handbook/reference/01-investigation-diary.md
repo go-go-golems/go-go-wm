@@ -342,3 +342,86 @@ Reconciled priority order, with the reasoning made explicit:
 | 3 | Divider image + pixmap create/free per divider per tick | **X resource churn** | `divider.go:60,132,148`; `bars.go:110-115` |
 | 4 | 2× full `Layout`, O(n²) `Find`, unconditional Map/Unmap | **Algorithmic waste** | `input.go:342`; `manage.go:321,325,359-366` |
 | 5 | Client-side reflow after each configure | **Outside WM control** | — mitigated by outline mode / `_NET_WM_SYNC_REQUEST` |
+
+## Step 4: Validation, and the reMarkable upload blocked on a missing toolchain
+
+The ticket validates cleanly and the deliverable is committed. The final delivery step — publishing the bundle to reMarkable — is blocked on a missing local toolchain rather than on anything about the content, and the user chose to leave it that way rather than install several hundred megabytes of TeX.
+
+### Prompt Context
+
+**User prompt (verbatim):** (see Step 2 — "…and the nupload to remarkable")
+
+**Assistant interpretation:** Publish the finished guide to the reMarkable device.
+
+**Inferred user intent:** Read the guide on the device rather than in a terminal.
+
+**User decision (verbatim option chosen):** "Skip the upload."
+
+### What I did
+
+- Ran `docmgr doctor --ticket GGWM-012-GUIDES --stale-after 30` → **all checks passed**, no vocabulary warnings (the topics used — `wm`, `performance`, `x11`, `goja` — were already in `ttmp/vocabulary.yaml`).
+- Paired the reMarkable device successfully using the one-time code the user supplied.
+- Attempted the bundle upload; diagnosed the failure; presented the options; recorded the user's choice to skip.
+- Edited task `j43y` to record the blocker rather than silently leaving it unchecked.
+
+### What worked
+
+- `docmgr doctor` passed on the first run.
+- Device pairing succeeded: `~/.config/rmapi/rmapi.conf` was written and the background pairing task exited 0.
+- `remarquee upload bundle --dry-run` correctly resolved all five inputs, the bundle name, and the remote directory.
+
+### What didn't work
+
+Two distinct failures, in order:
+
+1. **Relative paths silently fall through to the help text.** Invoking the bundle with repo-relative paths produced remarquee's help output with `**No examples found!**` and no error line. The same invocation with absolute paths dry-ran correctly. This is a genuinely confusing failure mode — the tool prints help rather than "file not found".
+
+2. **The real blocker: no PDF toolchain.** Running without `--dry-run` produced:
+   ```
+   Error: pandoc failed: : exec: "pandoc": executable file not found in $PATH
+   ```
+   followed, again, by the full help text. Confirmed absent:
+   ```bash
+   which pandoc xelatex          # neither found
+   pacman -Qq | grep -iE '^(pandoc|texlive)'   # not installed
+   ```
+   No alternative engine is available either — a scan for `typst`, `weasyprint`, `wkhtmltopdf`, `tectonic`, `lualatex`, and `pdflatex` found none. Only `groff` and `libreoffice` are present, and neither is a `--pdf-engine` remarquee accepts.
+
+   The fix would be `sudo pacman -S --needed pandoc-cli texlive-xetex texlive-fontsrecommended` (available as `extra/pandoc-cli 3.6.1-18`), roughly 300–500 MB. The user chose not to install it.
+
+### What I learned
+
+- `remarquee` prints its help page on *any* error, including a missing binary and a bad path, with the actual error on the first line before the help. Always read the first line of output, not the tail — `| tail -20` hides the only useful part. This cost two wasted invocations.
+- The reMarkable path has two independent prerequisites that fail differently: **auth** (rmapi token, fixed by the one-time code) and **rendering** (pandoc + a LaTeX engine). Verifying one says nothing about the other. `remarquee status` reported `ok` throughout, despite pandoc being absent.
+
+### What was tricky to build
+
+Nothing was built in this step. The tricky part was diagnosis order: because the pairing failure in Step 2 was loud and repetitive, it looked like the whole reMarkable path was an auth problem. It was not — auth was fixed within one command of getting the code, and the actual blocker was a silent toolchain gap that only surfaced once a non-dry-run reached the pandoc invocation.
+
+### What warrants a second pair of eyes
+
+- Nothing in this step. The content risks are all recorded in Step 3.
+
+### What should be done in the future
+
+- If reMarkable delivery is wanted from this machine, install `pandoc-cli` plus `texlive-xetex` and `texlive-fontsrecommended`, then re-run:
+  ```bash
+  T=$PWD/ttmp/2026/07/21/GGWM-012-GUIDES--import-go-go-wm-engineering-guides-and-handbook
+  remarquee upload bundle \
+    "$T/design-doc/01-go-go-wm-performance-engineering-an-intern-s-guide-to-the-resize-and-render-path.md" \
+    "$T/reference/01-investigation-diary.md" \
+    "$T/index.md" "$T/tasks.md" "$T/changelog.md" \
+    --name "GGWM-012 go-go-wm Performance Engineering" \
+    --remote-dir "/ai/2026/07/21/GGWM-012-GUIDES" \
+    --toc-depth 2 --non-interactive
+  ```
+  Use **absolute paths** — relative ones fail with a help dump instead of an error.
+- The guide contains several wide tables and ASCII diagrams in fenced blocks. When the PDF is eventually generated, check that the Part III trace diagram and the Appendix C file index survive xelatex's line breaking; `--layout editor` widens margins if they do not.
+
+### Code review instructions
+
+- Validate the ticket:
+  ```bash
+  docmgr doctor --ticket GGWM-012-GUIDES --stale-after 30    # expect: all checks passed
+  docmgr task list --ticket GGWM-012-GUIDES                   # expect: 9/10 done, upload blocked
+  ```
