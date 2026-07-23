@@ -211,6 +211,10 @@ type WM struct {
 
 	drag *dragState
 
+	// tombstones preserves the last snapshot of destroyed client windows so
+	// a window ref answers with history instead of vanishing (GGWM-013 M3).
+	tombstones map[xproto.Window]tombstone
+
 	// idxScratch is the reusable node index for one reconciliation pass.
 	// Reused rather than allocated because a fresh map costs more than the
 	// Root.Find scans it replaces for small trees (GGWM-012).

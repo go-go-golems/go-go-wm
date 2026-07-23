@@ -50,6 +50,18 @@ func (b *ScriptBackend) Tree(ctx context.Context) (*wmcore.Desktop, error) {
 	return wmcore.DeserializeDesktop(raw)
 }
 
+// Describe resolves a window ref to its current or tombstoned state
+// (GGWM-013 M3). Knowledge only — capability checks live with the caller
+// (the sem module gates this behind a minted capability, M4).
+func (b *ScriptBackend) Describe(ctx context.Context, ref string) (WindowDescription, error) {
+	var desc WindowDescription
+	var err error
+	if lerr := b.onLoop(ctx, func() { desc, err = b.WM.describeWindow(ref) }); lerr != nil {
+		return desc, lerr
+	}
+	return desc, err
+}
+
 func (b *ScriptBackend) Windows(ctx context.Context) ([]WindowInfo, error) {
 	var out []WindowInfo
 	if lerr := b.onLoop(ctx, func() { out = b.WM.windowsSnapshot() }); lerr != nil {

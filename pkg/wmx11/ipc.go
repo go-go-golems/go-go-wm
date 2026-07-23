@@ -30,6 +30,7 @@ type ipcRequest struct {
 	Target     string      `json:"target,omitempty"`
 	Dir        string      `json:"dir,omitempty"`
 	FloatRules []FloatRule `json:"float_rules,omitempty"` // {"q":"set-float-rules"}
+	Ref        string      `json:"ref,omitempty"`         // {"q":"describe","ref":"wm.window/0x..."}
 
 	// {"q":"register-command"} — an A2 daemon's launcher entry.
 	Command *launcher.Command `json:"command,omitempty"`
@@ -115,6 +116,16 @@ func (w *WM) dispatchIPC(req ipcRequest) ipcResponse {
 			done <- ipcResponse{OK: true, Data: json.RawMessage(raw)}
 		case "windows":
 			done <- ipcResponse{OK: true, Data: w.windowsSnapshot()}
+		case "describe":
+			// Resolve a live window ref, or its tombstone (GGWM-013 M3).
+			// The IPC socket is the trusted debug surface, so no capability
+			// is required here; the capsule path (sem module) is gated.
+			desc, err := w.describeWindow(req.Ref)
+			if err != nil {
+				done <- ipcResponse{OK: false, Error: err.Error()}
+				return
+			}
+			done <- ipcResponse{OK: true, Data: desc}
 		case "perf":
 			// Bounded aggregates only — a debug endpoint must never stream
 			// an unbounded trace (GGWM-012).

@@ -214,6 +214,9 @@ func (w *WM) unmanage(clientWin xproto.Window) {
 	if f == nil {
 		return
 	}
+	// Both the tiled and floating paths pass through here, so this is the
+	// single place a window ref turns into a tombstone (GGWM-013 M3).
+	w.recordTombstone(f)
 	if f.floating {
 		w.unmanageFloat(f)
 		return
