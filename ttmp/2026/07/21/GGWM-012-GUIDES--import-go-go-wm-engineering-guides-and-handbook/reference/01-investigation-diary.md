@@ -2098,3 +2098,34 @@ Step 23 established the mechanism: `MoveResize` reached the server a full paint'
 ### Technical details
 
 - Before/after (Xephyr drag, 3 sweeps): gaps 663→660 (both == frames_resized), avg 0.360→0.024 ms, max 16.777→0.167 ms.
+
+## Step 25: Imported the programmable-desktop research documents; extension idea survey
+
+The user provided two new research documents in /tmp — "The Programmable Semantic Desktop" (8,258 lines) and "From Window Manager to Programmable Presentation Operating Environment" (7,307 lines) — and asked for a list of ideas for extending go-go-wm. Both were read (the second fully through its roadmap, the first through its conclusions, axioms, phase plan, and vertical-slice backlog), imported into sources/local/ alongside the original three guides, and distilled into an idea list delivered in the conversation.
+
+### Prompt Context
+
+**User prompt (verbatim):** "Now look at the @/tmp/go-go-wm-programmable-semantic-desktop.md and @/tmp/go-go-wm-programmable-presentation-environment.md and make a list of ideas of how we could extend the current go-go-wm"
+
+**Assistant interpretation:** Read both research documents and produce a concrete extension-idea list for the current codebase.
+
+**Inferred user intent:** Decide what to build next now that the performance arc is settled; preserve the new research in the ticket.
+
+### What I did
+
+- Imported both documents into `sources/local/` (now five research sources, ~24k lines total).
+- Read: doc 2 sections 1-13 (executive conclusions, foundations, current-state review, north-star model, broker v2, JS safety tiers, REPL-as-shell, transient apps, scene v2, device mesh, roadmap); doc 1 abstract/conclusions/axioms, Phase 7-8, vertical-slice backlog A-H, "what this enables".
+- Distilled a themed idea list (kernel, JS execution, REPL, scene/UI, devices, cross-cutting) with pointers to what each generalizes in the current code.
+
+### What I learned
+
+- The two documents converge on the same architecture from different angles: semantic envelope + principals/capabilities/leases, three JS trust tiers with an out-of-process default for broker-delivered code, app capsules with lifetime modes, a keyed retained scene replacing uispec's flat rows, devices as principals with declarative bindings. Where they differ: doc 1 (presentation environment) is stronger on powerbox/consent, delivery lanes, and migration staging; doc 2 (semantic desktop) is stronger on receipts/axioms, the self-hosting end-state, the AI co-construction research agenda, and small vertical slices.
+- Both explicitly protect the invariants the perf work relied on: no JavaScript in the paint path, snapshots not callbacks, single-owner loops.
+
+### What should be done in the future
+
+- If an extension arc starts, open a fresh ticket (GGWM-013?) seeded with the recommended first vertical slice: a sandboxed transient "explain this window" inspector spawned from the REPL under a one-shot read capability.
+
+### Code review instructions
+
+- Sources: `sources/local/go-go-wm-programmable-semantic-desktop.md`, `sources/local/go-go-wm-programmable-presentation-environment.md`.
