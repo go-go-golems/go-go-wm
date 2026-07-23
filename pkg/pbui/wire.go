@@ -25,6 +25,17 @@ type Msg struct {
 	Roles    []string `json:"roles,omitempty"`
 	Protocol int      `json:"protocol,omitempty"`
 
+	// welcome: the broker-assigned identity for this connection. Names are
+	// self-declared labels two clients can share; the principal is the
+	// broker's own counter and is what verbs and resources key on
+	// (GGWM-013 M1).
+	Principal string `json:"principal,omitempty"`
+
+	// resource.register / resource.listing / lease.close (GGWM-013 M2)
+	Resource   *Resource  `json:"resource,omitempty"`
+	Resources  []Resource `json:"resources,omitempty"`
+	ResourceID string     `json:"resource_id,omitempty"`
+
 	// register / menu.show
 	Verbs []Verb `json:"verbs,omitempty"`
 
@@ -61,30 +72,48 @@ type Msg struct {
 // Message types.
 const (
 	// client → broker
-	THello        = "hello"
-	TRegister     = "register"
-	TAcceptStart  = "accept.start"
-	TAcceptAnswer = "accept.answer"
-	TAcceptCancel = "accept.cancel"
-	TVerbInvoke   = "verb.invoke"
-	TMenuRequest  = "menu.request"
-	TDocHover     = "doc.hover"
-	TEventEmit    = "event.emit"
-	TSubscribe    = "subscribe"
-	TQueryVerbs   = "query.verbs"
+	THello            = "hello"
+	TRegister         = "register"
+	TAcceptStart      = "accept.start"
+	TAcceptAnswer     = "accept.answer"
+	TAcceptCancel     = "accept.cancel"
+	TVerbInvoke       = "verb.invoke"
+	TMenuRequest      = "menu.request"
+	TDocHover         = "doc.hover"
+	TEventEmit        = "event.emit"
+	TSubscribe        = "subscribe"
+	TQueryVerbs       = "query.verbs"
+	TResourceRegister = "resource.register"
+	TResourceList     = "resource.list"
+	TLeaseClose       = "lease.close"
 
 	// broker → client
-	TWelcome      = "welcome"
-	TAcceptMode   = "accept.mode"
-	TAcceptClear  = "accept.clear"
-	TAcceptResult = "accept.result"
-	TVerbRun      = "verb.run"
-	TMenuShow     = "menu.show"
-	TEvent        = "event"
-	TVerbList     = "verb.list"
-	TOK           = "ok"
-	TError        = "error"
+	TWelcome         = "welcome"
+	TAcceptMode      = "accept.mode"
+	TAcceptClear     = "accept.clear"
+	TAcceptResult    = "accept.result"
+	TVerbRun         = "verb.run"
+	TMenuShow        = "menu.show"
+	TEvent           = "event"
+	TVerbList        = "verb.list"
+	TResourceListing = "resource.listing"
+	TOK              = "ok"
+	TError           = "error"
 )
+
+// Resource is one leased side effect a client has created: a verb, a
+// subscription, or anything registered explicitly. Every resource has an
+// owning principal, and the broker revokes all of a principal's resources
+// when its connection ends — the generalization of "verbs die with their
+// client" to every registration kind (GGWM-013 M2).
+type Resource struct {
+	ID         string          `json:"id"`
+	Kind       string          `json:"kind"`
+	Owner      string          `json:"owner,omitempty"`       // principal id, broker-assigned
+	OwnerLabel string          `json:"owner_label,omitempty"` // client display name
+	Label      string          `json:"label,omitempty"`
+	Descriptor json.RawMessage `json:"descriptor,omitempty"`
+}
 
 // Codec frames Msgs on a stream. NDJSON now; the interface is the seam for
 // a deterministic-CBOR replacement later (design decision D4).

@@ -34,7 +34,11 @@ type Client struct {
 	readErr  atomic.Value // error
 	closed   chan struct{}
 	closeOne sync.Once
-	name     string // announced in hello; verb/command ownership key
+	name     string // announced in hello; display label only
+	// principal is the broker-assigned identity from the welcome reply.
+	// Unlike name it is unique per connection and is what the broker keys
+	// verbs and resources on (GGWM-013 M1).
+	principal string
 }
 
 // Options configures Connect.
@@ -68,7 +72,11 @@ func Connect(ctx context.Context, opts Options) (*Client, error) {
 	if len(roles) == 0 {
 		roles = []string{"app"}
 	}
-	if _, err := c.request(ctx, &pbui.Msg{T: pbui.THello, Name: opts.Name, Roles: roles, Protocol: pbui.Protocol}); err != nil {
+	welcome, err := c.request(ctx, &pbui.Msg{T: pbui.THello, Name: opts.Name, Roles: roles, Protocol: pbui.Protocol})
+	if err == nil {
+		c.principal = welcome.Principal
+	}
+	if err != nil {
 		_ = nc.Close()
 		// The commonest cause of a garbled handshake is pointing at the
 		// wrong socket — most often the go-go-wm *control* socket, which
@@ -91,6 +99,33 @@ func (c *Client) Close() error {
 
 // Done is closed when the connection dies.
 func (c *Client) Done() <-chan struct{} { return c.closed }
+
+// Principal returns the broker-assigned identity for this connection
+// ("principal:conn/<n>"), or "" against a pre-M1 broker.
+func (c *Client) Principal() string { return c.principal }
+
+// RegisterResource records an explicit leased resource with the broker.
+// The broker fills the owner from the connection; it dies with the
+// connection or an explicit CloseLease (GGWM-013 M2).
+func (c *Client) RegisterResource(ctx context.Context, r pbui.Resource) error {
+	_, err := c.request(ctx, &pbui.Msg{T: pbui.TResourceRegister, Resource: &r})
+	return err
+}
+
+// ListResources returns the broker's full resource registry.
+func (c *Client) ListResources(ctx context.Context) ([]pbui.Resource, error) {
+	m, err := c.request(ctx, &pbui.Msg{T: pbui.TResourceList})
+	if err != nil {
+		return nil, err
+	}
+	return m.Resources, nil
+}
+
+// CloseLease revokes one resource this connection owns. Idempotent.
+func (c *Client) CloseLease(ctx context.Context, resourceID string) error {
+	_, err := c.request(ctx, &pbui.Msg{T: pbui.TLeaseClose, ResourceID: resourceID})
+	return err
+}
 
 // --- handler registration (call before the relevant traffic starts) --------
 

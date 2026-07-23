@@ -82,7 +82,11 @@ type Verb struct {
 	Label   string   `json:"label"`             // "Mix with…  (accept a color)"
 	Ptypes  []string `json:"ptypes"`            // ptypes it applies to; ["any"] allowed
 	Accepts []string `json:"accepts,omitempty"` // ptypes the verb will accept() when run
-	Owner   string   `json:"owner,omitempty"`   // filled by the broker: registering client
+	Owner   string   `json:"owner,omitempty"`   // filled by the broker: registering client's LABEL
+	// OwnerPrincipal is the broker-assigned identity of the registering
+	// connection. Routing and cleanup key on this, never on Owner: names
+	// are self-declared and two clients can share one (GGWM-013 M1).
+	OwnerPrincipal string `json:"owner_principal,omitempty"`
 }
 
 // --- pbui:// URIs ----------------------------------------------------------

@@ -33,13 +33,17 @@ type clientID uint64
 // conn is one connected client. The reader goroutine posts decoded frames
 // to the broker loop; the writer goroutine drains send.
 type conn struct {
-	id    clientID
-	name  string
-	roles map[string]bool
-	codec pbui.Codec
-	raw   net.Conn
-	send  chan *pbui.Msg
-	done  chan struct{}
+	id clientID
+	// principal is the broker-assigned identity ("principal:conn/<n>").
+	// name is a self-declared display label; two clients can share one, so
+	// nothing routes or cleans up by name (GGWM-013 M1).
+	principal string
+	name      string
+	roles     map[string]bool
+	codec     pbui.Codec
+	raw       net.Conn
+	send      chan *pbui.Msg
+	done      chan struct{}
 }
 
 func (c *conn) enqueue(m *pbui.Msg) {
@@ -65,9 +69,15 @@ type acceptSession struct {
 type Broker struct {
 	ops     chan func()
 	clients map[clientID]*conn
-	verbs   []pbui.Verb // registry; Owner names the registering client
+	verbs   []pbui.Verb // registry; OwnerPrincipal identifies the registering client
 	session *acceptSession
 	subs    map[clientID]bool
+
+	// resources is the leased-side-effect registry (GGWM-013 M2): every
+	// verb, subscription, and explicitly registered resource, keyed by
+	// resource ID and owned by a principal. removeConn revokes everything
+	// a principal owns; lease.close revokes one entry early.
+	resources map[string]*pbui.Resource
 
 	nextClient uint64
 	nextSess   uint64
@@ -81,9 +91,10 @@ type Broker struct {
 // New creates a broker (not yet serving).
 func New() *Broker {
 	return &Broker{
-		ops:     make(chan func(), 256),
-		clients: map[clientID]*conn{},
-		subs:    map[clientID]bool{},
+		ops:       make(chan func(), 256),
+		clients:   map[clientID]*conn{},
+		subs:      map[clientID]bool{},
+		resources: map[string]*pbui.Resource{},
 	}
 }
 
@@ -170,12 +181,13 @@ func (b *Broker) post(fn func()) {
 func (b *Broker) addConn(nc net.Conn) {
 	id := clientID(atomic.AddUint64(&b.nextClient, 1))
 	c := &conn{
-		id:    id,
-		roles: map[string]bool{},
-		codec: pbui.NewNDJSONCodec(nc),
-		raw:   nc,
-		send:  make(chan *pbui.Msg, 128),
-		done:  make(chan struct{}),
+		id:        id,
+		principal: fmt.Sprintf("principal:conn/%d", id),
+		roles:     map[string]bool{},
+		codec:     pbui.NewNDJSONCodec(nc),
+		raw:       nc,
+		send:      make(chan *pbui.Msg, 128),
+		done:      make(chan struct{}),
 	}
 	b.clients[id] = c
 
@@ -219,19 +231,73 @@ func (b *Broker) removeConn(c *conn) {
 	delete(b.subs, c.id)
 	close(c.done)
 	_ = c.raw.Close()
-	// Drop the disconnected client's verbs.
-	kept := b.verbs[:0]
-	for _, v := range b.verbs {
-		if v.Owner != c.name || c.name == "" {
-			kept = append(kept, v)
+	// Revoke every resource the principal owns — verbs, subscriptions, and
+	// explicit registrations alike. This replaces the old name-keyed verb
+	// sweep, which dropped the WRONG client's verbs whenever two
+	// connections shared a name (GGWM-013 M1/M2).
+	for id, r := range b.resources {
+		if r.Owner == c.principal {
+			b.revokeResource(id, "owner-disconnected")
 		}
 	}
-	b.verbs = kept
 	// Requester gone → session dies (rule 3, design doc §III.1).
 	if b.session != nil && b.session.requester == c.id {
 		b.clearSession("requester-disconnected")
 	}
-	b.emit("client.disconnected", jsonObj{"name": c.name}, "broker")
+	b.emit("client.disconnected", jsonObj{"name": c.name, "principal": c.principal}, "broker")
+}
+
+// revokeResource performs the kind-specific cleanup for one registry entry,
+// removes it, and announces lease.ended. Idempotent: revoking a missing
+// resource is a no-op. Loop only.
+func (b *Broker) revokeResource(id, reason string) {
+	r, ok := b.resources[id]
+	if !ok {
+		return
+	}
+	delete(b.resources, id)
+	switch r.Kind {
+	case "pbui.verb":
+		kept := b.verbs[:0]
+		for _, v := range b.verbs {
+			if resourceIDForVerb(v) != id {
+				kept = append(kept, v)
+			}
+		}
+		b.verbs = kept
+	case "pbui.subscription":
+		// Subscription resources are keyed by principal; drop the matching
+		// client's sub flag if it is still connected (early lease.close).
+		for cid, c := range b.clients {
+			if c.principal == r.Owner {
+				delete(b.subs, cid)
+			}
+		}
+	}
+	b.emit("lease.ended", jsonObj{
+		"resource": r.ID, "kind": r.Kind,
+		"owner": r.Owner, "owner_label": r.OwnerLabel, "reason": reason,
+	}, "broker")
+}
+
+func resourceIDForVerb(v pbui.Verb) string {
+	return "verb/" + v.OwnerPrincipal + "/" + v.ID
+}
+
+func resourceIDForSub(principal string) string {
+	return "subscription/" + principal
+}
+
+// putResource upserts a registry entry and announces it. Loop only.
+func (b *Broker) putResource(r *pbui.Resource) {
+	fresh := b.resources[r.ID] == nil
+	b.resources[r.ID] = r
+	if fresh {
+		b.emit("resource.registered", jsonObj{
+			"resource": r.ID, "kind": r.Kind,
+			"owner": r.Owner, "owner_label": r.OwnerLabel, "label": r.Label,
+		}, "broker")
+	}
 }
 
 func (b *Broker) handle(c *conn, m *pbui.Msg) {
@@ -241,8 +307,8 @@ func (b *Broker) handle(c *conn, m *pbui.Msg) {
 		for _, r := range m.Roles {
 			c.roles[r] = true
 		}
-		c.enqueue(&pbui.Msg{T: pbui.TWelcome, Seq: m.Seq, Protocol: pbui.Protocol})
-		b.emit("client.connected", jsonObj{"name": c.name, "roles": m.Roles}, "broker")
+		c.enqueue(&pbui.Msg{T: pbui.TWelcome, Seq: m.Seq, Protocol: pbui.Protocol, Principal: c.principal})
+		b.emit("client.connected", jsonObj{"name": c.name, "roles": m.Roles, "principal": c.principal}, "broker")
 		// Late joiners see a pending accept immediately.
 		if b.session != nil {
 			c.enqueue(&pbui.Msg{
@@ -251,14 +317,16 @@ func (b *Broker) handle(c *conn, m *pbui.Msg) {
 			})
 		}
 	case pbui.TRegister:
-		// Upsert by (owner, id): re-registration replaces, so clients can
-		// send their verb set as often as they like (scripts do this on
-		// every pbui.verb call) without duplicating menu entries.
+		// Upsert by (owner principal, id): re-registration replaces, so
+		// clients can send their verb set as often as they like (scripts do
+		// this on every pbui.verb call) without duplicating menu entries.
+		// Each verb is also a registry resource, so it dies with its lease.
 		for _, v := range m.Verbs {
 			v.Owner = c.name
+			v.OwnerPrincipal = c.principal
 			replaced := false
 			for i := range b.verbs {
-				if b.verbs[i].Owner == v.Owner && b.verbs[i].ID == v.ID {
+				if b.verbs[i].OwnerPrincipal == v.OwnerPrincipal && b.verbs[i].ID == v.ID {
 					b.verbs[i] = v
 					replaced = true
 					break
@@ -267,11 +335,56 @@ func (b *Broker) handle(c *conn, m *pbui.Msg) {
 			if !replaced {
 				b.verbs = append(b.verbs, v)
 			}
+			b.putResource(&pbui.Resource{
+				ID: resourceIDForVerb(v), Kind: "pbui.verb",
+				Owner: c.principal, OwnerLabel: c.name, Label: v.Label,
+			})
 		}
 		c.enqueue(&pbui.Msg{T: pbui.TOK, Seq: m.Seq})
-		b.emit("verbs.registered", jsonObj{"owner": c.name, "count": len(m.Verbs)}, "broker")
+		b.emit("verbs.registered", jsonObj{"owner": c.name, "principal": c.principal, "count": len(m.Verbs)}, "broker")
 	case pbui.TSubscribe:
 		b.subs[c.id] = true
+		b.putResource(&pbui.Resource{
+			ID: resourceIDForSub(c.principal), Kind: "pbui.subscription",
+			Owner: c.principal, OwnerLabel: c.name,
+		})
+		c.enqueue(&pbui.Msg{T: pbui.TOK, Seq: m.Seq})
+	case pbui.TResourceRegister:
+		// Explicit resources: anything a client wants owned and revocable
+		// that is not a verb or subscription (capsules use this, GGWM-013
+		// M5). The ID namespace is claimed first-come; only the owner may
+		// re-register an existing ID.
+		if m.Resource == nil || m.Resource.ID == "" || m.Resource.Kind == "" {
+			c.enqueue(&pbui.Msg{T: pbui.TError, Seq: m.Seq, Code: "bad-request", Msg: "resource.register needs id and kind"})
+			return
+		}
+		if prev, ok := b.resources[m.Resource.ID]; ok && prev.Owner != c.principal {
+			c.enqueue(&pbui.Msg{T: pbui.TError, Seq: m.Seq, Code: "conflict",
+				Msg: fmt.Sprintf("resource %s is owned by %s", m.Resource.ID, prev.Owner)})
+			return
+		}
+		r := *m.Resource
+		r.Owner = c.principal
+		r.OwnerLabel = c.name
+		b.putResource(&r)
+		c.enqueue(&pbui.Msg{T: pbui.TOK, Seq: m.Seq})
+	case pbui.TResourceList:
+		out := make([]pbui.Resource, 0, len(b.resources))
+		for _, r := range b.resources {
+			out = append(out, *r)
+		}
+		c.enqueue(&pbui.Msg{T: pbui.TResourceListing, Seq: m.Seq, Resources: out})
+	case pbui.TLeaseClose:
+		// Idempotent: closing a missing lease is OK. Only the owner may
+		// close a live one.
+		if r, ok := b.resources[m.ResourceID]; ok {
+			if r.Owner != c.principal {
+				c.enqueue(&pbui.Msg{T: pbui.TError, Seq: m.Seq, Code: "not-owner",
+					Msg: fmt.Sprintf("resource %s is owned by %s", m.ResourceID, r.Owner)})
+				return
+			}
+			b.revokeResource(m.ResourceID, "closed")
+		}
 		c.enqueue(&pbui.Msg{T: pbui.TOK, Seq: m.Seq})
 	case pbui.TAcceptStart:
 		// One session at a time: a new accept cancels the pending one
@@ -333,8 +446,10 @@ func (b *Broker) handle(c *conn, m *pbui.Msg) {
 			c.enqueue(&pbui.Msg{T: pbui.TError, Seq: m.Seq, Code: "no-verb", Msg: m.VerbID})
 			return
 		}
+		// Route by principal, not name: a second client claiming the same
+		// label must never receive another client's verb.run (GGWM-013 M1).
 		for _, cl := range b.clients {
-			if cl.name == verb.Owner {
+			if cl.principal == verb.OwnerPrincipal {
 				owner = cl
 				break
 			}
