@@ -44,6 +44,10 @@ func builtinName(app string) string {
 // syncBuiltins reconciles builtin frames with the desktop: every builtin
 // leaf gets a frame window; frames whose leaves vanished are destroyed.
 func (w *WM) syncBuiltins() {
+	// Capsules whose tile vanished from the tree end their lease here —
+	// syncBuiltins runs after every desktop mutation, so tile-closed is
+	// detected on the op that closed it (GGWM-013 M5).
+	w.reapCapsules()
 	// Destroy frames for leaves that no longer exist anywhere.
 	for leaf, f := range w.frames {
 		if w.desktop.FindLeafWorkspace(leaf) == nil {

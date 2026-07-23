@@ -8,13 +8,24 @@ Topics:
 DocType: design-doc
 Intent: long-term
 Owners: []
-RelatedFiles: []
+RelatedFiles:
+    - Path: repo://pkg/cmds/capsule.go
+      Note: M5 injected runtime spawner and capsule JS
+    - Path: repo://pkg/pbui/broker/broker.go
+      Note: M1+M2 principals and resource registry
+    - Path: repo://pkg/wmx11/caps.go
+      Note: M4 capability store
+    - Path: repo://pkg/wmx11/capsule.go
+      Note: M5 capsule lifecycle
+    - Path: repo://pkg/wmx11/refs.go
+      Note: M3 window refs and tombstones
 ExternalSources: []
-Summary: "MVP slice of the programmable-semantic-desktop research: broker-assigned principals, a leased resource registry, live window refs with tombstones, one minted-and-checked capability, and a transient 'Explain window' capsule that composes all four. Everything else from the research docs is explicitly deferred."
+Summary: 'MVP slice of the programmable-semantic-desktop research: broker-assigned principals, a leased resource registry, live window refs with tombstones, one minted-and-checked capability, and a transient ''Explain window'' capsule that composes all four. Everything else from the research docs is explicitly deferred.'
 LastUpdated: 2026-07-22T22:48:11-04:00
-WhatFor: "Define exactly what semantic-kernel v0 ships and how each piece maps onto existing code."
-WhenToUse: "Before extending the kernel (capability policy, sandboxes, scene v2) or reviewing the M1-M5 commits."
+WhatFor: Define exactly what semantic-kernel v0 ships and how each piece maps onto existing code.
+WhenToUse: Before extending the kernel (capability policy, sandboxes, scene v2) or reviewing the M1-M5 commits.
 ---
+
 
 # Semantic Kernel v0 MVP: scope and implementation
 

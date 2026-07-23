@@ -138,6 +138,11 @@ func (w *WM) dispatchIPC(req ipcRequest) ipcResponse {
 		case "perf-reset":
 			w.perf.reset()
 			done <- ipcResponse{OK: true}
+		case "sem":
+			// Semantic-kernel state: live capsules, capability grants
+			// (holder/action/ref, never the bearer IDs), tombstone count
+			// (GGWM-013 M5).
+			done <- ipcResponse{OK: true, Data: w.semState()}
 		case "op":
 			if req.Op == nil {
 				done <- ipcResponse{OK: false, Error: "missing op"}

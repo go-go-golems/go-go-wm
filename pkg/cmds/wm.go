@@ -141,9 +141,16 @@ func (c *WMCommand) Run(ctx context.Context, vals *values.Values) error {
 
 		NoDefaultBinds: s.NoDefaultBinds,
 	}
-	if s.RC != "" {
-		rcPath := s.RC
-		cfg.OnReady = func(w *wmx11.WM) { startRC(ctx, w, rcPath, sock, s.Display, s.NoBroker) }
+	// Capsules (GGWM-013 M5): the WM pointer does not exist yet, so the
+	// spawner late-binds it; OnReady fills it before any verb can fire.
+	var wmRef *wmx11.WM
+	cfg.SpawnCapsule = capsuleSpawner(ctx, func() *wmx11.WM { return wmRef }, s.Display, sock, s.NoBroker)
+	rcPath := s.RC
+	cfg.OnReady = func(w *wmx11.WM) {
+		wmRef = w
+		if rcPath != "" {
+			startRC(ctx, w, rcPath, sock, s.Display, s.NoBroker)
+		}
 	}
 	w, err := wmx11.New(cfg)
 	if err != nil {

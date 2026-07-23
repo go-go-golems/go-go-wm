@@ -75,6 +75,7 @@ func (w *WM) tileVerbs() []pbui.Verb {
 		{ID: "tile.split-down", Label: "Split - new tile below", Ptypes: []string{"tile"}},
 		{ID: "tile.swap-with", Label: "Swap app with...  (accept a tile)", Ptypes: []string{"tile"}, Accepts: []string{"tile"}},
 		{ID: "tile.close", Label: "Close tile", Ptypes: []string{"tile"}},
+		{ID: "window.explain", Label: "Explain window  (transient capsule)", Ptypes: []string{"tile"}},
 		{ID: "workspace.switch", Label: "Switch to", Ptypes: []string{"workspace"}},
 		{ID: "workspace.duplicate", Label: "Duplicate", Ptypes: []string{"workspace"}},
 		{ID: "workspace.delete", Label: "Delete", Ptypes: []string{"workspace"}},
@@ -104,6 +105,8 @@ func (w *WM) runVerb(verbID string, obj *pbui.Object) {
 		} else {
 			_, _ = w.Apply(wmcore.Op{Op: wmcore.OpCloseLeaf, Node: leaf})
 		}
+	case "window.explain":
+		w.explainWindow(leaf)
 	case "tile.swap-with":
 		// A verb that itself accepts: the composability point.
 		b := w.broker

@@ -59,6 +59,13 @@ type Config struct {
 	// may hand the WM to code (like the rc.js runtime) that talks back
 	// through Post — but it must not wait for those posts itself.
 	OnReady func(w *WM)
+
+	// SpawnCapsule builds a capsule runtime for a CapsuleSpec and returns
+	// its disposer (GGWM-013 M5). Injected by the command layer because
+	// runtime construction needs goja and this package stays goja-free
+	// (design decision U-D3). Nil → the Explain verb reports capsules
+	// unavailable. Called off the WM loop.
+	SpawnCapsule func(spec CapsuleSpec) (func(), error)
 }
 
 // DefaultIPCSocketPath returns $GO_GO_WM_SOCKET or $XDG_RUNTIME_DIR/go-go-wm.sock.
@@ -220,6 +227,10 @@ type WM struct {
 	// (GGWM-013 M4). WM loop only.
 	caps    map[string]*capability
 	nextCap uint64
+
+	// capsules tracks live transient apps (GGWM-013 M5). WM loop only.
+	capsules    map[string]*capsuleState
+	nextCapsule uint64
 
 	// idxScratch is the reusable node index for one reconciliation pass.
 	// Reused rather than allocated because a fresh map costs more than the

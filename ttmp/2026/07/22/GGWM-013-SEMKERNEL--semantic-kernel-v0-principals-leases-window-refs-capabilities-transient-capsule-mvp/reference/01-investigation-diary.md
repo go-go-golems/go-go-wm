@@ -97,3 +97,59 @@ The broker now assigns every connection a `principal:conn/<n>` identity in the w
 ### Code review instructions
 
 - Start: `pkg/pbui/broker/broker.go` (`revokeResource`, `putResource`, the `TRegister`/`TResourceRegister`/`TLeaseClose` cases). Validate: `go test ./pkg/pbui/... -count=1`.
+
+## Step 2: M3+M4+M5 — refs, capabilities, and the Explain-window capsule, end to end
+
+Window refs with tombstones (M3), the capability store (M4), and the transient capsule (M5) landed in three commits, and the whole loop was validated end-to-end in Xephyr on the first full harness run: verb over the broker → capability minted → constrained runtime spawned → broker lease visible in resource.list → tile placed and rendering → tile closed → zero residue.
+
+### Prompt Context
+
+**User prompt (verbatim):** (see Step 1 — `/goal M1 M2 M3 M4 M5`)
+
+**Commits (code):** M3 `297c86a`, M4 `f0c50a8`, M5 this commit.
+
+### What I did
+
+- M3 `pkg/wmx11/refs.go`: `wm.window/0x<xid>` refs, `describeWindow`, bounded tombstones (64) recorded at the top of `unmanage` (single entry point for tiled and floating teardown); IPC `{"q":"describe"}`; `ScriptBackend.Describe`.
+- M4 `pkg/wmx11/caps.go`: capability store (128-bit random IDs), `mintCapability`/`checkCapability`/`revokeCapabilitiesFor`, and `ScriptBackend.DescribeWith` — the gated read the capsule uses.
+- M5:
+  - `pkg/jsmod/semmod`: the capsule's ONLY module besides ui — `describe()` bound to closures the host built, so missing authority is unrepresentable in JS (research axiom 5).
+  - `pkg/wmx11/capsule.go`: `explainWindow` verb handler (mint → spawn → place), `reapCapsules` hooked into `syncBuiltins` (tile-closed detected on the op that closed it), idempotent `teardownCapsule`, `{"q":"sem"}` dump (capability IDs deliberately excluded — they are bearer tokens).
+  - `pkg/cmds/capsule.go`: the injected spawner — wmx11 stays goja-free (U-D3); the capsule runtime gets exactly `ui` + `sem`, no wm module, no exec; its broker connection registers a `wm.capsule` resource so the lease is observable; embedded JS renders the inspector tile.
+  - Verb `window.explain` on tile presentations (`pbui.go`).
+- Tests: refs round-trip/tombstone bound, capability mint/check/revoke, capsule reap/teardown/unplaced-guard — all display-free. E2E: `scripts/ggwm-capsule-e2e.sh` (7 stages, all assertions held; screenshots `images/capsule-e2e-*.png`).
+
+### Why
+
+- The MVP's proof obligation was composition: every primitive (principal, lease, ref, capability) is exercised by one user-visible feature, not four disconnected APIs.
+
+### What worked
+
+- The rc.go runtime-construction pattern transplanted cleanly: the capsule spawner is rc.js minus wm/pbui/exec plus sem.
+- `syncBuiltins` as the reap hook means capsule teardown needs no new lifecycle plumbing — it rides the existing after-op reconciliation.
+
+### What didn't work
+
+- N/A — the E2E harness passed on its first complete run; unit-test build failures along the way were package-name and helper-collision fixes recorded in Step 1's pattern.
+
+### What I learned
+
+- Late-binding the WM pointer into `SpawnCapsule` via OnReady is the clean way to inject a runtime builder into a Config that is consumed before the WM exists.
+
+### What was tricky to build
+
+- Ordering in `explainWindow`: mint on the WM loop, spawn off-loop, then *post back* for placement — placement must happen after `app.tile()` registered the renderer, and `cs.placed` must only be set after the split op succeeds, or `reapCapsules` would tear down an in-flight capsule (pinned by TestUnplacedCapsuleNotReaped).
+
+### What warrants a second pair of eyes
+
+- `teardownCapsule` runs `cs.close()` on a goroutine; if the WM shuts down at that instant, runtime close and WM ctx cancellation race — benign today (both paths are idempotent closes) but worth a look.
+- The capsule's `render()` posts to the WM loop (DescribeWith) from the JS loop; deadlock-free because nothing on the WM loop ever waits on the JS loop, but that invariant is implicit.
+
+### What should be done in the future
+
+- Tier 2: out-of-process spawner behind the same CapsuleSpec. Powerbox prompt before minting. Capsule refresh-on-event (subscribe to window facts) instead of a manual button.
+
+### Code review instructions
+
+- Read in order: `pkg/wmx11/refs.go` → `caps.go` → `capsule.go` → `pkg/cmds/capsule.go` → `pkg/jsmod/semmod/module.go`.
+- Validate: `go test ./pkg/... -count=1`; `GO_GO_WM=<bin> PARENT=:0 bash scripts/ggwm-capsule-e2e.sh` → "ALL PASS".
