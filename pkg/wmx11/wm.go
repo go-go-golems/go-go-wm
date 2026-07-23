@@ -215,6 +215,12 @@ type WM struct {
 	// a window ref answers with history instead of vanishing (GGWM-013 M3).
 	tombstones map[xproto.Window]tombstone
 
+	// caps is the capability store: unforgeable grants checked by the
+	// capsule-facing read paths and revoked with the holder's lease
+	// (GGWM-013 M4). WM loop only.
+	caps    map[string]*capability
+	nextCap uint64
+
 	// idxScratch is the reusable node index for one reconciliation pass.
 	// Reused rather than allocated because a fresh map costs more than the
 	// Root.Find scans it replaces for small trees (GGWM-012).
