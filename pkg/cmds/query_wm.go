@@ -49,7 +49,7 @@ type queryTreeSettings struct {
 }
 
 func NewQueryTreeCommand() (*QueryTreeCommand, error) {
-	glazedSection, err := settings.NewGlazedSchema()
+	glazedSection, err := settings.NewStructuredOutputSection()
 	if err != nil {
 		return nil, err
 	}
@@ -121,7 +121,7 @@ type queryWindowsSettings struct {
 }
 
 func NewQueryWindowsCommand() (*QueryWindowsCommand, error) {
-	glazedSection, err := settings.NewGlazedSchema()
+	glazedSection, err := settings.NewStructuredOutputSection()
 	if err != nil {
 		return nil, err
 	}
