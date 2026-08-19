@@ -24,7 +24,7 @@ type queryEventsSettings struct {
 }
 
 func NewQueryEventsCommand() (*QueryEventsCommand, error) {
-	glazedSection, err := settings.NewGlazedSchema()
+	glazedSection, err := settings.NewStructuredOutputSection()
 	if err != nil {
 		return nil, err
 	}
@@ -93,7 +93,7 @@ type queryVerbsSettings struct {
 }
 
 func NewQueryVerbsCommand() (*QueryVerbsCommand, error) {
-	glazedSection, err := settings.NewGlazedSchema()
+	glazedSection, err := settings.NewStructuredOutputSection()
 	if err != nil {
 		return nil, err
 	}
